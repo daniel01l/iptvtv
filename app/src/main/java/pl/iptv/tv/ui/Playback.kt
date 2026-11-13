@@ -90,6 +90,26 @@ object Playback {
         }
     }
 
+    const val ENGINE_HARDWARE = 0
+    const val ENGINE_SOFTWARE = 1
+    const val ENGINE_TUNNELING = 2
+    val ENGINES = listOf("Media3 – dekoder sprzętowy (zalecany)", "Media3 – dekoder programowy (zgodność)", "Media3 – tunelowanie (Android TV)")
+
+    /** Kolejność dekoderów: sprzętowe (akceleracja) przed programowymi – albo odwrotnie w trybie zgodności. */
+    fun codecSelector(software: Boolean) = androidx.media3.exoplayer.mediacodec.MediaCodecSelector { mime, secure, tunneling ->
+        val all = androidx.media3.exoplayer.mediacodec.MediaCodecUtil.getDecoderInfos(mime, secure, tunneling)
+        all.sortedBy { if (it.softwareOnly == software) 0 else 1 }       // sortowanie stabilne – kolejność systemu w grupie zostaje
+    }
+
+    /** Opis bieżącego dekodera obrazu (np. „c2.mtk.avc.decoder – sprzętowy”). */
+    fun decoderInfo(): String {
+        val p = player ?: return "nic nie jest odtwarzane"
+        val f = p.videoFormat ?: return "brak obrazu"
+        val list = runCatching { androidx.media3.exoplayer.mediacodec.MediaCodecUtil.getDecoderInfos(f.sampleMimeType ?: "", false, false) }.getOrDefault(emptyList())
+        val hw = list.count { it.hardwareAccelerated }
+        return "${f.sampleMimeType} ${f.width}×${f.height} • dekodery: $hw sprzętowe, ${list.size - hw} programowe • silnik: ${ENGINES.getOrNull(pl.iptv.tv.data.Prefs.playerEngine)}"
+    }
+
     fun get(c: Context): ExoPlayer {
         player?.let { p -> if (p.applicationLooper == android.os.Looper.myLooper()) return p; runCatching { p.release() }; player = null; url = null; target = null }
         return create(c)
@@ -109,16 +129,33 @@ object Playback {
                     }
                 }
             }
-        }.setEnableDecoderFallback(true)
-        val low = pl.iptv.tv.data.Prefs.lowPerf
-        // słabsze urządzenia: obraz maks. 1080p (bez 4K, którego dekoder nie nadąża) i mniejszy bufor w pamięci
-        val selector = androidx.media3.exoplayer.trackselection.DefaultTrackSelector(c.applicationContext).apply {
-            if (low) setParameters(buildUponParameters().setMaxVideoSize(1920, 1080).setExceedRendererCapabilitiesIfNecessary(false))
         }
-        val load = if (low) DefaultLoadControl.Builder().setBufferDurationsMs(15_000, 30_000, 1_000, 3_000)
-            .setTargetBufferBytes(24 * 1024 * 1024).setPrioritizeTimeOverSizeThresholds(false).build()
+        val P = pl.iptv.tv.data.Prefs
+        val engine = P.playerEngine
+        // wybór dekodera: sprzętowy (akceleracja) przed programowym albo odwrotnie (tryb zgodności)
+        renderers.setMediaCodecSelector(codecSelector(software = engine == ENGINE_SOFTWARE))
+        renderers.setEnableDecoderFallback(P.decoderFallback || engine == ENGINE_SOFTWARE)
+        when (P.asyncDecoder) {
+            1 -> renderers.forceEnableMediaCodecAsynchronousQueueing()
+            2 -> renderers.forceDisableMediaCodecAsynchronousQueueing()
+        }
+        val low = P.lowPerf
+        // słabsze urządzenia: ograniczona rozdzielczość (domyślnie 1080p – bez 4K, którego dekoder nie nadąża) i mniejszy bufor w pamięci
+        val selector = androidx.media3.exoplayer.trackselection.DefaultTrackSelector(c.applicationContext).apply {
+            val b = buildUponParameters()
+            if (low && P.lowMaxHeight > 0) b.setMaxVideoSize(P.lowMaxHeight * 16 / 9, P.lowMaxHeight).setExceedRendererCapabilitiesIfNecessary(false)
+            // tunelowanie: obraz i dźwięk dekodowane i synchronizowane sprzętowo (Android TV) – najmniejsze obciążenie procesora
+            if (engine == ENGINE_TUNNELING) b.setTunnelingEnabled(true)
+            setParameters(b)
+        }
+        val start = if (P.lowLatency) 500 else 1_000
+        val load = if (low) {
+            val min = P.lowBufMinS.coerceIn(2, 60) * 1000; val max = (P.lowBufMaxS.coerceIn(2, 120) * 1000).coerceAtLeast(min)
+            DefaultLoadControl.Builder().setBufferDurationsMs(min, max, start, 3_000)
+                .setTargetBufferBytes(P.lowBufMb.coerceIn(8, 256) * 1024 * 1024).setPrioritizeTimeOverSizeThresholds(false).build()
+        }
         // szybki start (1 s), większy zapas po przycięciu (3 s) i bufor do 60 s
-        else DefaultLoadControl.Builder().setBufferDurationsMs(20_000, 60_000, 1_000, 3_000).setPrioritizeTimeOverSizeThresholds(true).build()
+        else DefaultLoadControl.Builder().setBufferDurationsMs(20_000, 60_000, start, 3_000).setPrioritizeTimeOverSizeThresholds(true).build()
         return ExoPlayer.Builder(c.applicationContext, renderers)
             .setTrackSelector(selector)
             .setLoadControl(load)
@@ -138,7 +175,7 @@ object Playback {
         if (!force && streamUrl == url && p.playbackState != androidx.media3.common.Player.STATE_IDLE && p.playerError == null) { p.playWhenReady = true; return false }
         // czysty start (zwolnione dekodery + nowa powierzchnia obrazu): po błędzie, po kanale, który nie zdążył ruszyć
         // (np. wadliwy strumień), i zawsze na słabszych urządzeniach – inaczej następny kanał potrafi zaciąć obraz
-        val clean = hadError || p.playerError != null || !reachedReady || pl.iptv.tv.data.Prefs.lowPerf
+        val clean = hadError || p.playerError != null || !reachedReady || (pl.iptv.tv.data.Prefs.lowPerf && pl.iptv.tv.data.Prefs.lowCleanDecoder)
         if (clean) { p.stop(); p.clearMediaItems() }
         val headers = HashMap<String, String>()
         if (ch.referrer.isNotBlank()) headers["Referer"] = ch.referrer
@@ -146,7 +183,9 @@ object Playback {
             .setUserAgent(ch.userAgent.ifBlank { Repository.userAgent }).setDefaultRequestProperties(headers)
         val item = MediaItem.Builder().setUri(streamUrl)
             // stała prędkość 1.0 – bez przyspieszania/zwalniania obrazu tuż po starcie kanału na żywo
-            .setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setMinPlaybackSpeed(1f).setMaxPlaybackSpeed(1f).build()).apply {
+            .setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setMinPlaybackSpeed(1f).setMaxPlaybackSpeed(1f)
+                // niskie opóźnienie: bliżej krawędzi transmisji na żywo (gdy strumień na to pozwala)
+                .apply { if (pl.iptv.tv.data.Prefs.lowLatency) setTargetOffsetMs(4_000) }.build()).apply {
             val lower = streamUrl.lowercase().substringBefore('?')
             when {
                 lower.endsWith(".m3u8") || lower.contains("/hls/") -> setMimeType(MimeTypes.APPLICATION_M3U8)

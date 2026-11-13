@@ -62,27 +62,27 @@
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity android:name=".ui.SettingsActivity" android:screenOrientation="sensorLandscape"
+        <activity android:name=".ui.SettingsActivity" android:screenOrientation="behind"
             android:windowSoftInputMode="adjustResize|stateHidden" />
         <receiver android:name=".update.InstallReceiver" android:exported="false" />
         <receiver android:name=".update.UpdatedReceiver" android:exported="true">
             <intent-filter><action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter>
         </receiver>
         <service android:name=".rec.RecordingService" android:exported="false" android:foregroundServiceType="dataSync" />
-        <activity android:name=".ui.RecordingPlayerActivity" android:theme="@style/PlayerTheme" android:screenOrientation="sensorLandscape" />
+        <activity android:name=".ui.RecordingPlayerActivity" android:theme="@style/PlayerTheme" android:screenOrientation="behind" />
         <receiver android:name=".reminders.ReminderReceiver" android:exported="false" />
         <activity android:name=".reminders.ReminderActivity" android:exported="false"
             android:theme="@style/ReminderTheme" android:excludeFromRecents="true" android:taskAffinity="pl.iptv.tv.reminder"
             android:launchMode="singleInstance" />
-        <activity android:name=".ui.GuideActivity" android:screenOrientation="sensorLandscape" />
+        <activity android:name=".ui.GuideActivity" android:screenOrientation="behind" />
         <activity android:name=".ui.GuideListActivity" />
         <activity android:name=".ui.LockActivity" android:exported="false" android:launchMode="singleTask" />
-        <activity android:name=".ui.SetupActivity" android:screenOrientation="sensorLandscape"
+        <activity android:name=".ui.SetupActivity" android:screenOrientation="behind"
             android:windowSoftInputMode="adjustResize|stateHidden" />
-        <activity android:name=".ui.EpgSearchActivity" android:screenOrientation="sensorLandscape"
+        <activity android:name=".ui.EpgSearchActivity" android:screenOrientation="behind"
             android:windowSoftInputMode="adjustResize|stateHidden" />
-        <activity android:name=".ui.EditorActivity" android:screenOrientation="sensorLandscape" />
-        <activity android:name=".ui.PlayerActivity" android:supportsPictureInPicture="true" android:resizeableActivity="true" android:screenOrientation="sensorLandscape"
+        <activity android:name=".ui.EditorActivity" android:screenOrientation="behind" />
+        <activity android:name=".ui.PlayerActivity" android:supportsPictureInPicture="true" android:resizeableActivity="true" android:screenOrientation="behind"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize"
             android:theme="@style/PlayerTheme" />
     </application>

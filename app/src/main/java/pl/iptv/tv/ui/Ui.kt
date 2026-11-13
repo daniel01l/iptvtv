@@ -203,7 +203,12 @@ object Ui {
     val infoTimeoutMs get() = INFO_TIMEOUTS[infoTimeoutIndex.coerceIn(INFO_TIMEOUTS.indices)] * 1000L
     val fontScale get() = FONT_SCALES[fontScaleIndex.coerceIn(FONT_SCALES.indices)].first
 
-    fun dp(v: Number): Int = (v.toFloat() * Resources.getSystem().displayMetrics.density + 0.5f).toInt()
+    /** Ikony (emoji i symbole spoza ASCII) z początku tytułu ustawień. Znaki ASCII ([, |, #, +, * …) i litery zostają –
+     *  wcześniej obcinany był każdy początkowy znak niebędący literą, np. „[PL] Sport” → „PL] Sport”. */
+    private val iconPrefix = Regex("^(?:[\\p{So}\\p{Sk}\\p{Sm}\\p{Cn}\\p{Co}&&[^\\x00-\\x7F]]|[\\uFE0F\\u200D\\u20E3]|\\s)+")
+    fun stripIcon(t: String): String = t.replace(iconPrefix, "").ifEmpty { t }
+
+    fun dp(v: Number): Int =(v.toFloat() * Resources.getSystem().displayMetrics.density + 0.5f).toInt()
     fun withAlpha(c: Int, a: Int) = (c and 0x00FFFFFF) or (a.coerceIn(0, 255) shl 24)
     fun shade(c: Int, f: Float): Int {
         fun ch(v: Int) = (if (f > 0) v + (255 - v) * f else v * (1 + f)).toInt().coerceIn(0, 255)
@@ -407,12 +412,40 @@ object Ui {
     // ------------- okna dialogowe -------------
 
     /** Builder okien w stylu motywu – używany zamiast AlertDialog.Builder w całej aplikacji. */
+    /** Otwarte okna (ekran + tytuł) – to samo okno nie otwiera się drugi raz jednocześnie
+     *  (np. podwójne zdarzenie OK/dotknięcia uruchamiało dwa identyczne okna jedno na drugim). */
+    private val openDialogs = java.util.WeakHashMap<androidx.appcompat.app.AlertDialog, Pair<String, Long>>()
+    /** Duplikat = to samo okno otwarte w krótkim odstępie (podwójne zdarzenie). Okna otwierane kolejno przez użytkownika nie są blokowane. */
+    private const val DUP_MS = 1000L
+
+    private fun duplicateOf(key: String, except: androidx.appcompat.app.AlertDialog? = null): androidx.appcompat.app.AlertDialog? {
+        val now = android.os.SystemClock.uptimeMillis()
+        return openDialogs.entries.firstOrNull { (o, v) -> o !== except && v.first == key && o.isShowing && now - v.second < DUP_MS }?.key
+    }
+
+    private fun dialogKey(c: android.content.Context, title: CharSequence?) = System.identityHashCode(c).toString() + "|" + (title?.toString() ?: "")
+
     fun dialog(c: android.content.Context): androidx.appcompat.app.AlertDialog.Builder =
         object : androidx.appcompat.app.AlertDialog.Builder(c) {
+            private var title: CharSequence? = null
+            override fun setTitle(t: CharSequence?): androidx.appcompat.app.AlertDialog.Builder { title = t; return super.setTitle(t) }
+            override fun setTitle(id: Int): androidx.appcompat.app.AlertDialog.Builder { title = c.getString(id); return super.setTitle(id) }
             override fun create(): androidx.appcompat.app.AlertDialog {
                 val d = super.create()
-                d.setOnShowListener { styleDialog(d) }
+                val key = dialogKey(c, title)
+                d.setOnShowListener {
+                    // drugie takie samo okno – zamykane od razu (zostaje pierwsze)
+                    if (duplicateOf(key, d)?.let { o -> openDialogs[o]!!.second <= (openDialogs[d]?.second ?: Long.MAX_VALUE) } == true) { d.dismiss(); return@setOnShowListener }
+                    if (d !in openDialogs) openDialogs[d] = key to android.os.SystemClock.uptimeMillis()
+                    styleDialog(d)
+                }
                 return d
+            }
+            override fun show(): androidx.appcompat.app.AlertDialog {
+                // to samo okno właśnie otwarte: nie tworzymy drugiego (bez mignięcia)
+                val key = dialogKey(c, title)
+                duplicateOf(key)?.let { return it }
+                return super.show().also { openDialogs[it] = key to android.os.SystemClock.uptimeMillis() }
             }
         }
 

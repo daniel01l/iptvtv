@@ -48,7 +48,7 @@ class MainActivity : AppCompatActivity() {
             addView(row(button("Kopiuj") { copy(Admin.code) }, button("Serwer") { editServer() }, button("Nowy kod") { newCode() }))
         })
         info = text("", 13f, Color.LTGRAY)
-        root.addView(row(button("⟳ Odśwież") { refresh() }, info))
+        root.addView(row(button("⟳ Odśwież") { refresh() }, button("📚 Listy") { listsManager() }, info))
         list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(ScrollView(this).apply { addView(list) }, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
@@ -56,7 +56,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private val auto = object : Runnable { override fun run() { refresh(quiet = true); handler.postDelayed(this, 30_000) } }
-    override fun onResume() { super.onResume(); handler.post(auto) }
+    // po powrocie (np. z Aktywacji) lista od razu z aktualnego stanu, potem pobranie raportów
+    override fun onResume() { super.onResume(); render(); handler.post(auto) }
     override fun onPause() { super.onPause(); handler.removeCallbacks(auto) }
 
     // ---------------- widoki ----------------
@@ -79,16 +80,29 @@ class MainActivity : AppCompatActivity() {
     private fun render() {
         list.removeAllViews()
         val ds = Admin.devices()
+        list.addView(text("🏠 Moje urządzenia", 18f, ACCENT, bold = true))
         if (ds.isEmpty()) list.addView(text("Brak urządzeń. Wpisz powyższy kod na telewizorze – urządzenie pojawi się w ciągu minuty.", 15f, Color.LTGRAY))
         else list.addView(text("🟢 raport z dzisiaj (wysyłany przy pierwszym włączeniu TV). Aktualny stan: dotknij urządzenia → „Poproś o raport”.", 12f, Color.GRAY))
         ds.forEach { d ->
             val j = d.j
+            // dodane w Aktywacjach, czeka na pierwszy raport – widoczne od razu
+            if (d.pending) {
+                val c = card()
+                c.addView(text("⏳ " + deviceLabel(d.name, d.displayCode), 18f, Color.WHITE, bold = true))
+                c.addView(text("Dodano do „Moich urządzeń” ${ago(d.ts)}. Urządzenie odbierze zmianę i wyśle pierwszy raport w ciągu kilku minut (musi być włączone).", 13f, Color.LTGRAY))
+                c.setOnClickListener {
+                    AlertDialog.Builder(this).setTitle(deviceLabel(d.name, d.displayCode)).setItems(arrayOf("⟳ Sprawdź raporty", "Zmień nazwę (tylko w panelu)", "Usuń z panelu")) { _, w ->
+                        when (w) { 0 -> refresh(); 1 -> input("Nazwa", d.name) { Admin.setAlias(d, it); render() }; else -> { Admin.remove(d); render() } }
+                    }.show()
+                }
+                list.addView(c); return@forEach
+            }
             val f = SimpleDateFormat("yyyyMMdd", Locale.US)
             val online = f.format(Date(d.ts)) == f.format(Date())       // raport z dzisiaj
             val c = card()
-            c.addView(text((if (online) "🟢 " else "⚪ ") + d.name, 18f, Color.WHITE, bold = true))
+            c.addView(text((if (online) "🟢 " else "⚪ ") + deviceLabel(d.name, d.displayCode), 18f, Color.WHITE, bold = true))
             if (d.token.isNotBlank()) c.addView(text("🔑 Token: ${d.token}", 14f, Color.parseColor("#64B5F6")))
-            c.addView(text("IP: ${j.optString("ip").ifBlank { "?" }}   •   PIN: ${d.pin}   •   Kod: ${d.code}", 14f, Color.LTGRAY))
+            c.addView(text("IP: ${j.optString("ip").ifBlank { "?" }}   •   PIN: ${d.pin}" + (if (d.act.isNotBlank()) "   •   Przekaźnik: ${d.code}" else "   •   Kod: ${d.code}"), 14f, Color.LTGRAY))
             val days = d.days
             val (dTxt, dCol) = when {
                 days == -999 -> "bez daty ważności" to Color.LTGRAY
@@ -98,6 +112,7 @@ class MainActivity : AppCompatActivity() {
                 else -> "$days dni (do ${j.optString("expiry")})" to Color.parseColor("#43A047")
             }
             c.addView(text("Lista: ${j.optString("list").ifBlank { "—" }} – $dTxt", 15f, dCol, bold = true))
+            d.playlists.takeIf { it.size > 1 }?.let { pl -> c.addView(text("Listy na urządzeniu: " + pl.joinToString(", ") { (if (it.active) "✔ " else "") + it.name }, 13f, Color.LTGRAY)) }
             c.addView(text("Wersja ${j.optString("ver")} • kanały ${j.optInt("channels")} • z EPG ${j.optInt("epg")} • ${j.optString("model")}", 13f, Color.GRAY))
             j.optString("watching").takeIf { it.isNotBlank() }?.let { c.addView(text("Ostatni kanał: $it", 13f, Color.GRAY)) }
             c.addView(text("Raport: ${ago(d.ts)}" + j.optString("msg").takeIf { it.isNotBlank() }?.let { " – $it" }.orEmpty(), 13f, Color.GRAY))
@@ -131,6 +146,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun actions(d: Device) {
         val items = linkedMapOf<String, () -> Unit>(
+            "📋 Wybierz aktywną listę…" to { chooseDeviceList(d) },
+            "📚 Wyślij zapisaną listę…" to { chooseSavedList(d) },
             "Wyślij listę (plik .m3u)" to { pickFile { b, n -> b?.let { askList(d, "", it, n) } } },
             "Wyślij listę (link)" to { input("Link do listy (można użyć {token})", "", "http://…/get.php?token={token}") { u -> if (u.isNotBlank()) askList(d, u, null, "Lista") } },
             "Odśwież listę i EPG" to { run("Odświeżanie listy") { Admin.command(d, "refresh") } },
@@ -145,7 +162,71 @@ class MainActivity : AppCompatActivity() {
             "Zmień nazwę (tylko w panelu)" to { input("Nazwa", d.name) { Admin.setAlias(d, it); render() } },
             "Usuń z panelu" to { Admin.remove(d); render() },
         )
-        AlertDialog.Builder(this).setTitle(d.name).setItems(items.keys.toTypedArray()) { _, w -> items.values.elementAt(w)() }.show()
+        AlertDialog.Builder(this).setTitle(deviceLabel(d.name, d.displayCode)).setItems(items.keys.toTypedArray()) { _, w -> items.values.elementAt(w)() }.show()
+    }
+
+    // ---------------- listy ----------------
+
+    /** Wybór aktywnej listy spośród list zapisanych na urządzeniu (z ostatniego raportu). */
+    private fun chooseDeviceList(d: Device) {
+        val pl = d.playlists
+        if (pl.isEmpty()) {
+            AlertDialog.Builder(this).setTitle("Listy na urządzeniu").setMessage("Brak informacji o listach – urządzenie wyśle je w raporcie (wymagana wersja 5.6). Poprosić o raport?")
+                .setPositiveButton("Poproś o raport") { _, _ -> run("Prośba o raport") { Admin.command(d, "report") } }.setNegativeButton("Anuluj", null).show()
+            return
+        }
+        val cur = pl.indexOfFirst { it.active }
+        var pick = cur
+        AlertDialog.Builder(this).setTitle("Aktywna lista – ${deviceLabel(d.name, d.displayCode)}")
+            .setSingleChoiceItems(pl.map { it.name + (if (it.expiry.isNotBlank()) "  (do ${it.expiry})" else "") }.toTypedArray(), cur) { _, w -> pick = w }
+            .setPositiveButton("Ustaw") { _, _ ->
+                val p = pl.getOrNull(pick) ?: return@setPositiveButton
+                if (pick == cur) toast("„${p.name}” jest już aktywna") else run("Zmiana listy na „${p.name}”") { Admin.useList(d, p.id) }
+            }
+            .setNeutralButton("📚 Wyślij zapisaną…") { _, _ -> chooseSavedList(d) }
+            .setNegativeButton("Anuluj", null).show()
+    }
+
+    /** Wysyłka listy z „📚 Listy” (od razu aktywna na urządzeniu). */
+    private fun chooseSavedList(d: Device) {
+        val saved = Admin.savedLists()
+        if (saved.isEmpty()) { toast("Brak zapisanych list – dodaj je przyciskiem „📚 Listy”"); listsManager(); return }
+        var pick = 0
+        AlertDialog.Builder(this).setTitle("Wyślij listę – ${deviceLabel(d.name, d.displayCode)}")
+            .setSingleChoiceItems(saved.map { it.name }.toTypedArray(), 0) { _, w -> pick = w }
+            .setPositiveButton("Wyślij") { _, _ ->
+                val l = saved.getOrNull(pick) ?: return@setPositiveButton
+                run("Wysyłanie listy „${l.name}”") { Admin.sendList(d, l.name, l.url, null, l.epg, l.expiry) }
+            }.setNegativeButton("Anuluj", null).show()
+    }
+
+    /** Zapisane listy (nazwa, link, EPG, data ważności) – do szybkiego wysyłania na urządzenia. */
+    private fun listsManager() {
+        val saved = Admin.savedLists()
+        val names = saved.map { "📋 ${it.name}" } + "➕ Dodaj listę…"
+        AlertDialog.Builder(this).setTitle("📚 Zapisane listy").setItems(names.toTypedArray()) { _, w ->
+            val l = saved.getOrNull(w)
+            if (l == null) editSavedList(null)
+            else AlertDialog.Builder(this).setTitle(l.name).setMessage("Link: ${l.url}\nEPG: ${l.epg.ifBlank { "—" }}\nWażna do: ${l.expiry.ifBlank { "—" }}")
+                .setPositiveButton("Edytuj") { _, _ -> editSavedList(l) }
+                .setNeutralButton("Usuń") { _, _ -> Admin.removeList(l.name); listsManager() }
+                .setNegativeButton("Zamknij", null).show()
+        }.setNegativeButton("Zamknij", null).show()
+    }
+
+    private fun editSavedList(old: SavedList?) {
+        input("Nazwa listy", old?.name.orEmpty()) { name ->
+            if (name.isBlank()) { toast("Podaj nazwę"); return@input }
+            input("Link do listy (można użyć {token})", old?.url.orEmpty(), "http://…/get.php?token={token}") { url ->
+                if (!url.startsWith("http")) { toast("Link musi zaczynać się od http"); return@input }
+                input("Link do EPG (opcjonalnie)", old?.epg.orEmpty(), "https://…/epg.xml") { epg ->
+                    input("Data ważności (opcjonalnie, DD.MM.RRRR)", old?.expiry.orEmpty(), "31.12.2026") { exp ->
+                        if (old != null && old.name != name) Admin.removeList(old.name)
+                        Admin.putList(SavedList(name, url, epg, exp)); toast("Zapisano listę „$name”"); listsManager()
+                    }
+                }
+            }
+        }
     }
 
     private fun askList(d: Device, url: String, bytes: ByteArray?, defName: String) {

@@ -298,7 +298,7 @@ object Repository {
         val cu = allChannels.maxOfOrNull { it.catchupDays } ?: 0
         // słabsze urządzenia: tylko zakres archiwum (min. 1 dzień) i 3 dni naprzód – mniej pamięci i szybsze wczytywanie
         val back = if (Prefs.lowPerf) cu.coerceIn(1, 14) else cu.coerceIn(7, 14)
-        val ahead = if (Prefs.lowPerf) 3 else 7
+        val ahead = if (Prefs.lowPerf) Prefs.lowEpgAhead.coerceIn(1, 7) else 7
         return (now - back * 86_400_000L - 3_600_000L) to (now + ahead * 86_400_000L)
     }
 
@@ -332,7 +332,7 @@ object Repository {
     private fun throttled(input: java.io.InputStream): java.io.InputStream {
         val playing = pl.iptv.tv.ui.Playback.isPlayingNow
         if (!playing) return input
-        val bps = if (Prefs.lowPerf) 600_000L else 2_500_000L
+        val bps = if (Prefs.lowPerf) Prefs.lowEpgKbps.coerceIn(100, 5000) * 1000L else 2_500_000L
         return object : java.io.FilterInputStream(input) {
             private val t0 = System.nanoTime(); private var n = 0L
             private fun pace() { val want = n * 1_000_000_000L / bps; val dt = System.nanoTime() - t0; if (want > dt) Thread.sleep((want - dt) / 1_000_000) }
@@ -341,7 +341,7 @@ object Repository {
         }
     }
 
-    private fun maxDesc() = if (Prefs.lowPerf) 300 else Int.MAX_VALUE
+    private fun maxDesc() = if (Prefs.lowPerf) Prefs.lowDescLen.coerceAtLeast(50) else Int.MAX_VALUE
 
     /** Znacznik „trwa wczytywanie EPG” – jeśli aplikacja padnie w trakcie, następny start to wykryje ([epgCrashed]). */
     private inline fun <T> guardedParse(block: () -> T): T {

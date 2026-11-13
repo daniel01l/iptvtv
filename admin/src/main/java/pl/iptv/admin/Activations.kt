@@ -65,7 +65,7 @@ object Activations {
     }
 
     /** Zapisuje podpisaną listę (nowszy znacznik czasu niż poprzedni – urządzenia odrzucają starsze listy). */
-    fun save(entries: Map<String, Entry>, prev: Remote, message: String) {
+    fun save(entries: Map<String, Entry>, prev: Remote, message: String): Remote {
         require(hasKey) { "Najpierw wygeneruj klucz" }
         val ts = maxOf(System.currentTimeMillis(), prev.ts + 1)
         val payload = ActivationFormat.payload(entries, ts)
@@ -75,14 +75,18 @@ object Activations {
         prev.sha?.let { body.put("sha", it) }
         Admin.http.newCall(gh(FILE).put(body.toString().toRequestBody("application/json".toMediaType())).build()).execute().use { r ->
             if (!r.isSuccessful) throw IOException(httpError(r.code))
+            // nowy stan z zapisu (bez ponownego pobierania – GitHub przez chwilę zwraca jeszcze starą wersję pliku,
+            // przez co zmiana, np. „Dodaj do Moich urządzeń”, nie była widoczna od razu po potwierdzeniu)
+            val sha = runCatching { JSONObject(r.body!!.string()).getJSONObject("content").getString("sha") }.getOrNull()
+            return Remote(entries, sha ?: prev.sha, ts, true)
         }
     }
 
-    /** Zmiana jednego wpisu: pobierz → zmień → zapisz (zawsze na aktualnej wersji pliku). */
-    fun update(message: String, change: (MutableMap<String, Entry>) -> Unit) {
+    /** Zmiana jednego wpisu: pobierz → zmień → zapisz (zawsze na aktualnej wersji pliku). Zwraca zapisany stan. */
+    fun update(message: String, change: (MutableMap<String, Entry>) -> Unit): Remote {
         val cur = load()
         val m = cur.entries.toMutableMap(); change(m)
-        save(m, cur, message)
+        return save(m, cur, message)
     }
 
     private fun httpError(code: Int) = when (code) {

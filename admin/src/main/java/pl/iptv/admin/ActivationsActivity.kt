@@ -133,7 +133,7 @@ class ActivationsActivity : AppCompatActivity() {
             if (e != null && e.forEdition(edition == "full").isNotEmpty()) return@forEach
             val s = list.maxBy { it.ts }
             body.addView(card(Color.parseColor("#FF9800")).apply {
-                addView(text("🕓 $code – ${ed(edition)} – oczekuje na aktywację", 17f, Color.WHITE, bold = true))
+                addView(text("🕓 " + deviceLabel(e?.note?.takeIf { it.isNotBlank() } ?: s.model, code) + " – ${ed(edition)} – oczekuje na aktywację", 17f, Color.WHITE, bold = true))
                 addView(text("${s.model} • wersja ${s.version} • ${ago(s.ts)}" + (e?.note?.takeIf { it.isNotBlank() }?.let { " • $it" } ?: ""), 13f, Color.LTGRAY))
                 addView(row(button("✔ Aktywuj ${ed(edition)}") { setStatus(code, edition == "full", ActivationFormat.ACTIVE, null) }, button("Ukryj") { Activations.forget(code); render() }))
             })
@@ -144,7 +144,7 @@ class ActivationsActivity : AppCompatActivity() {
             val anyActive = e.status == ActivationFormat.ACTIVE || e.full == ActivationFormat.ACTIVE
             val anyBlocked = e.status == ActivationFormat.BLOCKED || e.full == ActivationFormat.BLOCKED
             body.addView(card(if (dup > 1 || (anyBlocked && !anyActive)) Color.parseColor("#E53935") else Color.parseColor("#2E7D32")).apply {
-                addView(text(code + (if (e.note.isNotBlank()) "  •  ${e.note}" else ""), 17f, Color.WHITE, bold = true))
+                addView(text(deviceLabel(labelFor(code, e), code), 17f, Color.WHITE, bold = true))
                 addView(text("⭐ Pełna: ${st(e.full)}     🧪 Test: ${st(e.status)}" + (if (e.admin.isNotEmpty()) "     🏠 moje urządzenie" else ""), 14f, Color.WHITE))
                 addView(text("ostatnie zgłoszenie: ${ago(last?.ts ?: 0)}" + (last?.let { " • ${it.model} • ${ed(it.edition)} ${it.version}" } ?: ""), 13f, Color.LTGRAY))
                 if (dup > 1) addView(text("⚠ Ten kod zgłosił się z $dup różnych instalacji tej samej wersji w ciągu godziny – możliwa kopia urządzenia.", 13f, Color.parseColor("#E53935")))
@@ -189,7 +189,7 @@ class ActivationsActivity : AppCompatActivity() {
                     val sealed = Activations.sealAdminCodeFor(code)
                     if (sealed == null) toast("Urządzenie musi najpierw połączyć się z pełną wersją 5.4 lub nowszą (⟳ Odśwież po chwili)")
                     else if (e.full != ActivationFormat.ACTIVE) toast("Najpierw aktywuj ⭐ pełną wersję")
-                    else change("Dodano do moich $code") { m -> m[code] = (m[code] ?: e).copy(admin = sealed) }
+                    else { lastChanged = code; change("Dodano do moich $code") { m -> m[code] = (m[code] ?: e).copy(admin = sealed) } }
                 }
             },
             "✎ Notatka" to { input("Notatka", e.note) { n -> change("Notatka $code") { m -> m[code] = (m[code] ?: e).copy(note = n) } } },
@@ -199,7 +199,7 @@ class ActivationsActivity : AppCompatActivity() {
             },
             "Kopiuj kod" to { copy("kod", code) },
         )
-        AlertDialog.Builder(this).setTitle(code).setItems(items.keys.toTypedArray()) { _, w -> items.values.elementAt(w)() }.show()
+        AlertDialog.Builder(this).setTitle(deviceLabel(labelFor(code, e), code)).setItems(items.keys.toTypedArray()) { _, w -> items.values.elementAt(w)() }.show()
     }
 
     private fun setStatus(code: String, full: Boolean, status: String, note: String?) =
@@ -216,12 +216,23 @@ class ActivationsActivity : AppCompatActivity() {
         if (Activations.token.isBlank()) { toast("Najpierw wpisz token GitHub (krok 2)"); return }
         busy = true; info.text = "Zapisywanie…"
         lifecycleScope.launch {
-            val r = runCatching { withContext(Dispatchers.IO) { Activations.update(msg, op); Activations.load() } }
+            val r = runCatching { withContext(Dispatchers.IO) { Activations.update(msg, op) } }
             busy = false
-            r.onSuccess { remote = it; info.text = "✔ $msg – urządzenie zastosuje zmianę w ciągu kilku minut"; render() }
+            r.onSuccess { remote = it; syncMine(it); lastChanged = ""; info.text = "✔ $msg – urządzenie zastosuje zmianę w ciągu kilku minut"; render() }
                 .onFailure { info.text = "✖ ${it.message}" }
         }
     }
+
+    /** Etykieta urządzenia: notatka, a gdy jej brak – model z ostatniego zgłoszenia. */
+    private fun labelFor(code: String, e: ActivationFormat.Entry?): String =
+        e?.note?.takeIf { it.isNotBlank() } ?: Activations.seen().filter { it.code == code }.maxByOrNull { it.ts }?.model.orEmpty().ifBlank { "Urządzenie" }
+
+    /** „Moje urządzenia” w panelu głównym zgodne z listą: dodane – od razu widoczne (oczekujące), usunięte – znikają. */
+    private fun syncMine(r: Activations.Remote, add: Boolean = true) {
+        r.entries.forEach { (code, e) -> if (e.admin.isEmpty()) Admin.removePending(code) else if (add && code == lastChanged) Admin.addPending(code, labelFor(code, e)) }
+    }
+    /** Kod ostatnio zmienianego wpisu (oczekujący wpis dodajemy tylko po własnej zmianie, nie przy każdym odświeżeniu). */
+    private var lastChanged = ""
 
     private fun refresh() {
         if (busy) return
@@ -229,7 +240,7 @@ class ActivationsActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val n = runCatching { withContext(Dispatchers.IO) { Activations.pollCheckins() } }
             val r = if (Activations.token.isNotBlank()) runCatching { withContext(Dispatchers.IO) { Activations.load() } } else null
-            r?.getOrNull()?.let { remote = it }
+            r?.getOrNull()?.let { remote = it; syncMine(it, add = false) }
             info.text = when {
                 r?.isFailure == true -> "✖ ${r.exceptionOrNull()?.message}"
                 n.isFailure -> "✖ Zgłoszenia: ${n.exceptionOrNull()?.message}"

@@ -309,8 +309,19 @@ class MainActivity : BaseActivity() {
         val portrait = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT
         if (portrait) { selectGroup(g); return }
         if (groupsRv.isInTouchMode && !groupsExpanded) { setGroupsExpanded(true); return }
+        handler.removeCallbacks(applyPendingGroup); pendingGroup = null
         selectGroup(g)
-        if (groupsRv.isInTouchMode) { handler.removeCallbacks(collapseGroups); handler.postDelayed(collapseGroups, 1500) }
+        if (groupsRv.isInTouchMode) { handler.removeCallbacks(collapseGroups); handler.postDelayed(collapseGroups, 1500); return }
+        // pilot: OK na kategorii = od razu wejście do niej (fokus na pierwszym kanale)
+        enterGroup()
+    }
+
+    /** Fokus na pierwszym kanale bieżącej kategorii (po OK na kategorii). */
+    private fun enterGroup() {
+        if (channelAdapter.itemCount == 0) return
+        setGroupsExpanded(false)
+        channelsRv.scrollToPosition(0)
+        channelsRv.post { channelsRv.focusPosition(0) }
     }
 
     private fun inside(v: View, parent: View): Boolean {

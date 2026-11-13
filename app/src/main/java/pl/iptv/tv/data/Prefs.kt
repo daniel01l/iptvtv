@@ -19,6 +19,38 @@ object Prefs {
     /** Tryb dla słabszych urządzeń (domyślnie: mało pamięci RAM). */
     var lowPerf: Boolean get() = if (sp.contains("low_perf")) bool("low_perf", false) else weakDevice; set(v) = putBool("low_perf", v)
 
+    // ---- parametry trybu dla słabszych urządzeń (edytowalne w Ustawienia → Odtwarzanie → Wydajność) ----
+    /** Maks. wysokość obrazu (0 = bez limitu). */
+    var lowMaxHeight: Int get() = int("low_max_h", 1080); set(v) = putInt("low_max_h", v)
+    /** Bufor: minimum i maksimum w sekundach. */
+    var lowBufMinS: Int get() = int("low_buf_min", 15); set(v) = putInt("low_buf_min", v)
+    var lowBufMaxS: Int get() = int("low_buf_max", 30); set(v) = putInt("low_buf_max", v)
+    /** Limit pamięci bufora (MB). */
+    var lowBufMb: Int get() = int("low_buf_mb", 24); set(v) = putInt("low_buf_mb", v)
+    /** Program TV naprzód (dni). */
+    var lowEpgAhead: Int get() = int("low_epg_ahead", 3); set(v) = putInt("low_epg_ahead", v)
+    /** Najdłuższy opis programu (znaki). */
+    var lowDescLen: Int get() = int("low_desc", 300); set(v) = putInt("low_desc", v)
+    /** Pobieranie EPG podczas oglądania (kB/s). */
+    var lowEpgKbps: Int get() = int("low_epg_kbps", 600); set(v) = putInt("low_epg_kbps", v)
+    /** Opóźnienie startu kanału po ▲▼ (ms). */
+    var lowZapDelay: Int get() = int("low_zap_ms", 450); set(v) = putInt("low_zap_ms", v)
+    /** Czyszczenie dekodera przy każdej zmianie kanału. */
+    var lowCleanDecoder: Boolean get() = bool("low_clean", true); set(v) = putBool("low_clean", v)
+
+    // ---- silnik odtwarzania ----
+    /** 0 = Media3 sprzętowy (domyślny), 1 = Media3 programowy (zgodność), 2 = Media3 tunelowanie (Android TV). */
+    var playerEngine: Int get() = int("engine", 0); set(v) = putInt("engine", v)
+    /** Kolejka dekodera: 0 = automatycznie (system), 1 = asynchroniczna (szybsza na nowszych urządzeniach), 2 = synchroniczna (gdy obraz zamarza). */
+    var asyncDecoder: Int get() = int("async_dec", 0); set(v) = putInt("async_dec", v)
+    /** Niskie opóźnienie na żywo: mniejszy bufor startowy i bliżej krawędzi transmisji. */
+    var lowLatency: Boolean get() = bool("low_latency", false); set(v) = putBool("low_latency", v)
+    /** Zapasowy dekoder, gdy sprzętowy się nie uruchomi. */
+    var decoderFallback: Boolean get() = bool("dec_fallback", true); set(v) = putBool("dec_fallback", v)
+
+    /** Domyślne parametry trybu dla słabszych urządzeń. */
+    fun resetLowPerfParams() = remove("low_max_h", "low_buf_min", "low_buf_max", "low_buf_mb", "low_epg_ahead", "low_desc", "low_epg_kbps", "low_zap_ms", "low_clean")
+
     private fun str(k: String, d: String = "") = sp.getString(k, d) ?: d
     private fun put(k: String, v: String) = sp.edit().putString(k, v).apply()
     private fun bool(k: String, d: Boolean) = sp.getBoolean(k, d)

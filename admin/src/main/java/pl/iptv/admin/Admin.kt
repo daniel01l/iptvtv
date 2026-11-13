@@ -22,7 +22,26 @@ data class Device(val j: JSONObject) {
     val days: Int get() = j.optInt("days", -999)
     /** Token – tylko notatka administratora (nie jest wysyłany do urządzenia). */
     val token: String get() = j.optString("token")
+    /** Kod aktywacji (XXXX-XXXX) – pusty w starszych wersjach aplikacji. */
+    val act: String get() = j.optString("act")
+    /** Dodane do „Moich urządzeń”, ale bez pierwszego raportu (urządzenie odbierze zmianę w ciągu kilku minut). */
+    val pending: Boolean get() = j.optBoolean("pending")
+    /** Kod pokazywany przy nazwie: kod aktywacji, a gdy go brak – kod przekaźnika. */
+    val displayCode: String get() = act.ifBlank { code }
+    /** Listy na urządzeniu (z ostatniego raportu). */
+    val playlists: List<RemoteList> get() = j.optJSONArray("playlists")?.let { a ->
+        (0 until a.length()).mapNotNull { a.optJSONObject(it) }.map { RemoteList(it.optString("id"), it.optString("name"), it.optBoolean("active"), it.optString("expiry")) }
+    }.orEmpty()
 }
+
+/** Lista kanałów zapisana na urządzeniu. */
+data class RemoteList(val id: String, val name: String, val active: Boolean, val expiry: String)
+
+/** Lista zapisana w panelu administratora (do wysyłania na urządzenia). */
+data class SavedList(val name: String, val url: String, val epg: String = "", val expiry: String = "")
+
+/** Opis urządzenia w formacie „[Etykieta]: [Kod urządzenia]”. */
+fun deviceLabel(label: String, code: String): String = "${label.trim().ifBlank { "Urządzenie" }}: ${code.ifBlank { "—" }}"
 
 /** Skrzynka administratora i wysyłanie poleceń przez przekaźnik ntfy (szyfrowanie wspólne z IptvTv). */
 object Admin {
@@ -49,6 +68,13 @@ object Admin {
 
     private fun saveDevice(j: JSONObject) {
         val o = JSONObject(sp.getString("devices", "{}")!!)
+        // pierwszy raport urządzenia dodanego do „Moich urządzeń” zastępuje wpis oczekujący (nazwa z panelu zostaje)
+        j.optString("act").takeIf { it.isNotBlank() && !j.optBoolean("pending") }?.let { act ->
+            o.optJSONObject(pendingId(act))?.let { p ->
+                if (j.optString("alias").isBlank()) p.optString("alias").takeIf { it.isNotBlank() }?.let { j.put("alias", it) }
+                o.remove(pendingId(act))
+            }
+        }
         val old = o.optJSONObject(j.optString("id"))
         if (old != null && old.optLong("ts") > j.optLong("ts")) return
         old?.optString("alias")?.takeIf { it.isNotBlank() }?.let { j.put("alias", it) }
@@ -65,6 +91,39 @@ object Admin {
     fun remove(d: Device) {
         val o = JSONObject(sp.getString("devices", "{}")!!); o.remove(d.id); sp.edit().putString("devices", o.toString()).apply()
     }
+
+    // ---------------- „Moje urządzenia”: wpis od razu po dodaniu ----------------
+    private fun pendingId(act: String) = "act:$act"
+
+    /** Urządzenie dodane do „Moich urządzeń” pojawia się na liście od razu (do czasu pierwszego raportu – jako oczekujące). */
+    fun addPending(act: String, label: String) {
+        val o = JSONObject(sp.getString("devices", "{}")!!)
+        if (o.keys().asSequence().any { o.optJSONObject(it)?.optString("act") == act && !o.optJSONObject(it)!!.optBoolean("pending") }) return
+        o.put(pendingId(act), JSONObject().put("id", pendingId(act)).put("act", act).put("pending", true)
+            .put("name", label.ifBlank { "Urządzenie" }).put("ts", System.currentTimeMillis()))
+        sp.edit().putString("devices", o.toString()).apply()
+    }
+
+    /** Usunięcie z „Moich urządzeń” – znika też wpis oczekujący. */
+    fun removePending(act: String) {
+        val o = JSONObject(sp.getString("devices", "{}")!!); o.remove(pendingId(act)); sp.edit().putString("devices", o.toString()).apply()
+    }
+
+    // ---------------- zapisane listy (wybór przy wysyłaniu) ----------------
+    fun savedLists(): List<SavedList> = runCatching {
+        val a = org.json.JSONArray(sp.getString("lists", "[]"))
+        (0 until a.length()).map { a.getJSONObject(it).let { o -> SavedList(o.optString("name"), o.optString("url"), o.optString("epg"), o.optString("expiry")) } }
+    }.getOrDefault(emptyList())
+
+    private fun saveLists(l: List<SavedList>) = sp.edit().putString("lists", org.json.JSONArray(l.map {
+        JSONObject().put("name", it.name).put("url", it.url).put("epg", it.epg).put("expiry", it.expiry) }).toString()).apply()
+
+    /** Dodaje lub zastępuje (ta sama nazwa) listę. */
+    fun putList(l: SavedList) = saveLists(savedLists().filter { it.name != l.name } + l)
+    fun removeList(name: String) = saveLists(savedLists().filter { it.name != name })
+
+    /** Ustawia aktywną listę na urządzeniu (spośród list zapisanych na nim). */
+    fun useList(d: Device, id: String) = command(d, "use_list", mapOf("id" to id))
 
     /** Pobiera nowe raporty urządzeń; zwraca ich liczbę. Poza wątkiem głównym. */
     fun poll(): Int {

@@ -550,7 +550,7 @@ class PlayerActivity : BaseActivity() {
         handler.removeCallbacks(zapStart)
         if (pl.iptv.tv.data.Parental.needsPin(list[pos])) { playCurrent(); return }
         showOverlay()
-        handler.postDelayed(zapStart, if (Prefs.lowPerf) 450L else 250L)
+        handler.postDelayed(zapStart, if (Prefs.lowPerf) Prefs.lowZapDelay.coerceIn(100, 2000).toLong() else 250L)
     }
 
     private fun zapTo(ch: Channel, inGroup: String) {
@@ -623,6 +623,7 @@ class PlayerActivity : BaseActivity() {
 
     private fun openLeft() {
         if (!Prefs.channelPanel) return
+        groupBrowsing = false
         closeRight(animate = false)
         hideOverlay.run()
         panelGroup = group
@@ -996,6 +997,7 @@ class PlayerActivity : BaseActivity() {
     }
 
     private fun closePanels() {
+        groupBrowsing = false
         handler.removeCallbacks(closePanelsRunnable)
         closeLeft(); closeRight()
         scrim.visibility = View.GONE
@@ -1080,6 +1082,8 @@ class PlayerActivity : BaseActivity() {
     }
 
     private var okPending = false; private var okLong = false; private var okReplay = false
+    /** Ostatnio zmieniono kategorię ◄ ► z nagłówka panelu (fokus na pierwszym kanale). */
+    private var groupBrowsing = false
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.action == KeyEvent.ACTION_UP && okPending && (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)) {
@@ -1091,6 +1095,8 @@ class PlayerActivity : BaseActivity() {
         val code = event.keyCode
         resetPanelTimer()
         val focus = window.decorView.findFocus()
+        // przeglądanie kategorii ◄ ► kończy każdy inny klawisz (▲▼ – ruch po kanałach, ◄ ► wracają do zwykłego działania)
+        if (code != KeyEvent.KEYCODE_DPAD_LEFT && code != KeyEvent.KEYCODE_DPAD_RIGHT) groupBrowsing = false
 
         if (leftOpen) {
             val inQuick = focus != null && quickOpen && inside(focus, quickBar)
@@ -1098,8 +1104,13 @@ class PlayerActivity : BaseActivity() {
                 inQuick && code == KeyEvent.KEYCODE_DPAD_RIGHT -> { closeQuickBar(); return true }
                 inQuick && code == KeyEvent.KEYCODE_DPAD_LEFT -> return true
                 // nagłówek kategorii: ◄ ► zmiana kategorii, ▼ kanały, OK – lista kategorii
-                focus === lpGroup && code == KeyEvent.KEYCODE_DPAD_LEFT -> { cycleGroup(-1, keepHeader = true); return true }
-                focus === lpGroup && code == KeyEvent.KEYCODE_DPAD_RIGHT -> { cycleGroup(1, keepHeader = true); return true }
+                // ◄ ► na nagłówku: zmiana kategorii i od razu zaznaczony pierwszy kanał (wystarczy OK);
+                // kolejne ◄ ► (dopóki zaznaczenie stoi na tym pierwszym kanale) dalej zmieniają kategorię
+                (focus === lpGroup || (groupBrowsing && focus != null && inside(focus, lpChannels) &&
+                    lpChannels.findContainingViewHolder(focus)?.bindingAdapterPosition == 0)) &&
+                    (code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT) -> {
+                    cycleGroup(if (code == KeyEvent.KEYCODE_DPAD_RIGHT) 1 else -1); groupBrowsing = true; return true
+                }
                 focus === lpGroup && code == KeyEvent.KEYCODE_DPAD_DOWN -> { lpChannels.focusPosition(0); return true }
                 code == KeyEvent.KEYCODE_DPAD_UP && focus != null && inside(focus, lpChannels) &&
                     lpChannels.findContainingViewHolder(focus)?.bindingAdapterPosition == 0 -> { lpGroup.requestFocus(); return true }
@@ -1144,9 +1155,10 @@ class PlayerActivity : BaseActivity() {
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> { zapMove(if (code == KeyEvent.KEYCODE_DPAD_DOWN) 1 else -1); return true }
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
                 val ch = zapAdapter.items.getOrNull(zapFocused()) ?: return true
-                zapHide.run(); if (ch.key != list[pos].key) zapTo(ch, group) else showOverlay(); return true
+                zapHide.run(); if (ch.key != list[pos].key) zapTo(ch, zapGroupName) else showOverlay(); return true
             }
-            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> { zapHide.run(); hideOverlay.run() }
+            // ◄ ► – poprzednia / następna kategoria; od razu zaznaczony pierwszy kanał (wystarczy OK)
+            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> { zapCycleGroup(if (code == KeyEvent.KEYCODE_DPAD_RIGHT) 1 else -1); return true }
         }
         if (code in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9) {
             numberInput = (numberInput + (code - KeyEvent.KEYCODE_0)).take(4)
@@ -1371,6 +1383,7 @@ class PlayerActivity : BaseActivity() {
     /** Pierwszy widoczny wiersz – lista zawsze pokazuje pełne kafelki (przewijanie o całe wiersze). */
     private var zapTop = 0
     private var zapShown = 8
+    private var zapRowsMax = 8
 
     private val zapList by lazy { findViewById<RecyclerView>(R.id.zapList).also {
         it.layoutManager = object : LinearLayoutManager(this) {
@@ -1407,7 +1420,7 @@ class PlayerActivity : BaseActivity() {
             now.text = live ?: Repository.current(ch)?.let { "${Fmt.time(it.start)}  ${it.title}" } ?: ""
             now.setTextColor(if (live != null) Ui.live else Ui.text2)
             root.isActivated = playing
-            root.setOnClickListener { zapHide.run(); if (ch.key != list[pos].key) zapTo(ch, group) }
+            root.setOnClickListener { zapHide.run(); if (ch.key != list[pos].key) zapTo(ch, zapGroupName) }
         }
     }
 
@@ -1418,7 +1431,40 @@ class PlayerActivity : BaseActivity() {
         override fun onBindViewHolder(h: ZapVH, i: Int) = h.bind(items[i], items[i].key == list.getOrNull(pos)?.key)
     }
 
-    private fun zapFocused(): Int = window.decorView.findFocus()?.let { zapList.findContainingViewHolder(it)?.bindingAdapterPosition } ?: pos
+    private fun zapFocused(): Int = window.decorView.findFocus()?.let { zapList.findContainingViewHolder(it)?.bindingAdapterPosition }
+        ?: if (zapGroupName == group) pos else 0
+
+    /** Kategoria pokazywana na liście po OK (może być inna niż kategoria oglądanego kanału). */
+    private var zapGroupName = Repository.ALL
+    private val zapGroupView by lazy { findViewById<TextView>(R.id.zapGroup).also { v ->
+        v.setOnClickListener { zapCycleGroup(1) } } }
+
+    private fun zapShowGroup() {
+        val groups = Repository.groups()
+        zapGroupView.text = "◄  $zapGroupName  ${groups.indexOf(zapGroupName) + 1}/${groups.size}  ►"
+    }
+
+    /** ◄ ► na liście po OK: zmiana kategorii, fokus od razu na pierwszym kanale nowej kategorii. */
+    private fun zapCycleGroup(d: Int) {
+        val groups = Repository.groups().filter { Repository.channelsFor(it).isNotEmpty() }
+        if (groups.isEmpty()) return
+        val i = groups.indexOf(zapGroupName)
+        zapGroupName = groups[if (i < 0) 0 else (i + d + groups.size) % groups.size]
+        zapAdapter.items = Repository.channelsFor(zapGroupName); zapAdapter.notifyDataSetChanged()
+        zapShowGroup()
+        val shown = minOf(zapRowsMax, zapAdapter.itemCount).coerceAtLeast(1)
+        zapShown = shown
+        zapList.layoutParams.height = shown * zapStride + Ui.dp(8); zapList.requestLayout()
+        zapTop = 0
+        zapList.stopScroll()
+        (zapList.layoutManager as LinearLayoutManager).scrollToPositionWithOffset(0, 0)
+        if (Ui.anim != 0) {
+            zapList.translationX = Ui.dp(if (d >= 0) 40 else -40).toFloat(); zapList.alpha = 0f
+            zapList.animate().translationX(0f).alpha(1f).setDuration(Ui.animDuration).start()
+        }
+        zapList.focusPosition(0)
+        zapTimer()
+    }
 
     private fun zapMove(d: Int) {
         val n = zapAdapter.itemCount; if (n == 0) return
@@ -1445,7 +1491,10 @@ class PlayerActivity : BaseActivity() {
     private fun openZap() {
         if (!Prefs.zapListEnabled || isCatchup || list.isEmpty()) return
         val rows = Prefs.zapRows.coerceIn(4, 14)
+        zapGroupName = group
         zapAdapter.items = list; zapAdapter.notifyDataSetChanged()
+        zapShowGroup(); zapGroupView.background = Ui.tileBg(); zapList.translationX = 0f; zapList.alpha = 1f
+        (zapGroupView.layoutParams as LinearLayout.LayoutParams).bottomMargin = Ui.dp(4)
         val dm = resources.displayMetrics
         val narrow = dm.widthPixels / dm.density < 600
         (zapPanel.layoutParams as FrameLayout.LayoutParams).apply {
@@ -1454,6 +1503,7 @@ class PlayerActivity : BaseActivity() {
         }
         // wiersze nie mogą zasłonić paska informacji: na niskim ekranie mniej wierszy
         val maxRows = ((dm.heightPixels * 0.62f) / (zapRowH + Ui.dp(4))).toInt().coerceAtLeast(3)
+        zapRowsMax = minOf(rows, maxRows)
         val shown = minOf(rows, maxRows, list.size)
         zapList.layoutParams.height = shown * (zapRowH + Ui.dp(4)) + Ui.dp(8)
         zapList.setPadding(Ui.dp(4), Ui.dp(4), Ui.dp(4), Ui.dp(4))

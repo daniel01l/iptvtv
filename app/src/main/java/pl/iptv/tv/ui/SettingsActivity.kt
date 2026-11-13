@@ -73,11 +73,13 @@ class SettingsActivity : BaseActivity() {
             tabStrip = android.widget.HorizontalScrollView(this).apply { isFocusable = false; isHorizontalScrollBarEnabled = false; addView(tabCol) }
             body.addView(tabStrip, LinearLayout.LayoutParams(-1, -2))
         } else body.addView(ScrollView(this).apply { isFocusable = false; addView(tabCol) }, LinearLayout.LayoutParams(Ui.dp(if (narrow) 150 else 240), -1))
-        scroll = ScrollView(this).apply { isFillViewport = true; isFocusable = false; clipChildren = false }
-        container = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(Ui.dp(if (portrait) 6 else 20), Ui.dp(12), Ui.dp(if (portrait) 6 else 14), Ui.dp(40)); clipChildren = false; clipToPadding = false }
+        // pion: treść przycięta do szerokości ekranu (bez wystawania i poziomego „rozjeżdżania”), pasek przewijania poza treścią
+        scroll = ScrollView(this).apply { isFillViewport = true; isFocusable = false; clipChildren = portrait
+            if (portrait) { scrollBarStyle = View.SCROLLBARS_OUTSIDE_OVERLAY; isVerticalScrollBarEnabled = false } }
+        container = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(Ui.dp(if (portrait) 4 else 20), Ui.dp(12), Ui.dp(if (portrait) 4 else 14), Ui.dp(40)); clipChildren = portrait; clipToPadding = portrait }
         scroll.addView(container)
         // podgląd wyglądu przypięty nad przewijaną treścią karty
-        sticky = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(Ui.dp(16), 0, Ui.dp(4), Ui.dp(8)) }
+        sticky = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(Ui.dp(if (portrait) 4 else 16), 0, Ui.dp(4), Ui.dp(8)) }
         val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         right.addView(sticky, LinearLayout.LayoutParams(-1, -2))
         right.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -216,7 +218,7 @@ class SettingsActivity : BaseActivity() {
     private fun target(): LinearLayout = section ?: container
 
     /** Usuwa ikonę z początku tytułu (ustawienia bez emotikon). */
-    private fun clean(t: String) = t.replace(Regex("^[^\\p{L}\\p{N}„\"(]+"), "")
+    private fun clean(t: String) = Ui.stripIcon(t)
 
     /** Nagłówek rozwijanej sekcji; domyślnie rozwinięta tylko pierwsza sekcja karty. */
     private fun header(title: String) {
@@ -237,7 +239,8 @@ class SettingsActivity : BaseActivity() {
         }
         container.addView(h, LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(8) })
         val sec = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(Ui.dp(14), Ui.dp(4), Ui.dp(6), Ui.dp(4)); clipChildren = false; clipToPadding = false
+            orientation = LinearLayout.VERTICAL; setPadding(Ui.dp(if (portraitPhone) 6 else 14), Ui.dp(4), Ui.dp(if (portraitPhone) 2 else 6), Ui.dp(4))
+            clipChildren = portraitPhone; clipToPadding = portraitPhone
             visibility = if (open) View.VISIBLE else View.GONE
         }
         container.addView(sec)
@@ -253,19 +256,27 @@ class SettingsActivity : BaseActivity() {
         target().addView(TextView(this).apply { text = t; tag = "text2"; textSize = 13f; setPadding(Ui.dp(4), Ui.dp(2), 0, Ui.dp(4)) })
     }
 
-    private fun row(title: String, value: String? = null, valueColor: Int? = null, key: String? = null, onClick: () -> Unit): View {
-        val rk = key ?: "row|${clean(title)}"
+    /** Telefon w pionie (wąski ekran) – wiersze i podgląd mieszczą się w szerokości ekranu. */
+    private val portraitPhone get() = resources.configuration.screenWidthDp < 700 &&
+        resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT
+
+    /** [raw] – tytuł to dane użytkownika (nazwa listy, kanału): bez usuwania znaków z początku. */
+    private fun row(title: String, value: String? = null, valueColor: Int? = null, key: String? = null, raw: Boolean = false, onClick: () -> Unit): View {
+        val shown = if (raw) title else clean(title)
+        val rk = key ?: "row|$shown"
         val r = LinearLayout(this).apply {
             tag = "item"; isFocusable = true; isClickable = true; gravity = Gravity.CENTER_VERTICAL
-            setPadding(Ui.dp(14), Ui.dp(12), Ui.dp(14), Ui.dp(12))
+            setPadding(Ui.dp(if (portraitPhone) 10 else 14), Ui.dp(12), Ui.dp(if (portraitPhone) 10 else 14), Ui.dp(12))
             setOnClickListener { lastKey = rk; onClick() }
         }
         r.setTag(R.id.row_key, rk)
-        r.addView(TextView(this).apply { text = clean(title); textSize = 16f }, LinearLayout.LayoutParams(0, -2, 1f))
+        r.addView(TextView(this).apply { text = shown; textSize = 16f }, LinearLayout.LayoutParams(0, -2, 1f))
         if (value != null) r.addView(TextView(this).apply {
-            text = value; textSize = 15f
+            text = value; textSize = 15f; gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            // pion: wartość nie wypycha tytułu poza ekran (najwyżej 45% szerokości, zawijanie do 2 linii)
+            if (portraitPhone) { maxWidth = (resources.displayMetrics.widthPixels * 0.45f).toInt(); maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }
             if (valueColor != null) { tag = "keepcolor"; setTextColor(valueColor) } else tag = "text2"
-        })
+        }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
         target().addView(r, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = Ui.dp(4) })
         return r
     }
@@ -670,7 +681,8 @@ class SettingsActivity : BaseActivity() {
         val column = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         screen.addView(column, android.widget.FrameLayout.LayoutParams(-1, -1))
         val panelBox = android.widget.FrameLayout(this)
-        panelBox.addView(panel, android.widget.FrameLayout.LayoutParams(px(300), -2).apply {
+        // na wąskim ekranie panel podglądu nie szerszy niż 75% ekranu (wcześniej wystawał poza ekran w pionie)
+        panelBox.addView(panel, android.widget.FrameLayout.LayoutParams(minOf(px(300), (resources.displayMetrics.widthPixels * 0.75f).toInt()), -2).apply {
             gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL; leftMargin = px(12)
         })
         // pasek informacji (góra/dół)
@@ -799,9 +811,37 @@ class SettingsActivity : BaseActivity() {
         choice("Synchronizacja dźwięku z obrazem", delays.map { PlayerActivity.delayLabel(it) }, { delays.indexOf(Prefs.audioDelayMs).coerceAtLeast(10) }, look = false) { Prefs.audioDelayMs = delays[it] }
         note("Gdy dźwięk spóźnia się względem obrazu, wybierz „dźwięk wcześniej”. Zmienisz to też podczas oglądania: przytrzymaj OK → Audio i napisy.")
 
+        header("Silnik odtwarzania i akceleracja")
+        choice("Silnik odtwarzania", Playback.ENGINES, { Prefs.playerEngine.coerceIn(Playback.ENGINES.indices) }, look = false) { Prefs.playerEngine = it; Playback.stop() }
+        note("Dekoder sprzętowy: obraz dekoduje układ graficzny (najmniejsze obciążenie, zalecany). Programowy: gdy sprzętowy daje zielony/czarny obraz lub nie obsługuje formatu (większe obciążenie procesora). Tunelowanie: obraz i dźwięk synchronizowane sprzętowo – na zgodnych Android TV najpłynniejszy obraz; synchronizacja dźwięku z ustawień może wtedy nie działać.")
+        choice("Kolejka dekodera", listOf("Automatycznie", "Asynchroniczna (szybsza)", "Synchroniczna (gdy obraz zamarza)"), { Prefs.asyncDecoder.coerceIn(0, 2) }, look = false) { Prefs.asyncDecoder = it; Playback.stop() }
+        toggle("Zapasowy dekoder przy błędzie", { Prefs.decoderFallback }) { Prefs.decoderFallback = it; Playback.stop() }
+        toggle("Niskie opóźnienie na żywo", { Prefs.lowLatency }) { Prefs.lowLatency = it; Playback.stop() }
+        note("Niskie opóźnienie: start po 0,5 s buforu i odtwarzanie bliżej bieżącej chwili transmisji (mniejsze opóźnienie, przy słabym łączu częstsze buforowanie).")
+        row("Bieżący dekoder", Playback.decoderInfo().take(60)) { Dialogs.confirm(this, "Bieżący dekoder", Playback.decoderInfo()) {} }
+        note("Zmiana silnika lub dekodera zatrzymuje odtwarzanie – następny kanał startuje z nowymi ustawieniami.")
+
         header("Wydajność")
         toggle("Tryb dla słabszych urządzeń", { Prefs.lowPerf }) { Prefs.lowPerf = it; Playback.stop() }
-        note("Tryb dla słabszych urządzeń: obraz maks. 1080p, mniejszy bufor w pamięci, krótszy program TV (3 dni naprzód) , spokojniejsze pobieranie EPG podczas oglądania oraz czyszczenie dekodera przy każdej zmianie kanału (pomaga, gdy obraz zacina się po ▲▼, np. na projektorach). Domyślnie włączany na urządzeniach z małą ilością pamięci.")
+        note("Tryb dla słabszych urządzeń: ograniczona rozdzielczość, mniejszy bufor w pamięci, krótszy program TV, spokojniejsze pobieranie EPG podczas oglądania oraz czyszczenie dekodera przy każdej zmianie kanału (pomaga, gdy obraz zacina się po ▲▼, np. na projektorach). Domyślnie włączany na urządzeniach z małą ilością pamięci. Poniższe wartości można zmienić.")
+        if (Prefs.lowPerf) {
+            subheader("Parametry trybu dla słabszych urządzeń")
+            fun num(title: String, values: List<Int>, label: (Int) -> String, get: () -> Int, set: (Int) -> Unit, restart: Boolean = true) =
+                choice(title, values.map(label), { values.indexOf(get()).let { if (it < 0) values.indexOfFirst { v -> v >= get() }.coerceAtLeast(0) else it } }, look = false) {
+                    set(values[it]); if (restart) Playback.stop()
+                }
+            num("Maksymalna rozdzielczość", listOf(480, 576, 720, 1080, 1440, 2160, 0), { if (it == 0) "bez limitu" else "${it}p" }, { Prefs.lowMaxHeight }, { Prefs.lowMaxHeight = it })
+            num("Bufor – minimum", listOf(2, 5, 8, 10, 15, 20, 30, 45, 60), { "$it s" }, { Prefs.lowBufMinS }, { Prefs.lowBufMinS = it; if (Prefs.lowBufMaxS < it) Prefs.lowBufMaxS = it })
+            num("Bufor – maksimum", listOf(5, 10, 15, 20, 30, 45, 60, 90, 120), { "$it s" }, { Prefs.lowBufMaxS }, { Prefs.lowBufMaxS = it; if (Prefs.lowBufMinS > it) Prefs.lowBufMinS = it })
+            num("Pamięć bufora", listOf(8, 16, 24, 32, 48, 64, 96, 128), { "$it MB" }, { Prefs.lowBufMb }, { Prefs.lowBufMb = it })
+            toggle("Czyszczenie dekodera przy zmianie kanału", { Prefs.lowCleanDecoder }) { Prefs.lowCleanDecoder = it }
+            num("Opóźnienie startu po ▲▼", listOf(150, 250, 350, 450, 600, 800, 1000, 1500), { "$it ms" }, { Prefs.lowZapDelay }, { Prefs.lowZapDelay = it }, restart = false)
+            num("Program TV naprzód", (1..7).toList(), { if (it == 1) "1 dzień" else "$it dni" }, { Prefs.lowEpgAhead }, { Prefs.lowEpgAhead = it }, restart = false)
+            num("Długość opisu programu", listOf(100, 200, 300, 500, 1000, 2000), { "$it znaków" }, { Prefs.lowDescLen }, { Prefs.lowDescLen = it }, restart = false)
+            num("Pobieranie EPG podczas oglądania", listOf(200, 400, 600, 1000, 1500, 2500, 5000), { "$it kB/s" }, { Prefs.lowEpgKbps }, { Prefs.lowEpgKbps = it }, restart = false)
+            note("Program TV i opisy: zmiana działa po następnym pobraniu EPG.")
+            row("↺ Przywróć domyślne parametry") { Prefs.resetLowPerfParams(); Playback.stop(); build(keepFocus = true) }
+        }
     }
 
     // ================= System =================
@@ -1151,7 +1191,7 @@ class SettingsActivity : BaseActivity() {
         lists.forEach { p ->
             val days = if (p.expiry <= 0) "bez daty" else if (p.expiry < System.currentTimeMillis()) "wygasła"
                 else "do ${Playlists.formatDate(p.expiry)}"
-            row(p.name + if (p.id == active) "  (aktywna)" else "", days, key = "list|${p.id}") { listMenu(p) }
+            row(p.name + if (p.id == active) "  (aktywna)" else "", days, key = "list|${p.id}", raw = true) { listMenu(p) }
         }
         row("Dodaj listę (kreator)…") { startActivity(Intent(this, SetupActivity::class.java).putExtra(SetupActivity.EXTRA_ADD_LIST, true)) }
         note("Program TV, logo kanałów, token i archiwum są zapisywane osobno dla każdej listy.")
@@ -1290,7 +1330,7 @@ class SettingsActivity : BaseActivity() {
                 pl.iptv.tv.data.RecJob.DONE -> "✔ ${f.length() / 1_048_576} MB"
                 else -> "✖ ${j.error.take(30)}"
             }
-            row("${j.channelName}: ${j.title}", state) { recMenu(j) }
+            row("${j.channelName}: ${j.title}", state, raw = true) { recMenu(j) }
         }
     }
 

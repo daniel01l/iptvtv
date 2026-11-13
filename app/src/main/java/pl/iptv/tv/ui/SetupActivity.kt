@@ -174,7 +174,7 @@ class SetupActivity : BaseActivity() {
             tag = "item"; isFocusable = true; isClickable = true; gravity = Gravity.CENTER_VERTICAL
             setPadding(Ui.dp(14), Ui.dp(12), Ui.dp(14), Ui.dp(12)); setOnClickListener { if (!busy) onClick() }
         }
-        r.addView(TextView(this).apply { text = title.replace(Regex("^[^\\p{L}\\p{N}„\"(]+"), ""); textSize = 16f }, LinearLayout.LayoutParams(0, -2, 1f))
+        r.addView(TextView(this).apply { text = Ui.stripIcon(title); textSize = 16f }, LinearLayout.LayoutParams(0, -2, 1f))
         if (value != null) r.addView(TextView(this).apply { text = value; textSize = 15f; tag = "text2" })
         container.addView(r, LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(4) })
         return r

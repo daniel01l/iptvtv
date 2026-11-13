@@ -104,8 +104,12 @@ class V51Test {
         assertEquals("Wszystkie  1/4", g.text.toString())
         key(a, KeyEvent.KEYCODE_DPAD_UP)                                          // z pierwszego kanału na nagłówek
         assertTrue(g.isFocused)
-        key(a, KeyEvent.KEYCODE_DPAD_RIGHT); assertEquals("G1  2/4", g.text.toString()); assertTrue(g.isFocused)
+        // v5.6: zmiana kategorii zaznacza od razu pierwszy kanał (wystarczy OK); kolejne ◄ ► dalej zmieniają kategorię
+        key(a, KeyEvent.KEYCODE_DPAD_RIGHT); assertEquals("G1  2/4", g.text.toString())
+        val lp = a.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.lpChannels)
+        assertEquals(0, lp.findContainingViewHolder(a.window.decorView.findFocus()!!)?.bindingAdapterPosition)
         key(a, KeyEvent.KEYCODE_DPAD_LEFT); key(a, KeyEvent.KEYCODE_DPAD_LEFT); assertEquals("G0  4/4", g.text.toString())
+        assertEquals(0, lp.findContainingViewHolder(a.window.decorView.findFocus()!!)?.bindingAdapterPosition)
         key(a, KeyEvent.KEYCODE_CHANNEL_DOWN); assertEquals("Wszystkie  1/4", g.text.toString())
         key(a, KeyEvent.KEYCODE_DPAD_DOWN)
         assertTrue(generateSequence(a.window.decorView.findFocus()) { it.parent as? View }.any { it.id == R.id.lpChannels })

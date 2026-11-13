@@ -89,6 +89,15 @@ object RemoteRelay {
             .put("expiry", pl.iptv.tv.data.Playlists.formatDate(act?.expiry ?: 0)).put("channels", Repository.allChannels.size)
             .put("epg", Repository.allChannels.count { it.epgKey != null }).put("lists", pl.iptv.tv.data.Playlists.all().size)
             .put("watching", Repository.byKey(Prefs.lastChannel)?.name ?: "").put("msg", msg).put("ts", System.currentTimeMillis())
+            // kod aktywacji (XXXX-XXXX) – administrator łączy raport z wpisem w „Moich urządzeniach”
+            .put("act", runCatching { pl.iptv.tv.data.Activation.code }.getOrDefault(""))
+            // listy na urządzeniu – wybór aktywnej listy z panelu administratora
+            .put("playlists", org.json.JSONArray().apply {
+                pl.iptv.tv.data.Playlists.all().forEach { p ->
+                    put(JSONObject().put("id", p.id).put("name", p.name).put("active", p.id == Prefs.activePlaylist)
+                        .put("expiry", pl.iptv.tv.data.Playlists.formatDate(p.expiry)))
+                }
+            })
     }
 
     /** Wysyła stan urządzenia do skrzynki administratora (wiadomość tekstowa, szyfrowana kodem administratora). */
@@ -121,6 +130,15 @@ object RemoteRelay {
             }
             // token jest tylko informacją w aplikacji administratora – nie zmienia listy ani EPG
             "set_token" -> "Token zapisany w panelu administratora"
+            // wybór aktywnej listy z panelu administratora
+            "use_list" -> {
+                val p = pl.iptv.tv.data.Playlists.all().firstOrNull { it.id == json.optString("id") } ?: return "Brak listy na urządzeniu"
+                kotlinx.coroutines.runBlocking {
+                    val n = runCatching { Repository.switchPlaylist(p.id) }
+                    RemoteServer.notifyChanged()
+                    n.fold({ "Aktywna lista: ${p.name} ($it kanałów)" }, { "Lista ${p.name}: błąd wczytywania – ${it.message}" })
+                }
+            }
             "set_expiry" -> pl.iptv.tv.data.Playlists.active()?.let { a ->
                 val d = pl.iptv.tv.data.Playlists.parseDate(json.optString("date")) ?: return "Błędna data"
                 pl.iptv.tv.data.Playlists.update(a.copy(expiry = d)); "Data ważności: ${json.optString("date")}"

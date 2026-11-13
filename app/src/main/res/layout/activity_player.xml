@@ -141,6 +141,10 @@
     <!-- OK: lista kanałów nad paskiem informacji -->
     <LinearLayout android:id="@+id/zapPanel" android:layout_width="wrap_content" android:layout_height="wrap_content"
         android:layout_gravity="bottom|start" android:orientation="vertical" android:padding="6dp" android:visibility="gone">
+        <!-- ramka z bieżącą kategorią: ◄ ► zmienia kategorię -->
+        <TextView android:id="@+id/zapGroup" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:gravity="center" android:textStyle="bold" android:textSize="15sp" android:singleLine="true"
+            android:ellipsize="end" android:paddingTop="6dp" android:paddingBottom="6dp" android:tag="accent"/>
         <androidx.recyclerview.widget.RecyclerView android:id="@+id/zapList" android:layout_width="match_parent"
             android:layout_height="wrap_content"/>
     </LinearLayout>

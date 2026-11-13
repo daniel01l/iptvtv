@@ -1,4 +1,4 @@
-# D-iptv Player – odtwarzacz M3U dla Android TV i telefonów (v5.5)
+# D-iptv Player – odtwarzacz M3U dla Android TV i telefonów (v5.6)
 
 ## Funkcje
 **Źródła:** lista M3U z linku, pliku lub ścieżki • EPG XMLTV (`.xml`/`.xml.gz`, adres `url-tvg` z listy lub ręczny) • picony (`tvg-logo`, własny katalog lub szablon `{id}`/`{name}`/`{name_raw}`, ikony z EPG) • catch-up: `default`, `append`, `shift`, `flussonic`, `xc`.
@@ -78,6 +78,17 @@
 | Edytor | OK = opcje, „⇅ Przenieś” + ▲▼, OK = koniec | przeciągnij za ≡ |
 
 Kanał trafia do „ostatnio oglądanych” po co najmniej 1 minucie odtwarzania.
+
+**v5.6 / Admin 2.4**:
+- **Silnik odtwarzania** (Ustawienia → Odtwarzanie → Silnik odtwarzania i akceleracja): Media3 z dekoderem sprzętowym (zalecany, dekodery sprzętowe zawsze przed programowymi), z dekoderem programowym (zgodność, gdy obraz jest zielony/czarny) albo z tunelowaniem (Android TV: obraz i dźwięk synchronizowane sprzętowo). Do tego kolejka dekodera (automatycznie / asynchroniczna / synchroniczna), zapasowy dekoder przy błędzie, „Niskie opóźnienie na żywo” (start po 0,5 s, bliżej bieżącej chwili transmisji) i podgląd bieżącego dekodera.
+- **Tryb dla słabszych urządzeń – edytowalne parametry**: maks. rozdzielczość, bufor (min./maks., pamięć), czyszczenie dekodera przy zmianie kanału, opóźnienie startu po ▲▼, dni programu TV naprzód, długość opisów, szybkość pobierania EPG podczas oglądania; „↺ Przywróć domyślne parametry”.
+- **Lista kanałów po OK**: u góry ramka z bieżącą kategorią; ◄ ► zmienia kategorię i od razu zaznacza jej pierwszy kanał (wystarczy OK). Panel ◄: ◄ ► na nagłówku kategorii też zaznacza pierwszy kanał, kolejne ◄ ► dalej zmieniają kategorię.
+- **Menu główne**: OK na kategorii (pilot) od razu przenosi do jej pierwszego kanału.
+- Nazwy list i nagrań w Ustawieniach nie są ucinane (np. „[PL] Sport”, „|VIP| Filmy” – wcześniej znikał pierwszy znak).
+- Telefon: Ustawienia nie obracają się na chwilę do poziomu przy otwieraniu w pionie; w pionie wiersze, podgląd i sekcje mieszczą się w szerokości ekranu (bez wystawania treści).
+- To samo okno nie otwiera się dwa razy naraz (podwójne naciśnięcie / dotknięcie).
+- Raport do administratora zawiera kod aktywacji i listy zapisane na urządzeniu; nowe polecenie zdalne „use_list” (zmiana aktywnej listy).
+- **D-iptv Admin 2.4**: sekcja „🏠 Moje urządzenia”; urządzenie dodane w Aktywacjach do „Moich urządzeń” pojawia się od razu (jako ⏳ oczekujące do pierwszego raportu), a znacznik 🏠 jest widoczny zaraz po potwierdzeniu. Urządzenia opisane jako „Nazwa: KOD” (np. „Salon: K7QF-3M9X”). W menu urządzenia: „📋 Wybierz aktywną listę…” (listy zapisane na urządzeniu) i „📚 Wyślij zapisaną listę…”; przycisk „📚 Listy” – zapisane listy (nazwa, link, EPG, data ważności) do szybkiego wysyłania.
 
 **v5.5**: płynniejsze przełączanie ▲▼ na słabszych urządzeniach (projektory, tanie przystawki): szybkie naciśnięcia pomijają kanały pośrednie (od razu widać nazwę, obraz startuje po zatrzymaniu), po kanale z błędem lub nieuruchomionym dekoder jest czyszczony przed następnym, ograniczona liczba ponowień przy wadliwym strumieniu (zaległe ponowienia nie przeszkadzają kolejnemu kanałowi). Gdy problem dotyczy jednego urządzenia (np. projektora), włącz na nim Ustawienia → Odtwarzanie → „Tryb dla słabszych urządzeń” – dekoder jest wtedy czyszczony przy każdej zmianie kanału.
 
