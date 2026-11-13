@@ -50,7 +50,7 @@ class V40Test {
     @Before fun setup() {
         Playback.stop()
         Prefs.permissionsAsked = true; Prefs.setupDone = true; Prefs.startAction = 0; Prefs.playlistsJson = "[]"; Prefs.mainPreview = false
-        Prefs.keyMapJson = ""; Prefs.zapListEnabled = true; Prefs.zapRows = 8; Prefs.miniMenuEnabled = true; MiniMenu.reset(); Prefs.epgUrl = ""
+        Prefs.keyMapJson = ""; Prefs.zapListEnabled = true; Prefs.zapRows = 8; Prefs.miniMenuEnabled = true; Prefs.okLongAction = 1; MiniMenu.reset(); Prefs.epgUrl = ""
         val f = File(ctx.filesDir, "v40.m3u").apply { writeText((1..20).joinToString("", "#EXTM3U\n") { "#EXTINF:-1 tvg-id=\"c$it\",K$it\nhttp://v40/$it\n" }) }
         Repository.resetAllEdits(); runBlocking { Repository.loadPlaylist(f.absolutePath) }
         Playlists.syncActive(f.absolutePath)
@@ -129,7 +129,7 @@ class V40Test {
         a.dispatchKeyEvent(KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_CENTER, 1))
         a.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_CENTER)); idle()
         val icons = a.findViewById<LinearLayout>(R.id.miniIcons)
-        assertEquals(7, icons.childCount)
+        assertEquals(8, icons.childCount)                       // + kafelek „Silnik i akceleracja”
         for (i in 0 until icons.childCount) {
             val box = icons.getChildAt(i) as FrameLayout
             val child = box.getChildAt(0)

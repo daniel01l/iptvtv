@@ -48,19 +48,109 @@ object Fmt {
 }
 
 /** Logo kanału: z pamięci od razu (bez ikony ładowania), inaczej pobranie w tle. */
+/**
+ * Logo kanału o stałym rozmiarze: wczytanie obrazu nie przelicza układu całej listy
+ * (wcześniej każde doczytane logo wywoływało ponowny układ RecyclerView – przycięcia przy przewijaniu).
+ */
+class PiconView @JvmOverloads constructor(c: android.content.Context, a: android.util.AttributeSet? = null) :
+    androidx.appcompat.widget.AppCompatImageView(c, a) {
+    private var fixedUpdate = false
+    init {
+        // logo przycięte do zaokrąglonego kafelka wg motywu – kwadratowe rogi obrazu nie wystają poza kartę
+        outlineProvider = object : android.view.ViewOutlineProvider() {
+            override fun getOutline(v: View, o: android.graphics.Outline) { o.setRoundRect(0, 0, v.width, v.height, Ui.logoRadius) }
+        }
+        clipToOutline = true
+    }
+    override fun setImageDrawable(d: android.graphics.drawable.Drawable?) {
+        val lp = layoutParams
+        fixedUpdate = lp != null && lp.width > 0 && lp.height > 0 && isLaidOut
+        try { super.setImageDrawable(d) } finally { fixedUpdate = false }
+    }
+    override fun requestLayout() { if (!fixedUpdate) super.requestLayout() }
+}
+
+private val piconSize = coil.size.Size(240, 144)
+
+/** Zastępcze logo: inicjały kanału na kolorowym kafelku (kolor stały dla nazwy) – kanał bez logo nie zostaje pusty. */
+class MonogramDrawable(name: String) : android.graphics.drawable.Drawable() {
+    private val label = name.replace(Regex("\\b(HD|FHD|UHD|4K|SD|PL|TV)\\b", RegexOption.IGNORE_CASE), " ")
+        .split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }.take(2).joinToString("") { it.take(if (it.all(Char::isDigit)) 3 else 1) }
+        .uppercase().ifEmpty { "TV" }.take(3)
+    private val bgPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        val h = (name.lowercase().hashCode() and 0x7FFFFFFF) % 360
+        color = android.graphics.Color.HSVToColor(floatArrayOf(h.toFloat(), 0.45f, 0.42f))
+    }
+    private val txt = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.WHITE; textAlign = android.graphics.Paint.Align.CENTER; typeface = android.graphics.Typeface.DEFAULT_BOLD
+    }
+    private val r = android.graphics.RectF()
+    override fun draw(c: android.graphics.Canvas) {
+        val b = bounds; if (b.isEmpty) return
+        // kafelek o proporcjach logo (do 16:10), wyśrodkowany
+        val w = minOf(b.width().toFloat(), b.height() * 1.6f); val h = minOf(b.height().toFloat(), w / 1.2f)
+        r.set(b.exactCenterX() - w / 2, b.exactCenterY() - h / 2, b.exactCenterX() + w / 2, b.exactCenterY() + h / 2)
+        c.drawRoundRect(r, h * 0.18f, h * 0.18f, bgPaint)
+        txt.textSize = h * (if (label.length > 2) 0.38f else 0.48f)
+        c.drawText(label, r.centerX(), r.centerY() - (txt.descent() + txt.ascent()) / 2, txt)
+    }
+    override fun setAlpha(a: Int) { bgPaint.alpha = a; txt.alpha = a }
+    override fun setColorFilter(cf: android.graphics.ColorFilter?) {}
+    @Deprecated("Deprecated in Java") override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
+}
+
+/** Adresy logo, które się nie wczytały (adres → czas) – przez 10 min od razu następne źródło, bez ponownego czekania. */
+private val piconFailed = java.util.concurrent.ConcurrentHashMap<String, Long>()
+private const val PICON_FAIL_MS = 10 * 60_000L
+/** Przerwy przed kolejnymi rundami prób wczytania logo (po porażce wszystkich źródeł). */
+val PICON_RETRY_DELAYS = longArrayOf(4_000L, 15_000L, 45_000L)
+fun piconFailedRecently(url: String) = piconFailed[url]?.let { System.currentTimeMillis() - it < PICON_FAIL_MS } == true
+
+/**
+ * Logo kanału, wielopoziomowo: pamięć RAM → dysk → sieć (klient z długimi limitami i ponowieniami) → kolejne źródła
+ * (tvg-logo, ikona z EPG) → ponowienie po chwili (2×) → inicjały kanału. Każdy kanał ma zawsze jakiś obraz.
+ */
 fun ImageView.loadPicon(ch: Channel) {
-    val url = Repository.piconFor(ch)
-    if (url == null) { setImageResource(R.drawable.ic_tv); return }
-    val cached = coil.Coil.imageLoader(context).memoryCache?.get(coil.memory.MemoryCache.Key(url))?.bitmap
-    if (cached != null) { coil.util.CoilUtils.dispose(this); setImageBitmap(cached); return }
-    load(url) { crossfade(false); placeholder(drawable); error(R.drawable.ic_tv); size(coil.size.Size(320, 192)) }
+    val urls = Repository.piconCandidates(ch)
+    val key = ch.key + "|" + urls.joinToString("|")
+    coil.util.CoilUtils.dispose(this)
+    setTag(R.id.picon_url, key)
+    if (urls.isEmpty()) { setImageDrawable(MonogramDrawable(ch.name)); return }
+    val mem = coil.Coil.imageLoader(context).memoryCache
+    urls.firstNotNullOfOrNull { u -> mem?.get(coil.memory.MemoryCache.Key(u))?.bitmap }?.let { setImageBitmap(it); return }
+    // inicjały kanału do czasu wczytania logo (widok z recyklingu) – bez mignięcia złego logo i bez pustego kafelka
+    setImageDrawable(MonogramDrawable(ch.name))
+    val rv = parent?.let { p -> generateSequence(p) { it.parent }.firstOrNull { it is RecyclerView } } as RecyclerView?
+    val start = { if (getTag(R.id.picon_url) == key) loadPiconChain(ch, urls, key, 0, 0) }
+    // szybkie przewijanie (przytrzymany ▲▼): logo wczytywane dopiero dla wierszy, które się zatrzymały na ekranie
+    if (rv != null && rv.scrollState != RecyclerView.SCROLL_STATE_IDLE) postDelayed(start, 140) else start()
+}
+
+private fun ImageView.loadPiconChain(ch: Channel, urls: List<String>, key: String, index: Int, round: Int) {
+    if (getTag(R.id.picon_url) != key) return                // widok pokazuje już inny kanał
+    // pomijane adresy, które niedawno zawiodły (o ile zostało coś innego do spróbowania)
+    var i = index
+    while (i < urls.size - 1 && round == 0 && piconFailedRecently(urls[i])) i++
+    if (i >= urls.size) {
+        // wszystkie źródła zawiodły: inicjały od razu, ponowna próba po chwili (wolny lub chwilowo niedostępny serwer)
+        if (drawable == null) setImageDrawable(MonogramDrawable(ch.name))
+        if (round < PICON_RETRY_DELAYS.size) postDelayed({ loadPiconChain(ch, urls, key, 0, round + 1) }, PICON_RETRY_DELAYS[round])
+        return
+    }
+    val url = urls[i]
+    val req = coil.request.ImageRequest.Builder(context).data(url).size(piconSize).crossfade(false)
+        .target(
+            onSuccess = { d -> if (getTag(R.id.picon_url) == key) { piconFailed.remove(url); setImageDrawable(d) } },
+            onError = { _ -> piconFailed[url] = System.currentTimeMillis(); loadPiconChain(ch, urls, key, i + 1, round) },
+        ).build()
+    coil.Coil.imageLoader(context).enqueue(req)
 }
 
 /** Wczytanie logo do pamięci z wyprzedzeniem (np. sąsiednie kanały przy przełączaniu). */
 fun prefetchPicon(c: android.content.Context, ch: Channel) {
     val url = Repository.piconFor(ch) ?: return
     if (coil.Coil.imageLoader(c).memoryCache?.get(coil.memory.MemoryCache.Key(url)) != null) return
-    coil.Coil.imageLoader(c).enqueue(coil.request.ImageRequest.Builder(c).data(url).size(coil.size.Size(320, 192)).build())
+    coil.Coil.imageLoader(c).enqueue(coil.request.ImageRequest.Builder(c).data(url).size(piconSize).build())
 }
 
 /**
@@ -133,6 +223,8 @@ class ChannelAdapter(
         set(v) { field = v; notifyDataSetChanged() }
     /** Telefon w pionie: mniejsze logo i numer – więcej miejsca na nazwę kanału. */
     var compactLogo = false
+    /** Karty poziome (motywy konsolowe): pionowa karta z dużym logo, nazwą i bieżącym programem. */
+    var cards = false
     /** Kanał zaznaczony (np. dotknięty raz na telefonie). */
     var selectedKey: String? = null
         set(v) {
@@ -150,7 +242,18 @@ class ChannelAdapter(
         val catchup: TextView = v.findViewById(R.id.catchup)
         val fav: TextView = v.findViewById(R.id.fav)
     }
-    override fun onCreateViewHolder(p: ViewGroup, t: Int) = VH(inflate(p, R.layout.item_channel))
+    override fun onCreateViewHolder(p: ViewGroup, t: Int) = VH(inflate(p, R.layout.item_channel).also { if (cards) toCard(it) })
+
+    private fun toCard(v: View) {
+        val d = v.resources.displayMetrics.density; fun px(x: Int) = (x * d).toInt()
+        val root = v as android.widget.LinearLayout
+        root.orientation = android.widget.LinearLayout.VERTICAL; root.gravity = android.view.Gravity.CENTER
+        root.setPadding(px(10), px(10), px(10), px(8))
+        root.layoutParams = RecyclerView.LayoutParams(px(196), ViewGroup.LayoutParams.MATCH_PARENT).apply { marginEnd = px(12) }
+        (root.getChildAt(2).layoutParams as android.widget.LinearLayout.LayoutParams).apply { width = ViewGroup.LayoutParams.MATCH_PARENT; weight = 0f; marginStart = 0; topMargin = px(8) }
+        v.findViewById<TextView>(R.id.name).gravity = android.view.Gravity.CENTER_HORIZONTAL
+        v.findViewById<TextView>(R.id.now).gravity = android.view.Gravity.CENTER_HORIZONTAL
+    }
     override fun getItemCount() = items.size
     fun indexOfKey(key: String?) = items.indexOfFirst { it.key == key }
 
@@ -182,17 +285,17 @@ class ChannelAdapter(
         val ch = items[pos]
         val now = System.currentTimeMillis()
         val d = h.itemView.resources.displayMetrics.density
-        h.picon.layoutParams.width = ((if (compactLogo) 48 else 76) * d).toInt(); h.picon.layoutParams.height = ((if (compactLogo) 30 else 46) * d).toInt()
+        h.picon.layoutParams.width = ((if (cards) 132 else if (compactLogo) 48 else 76) * d).toInt(); h.picon.layoutParams.height = ((if (cards) 80 else if (compactLogo) 30 else 46) * d).toInt()
         h.num.layoutParams.width = ((if (compactLogo) 26 else 38) * d).toInt()
-        h.num.visibility = if (Prefs.showNumbers) View.VISIBLE else View.GONE
+        h.num.visibility = if (Prefs.showNumbers && !cards) View.VISIBLE else View.GONE
         h.num.text = ch.number.toString()
         h.name.text = (if (pl.iptv.tv.data.Parental.isLocked(ch)) "🔒 " else "") + ch.name
         val cur = Repository.current(ch, now)
         nowText(h, ch, cur, now)
         h.progress.show(cur, now)
-        h.catchup.visibility = if (ch.hasCatchup) View.VISIBLE else View.GONE
+        h.catchup.visibility = if (ch.hasCatchup && !cards) View.VISIBLE else View.GONE
         h.catchup.setTextColor(Ui.archive)
-        h.fav.visibility = if (Repository.isFav(ch)) View.VISIBLE else View.GONE
+        h.fav.visibility = if (Repository.isFav(ch) && !cards) View.VISIBLE else View.GONE
         h.itemView.isActivated = ch.key == selectedKey
         h.picon.loadPicon(ch)
         h.itemView.setOnFocusChangeListener { _, f -> if (f) onFocus(ch) }
@@ -233,7 +336,8 @@ class ProgrammeAdapter(
         h.title.text = p.fullTitle
         val ch = channel
         when {
-            p.isNow(now) -> { h.badge.text = "● NA ŻYWO"; h.badge.setTextColor(Ui.live) }
+            // trwający mecz: wynik na żywo zamiast samego „NA ŻYWO” (program TV kanału, lista EPG)
+            p.isNow(now) -> { h.badge.text = ch?.let { pl.iptv.tv.data.Scores.liveForProgramme(it, p, now) } ?: "● NA ŻYWO"; h.badge.setTextColor(Ui.live) }
             p.start > now && ch != null && pl.iptv.tv.data.Reminders.isSet(ch, p) -> { h.badge.text = "🔔"; h.badge.setTextColor(Ui.accent) }
             p.end <= now && p.start >= catchupFrom -> { h.badge.text = "⟲"; h.badge.setTextColor(Ui.archive) }
             else -> h.badge.text = ""

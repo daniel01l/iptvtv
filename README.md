@@ -1,10 +1,10 @@
-# D-iptv Player – odtwarzacz M3U dla Android TV i telefonów (v5.6)
+# D-iptv Player – odtwarzacz M3U dla Android TV i telefonów (v6.0)
 
 ## Funkcje
 **Źródła:** lista M3U z linku, pliku lub ścieżki • EPG XMLTV (`.xml`/`.xml.gz`, adres `url-tvg` z listy lub ręczny) • picony (`tvg-logo`, własny katalog lub szablon `{id}`/`{name}`/`{name_raw}`, ikony z EPG) • catch-up: `default`, `append`, `shift`, `flussonic`, `xc`.
 
 **Wygląd** (Ustawienia → Wygląd):
-- 7 motywów: Nowoczesny, Klasyczny dekoder, AMOLED czerń, Jasny, Neon retro, Kino, Leśny. Motyw ustawia wszystkie poniższe opcje, a potem każdą można zmienić osobno.
+- 12 motywów: Nowoczesny, Klasyczny dekoder, AMOLED czerń, Jasny, Neon retro, Kino, Leśny oraz MagicOS – karty, iOS – szkło, Windows 11 – mika, PlayStation 5 – konsola, Xbox Series X – konsola (zmieniają też geometrię: kształty, ramki okien, ikony, przejścia, układ menu). Motyw ustawia wszystkie poniższe opcje, a potem każdą można zmienić osobno.
 - 7 kolorów do zmiany (tło, panele, akcent, zaznaczenie, tekst zaznaczenia, tekst, tekst dodatkowy): paleta lub kod `#RRGGBB`
 - 8 krojów czcionki, 4 wielkości tekstu
 - animacje: brak, zanikanie, przesunięcie, powiększenie; 3 prędkości; powiększanie zaznaczonego elementu
@@ -78,6 +78,40 @@
 | Edytor | OK = opcje, „⇅ Przenieś” + ▲▼, OK = koniec | przeciągnij za ≡ |
 
 Kanał trafia do „ostatnio oglądanych” po co najmniej 1 minucie odtwarzania.
+
+**v6.0**:
+- **Motywy systemowe dopracowane**: iOS – karty o promieniu 22 dp i miękki, świecący biały pierścień zaznaczenia; MagicOS – neonowo-błękitny akcent (#2EC7FF) i cienka błękitna krawędź zaznaczonej karty; Windows 11 – zaokrąglenie 8 dp (jak Fluent); Xbox – zaznaczenie w kolorze #107C10: gruba ramka z wewnętrzną jasną linią (wysoki kontrast na ciemnym tle).
+- **Przycinanie elementów**: każdy element list i kafelek (nie tylko panele) przycina treść do swojego zaokrąglonego kształtu – logo, miniatury i tła nie wychodzą poza kafelek w żadnym motywie (wyjątek: tag `noclip`).
+- **Logo kanałów**: dłuższe limity (40 s połączenie / 75 s odczyt / 180 s całość), 3 ponowienia żądania, trzecia runda prób po 45 s; do czasu wczytania od razu inicjały kanału (bez pustego kafelka).
+
+**v5.9**:
+- **Przycinanie do ramek** (wszystkie motywy): panele i kafelki przycinają treść do swojej zaokrąglonej ramki – powiększony element, logo, podgląd kanału i kafelki szybkiego menu nie wychodzą poza krawędzie. Logo kanałów w zaokrąglonym kafelku (ostrym w Xbox). Ustawienia: powiększony wiersz nie wchodzi na kolumnę kart.
+- **Pasek informacji wg motywu** (Wygląd → Pasek informacji → Styl, domyślnie wg motywu): MagicOS – pływająca karta; iOS – szklana kapsuła z większą nazwą kanału; Windows 11 – panel miki z paskiem akcentu; PS5 – szeroki pasek z niebieską poświatą u góry; Xbox – ostry pasek z linią limonki. Logo w kafelku w kształcie motywu. Pasek archiwum korzysta z tego samego stylu (style pływające odsunięte od krawędzi).
+- **Odtwarzacz archiwum**: przyciski w kształcie motywu (kapsuła / prostokąt / ostre z limonkową ramką, poświata w PS5) i wyraźne powiększenie zaznaczonego; ▲ z przycisków przechodzi na oś czasu (◄ ► przewijają, ▼ wraca do ▶‖); przytrzymany ◄ ► przewija coraz szybciej (krok ×2, ×4, ×8); podpowiedź pokazuje przesunięcie i godzinę, w którą trafi przewijanie (np. „⏩ +1:30 → 20:47”).
+- **Menu główne**: listy bez animacji zmian elementów i ze stałym rozmiarem – szybsza, płynniejsza nawigacja pilotem (odświeżenie programu nie opóźnia fokusu).
+
+**v5.8**:
+- **Motywy zmieniają geometrię, nie tylko kolory** (wspólny opis motywu: powiększenie zaznaczenia, nagłówki, ramki okien, kształt ikon, rozmycie, przejścia):
+  - **MagicOS – karty**: duże zaokrąglenia (okna 24 dp), lekko rozmyte tło pod oknami, okrągłe kafelki ikon, przejście „unoszenie” (ekran wpływa lekko od dołu).
+  - **iOS – szkło**: duże, pogrubione nagłówki (Ustawienia, okna), wyśrodkowany tytuł okna, okna o zaokrągleniu 22 dp, sprężyste powiększenie i panele, przejście „sprężyna” (nowy ekran wsuwa się z prawej, poprzedni odsuwa się z efektem paralaksy).
+  - **Windows 11 – mika**: okna z paskiem akcentu u góry i zaokrągleniem 8 dp, akryl (rozmycie), bez powiększania elementów, przejście „przyciąganie” (szybkie pojawienie z lekkim przesunięciem).
+  - **PlayStation 5 – konsola** (nowy): układ **kart poziomych** w menu głównym, matowe szkło z niebieską ramką, zaznaczenie – jasna karta z niebieską poświatą, mocne powiększenie zaznaczonej karty (do 9%), okrągłe ikony, przejście „wejście w kartę”.
+  - **Xbox Series X – konsola** (nowy): karty poziome, ostre krawędzie (2 dp), zaznaczenie – gruba ramka w kolorze limonki, okna z paskiem akcentu, szybkie przejścia.
+  - Przejścia do wyboru także ręcznie (Wygląd → Animacje): unoszenie, sprężyna, przyciąganie, konsola PS5, konsola Xbox.
+- **Układ „Karty poziome (konsola)”** (Wygląd → Układ menu; ustawiany przez motywy PS5/Xbox): u góry przyciski, kategorie, podgląd i program; na dole przewijany rząd kart kanałów z dużym logo. ◄ ► – karty (◄ z pierwszej – kategorie), ▲ – program kanału.
+- **Przytrzymanie OK**: w szybkim menu ikon nowy kafelek **„⚡ Silnik i akceleracja”** (domyślnie widoczny); OK otwiera okno ze zmianą silnika odtwarzania, akceleracji sprzętowej i kolejki dekodera. Ustawienie „Przytrzymanie OK / ekranu” pozwala otwierać to okno od razu.
+- **Logo kanałów**: wielopoziomowo – pamięć → dysk → sieć (limity 25 s połączenie / 45 s odczyt, 2 ponowienia przy błędzie sieci, 5xx i 429, nagłówek User-Agent) → kolejne źródła (tvg-logo, ikona z EPG) → ponowienie po 4 s i 15 s → **inicjały kanału** na kolorowym kafelku. Adresy, które zawiodły, są pomijane przez 10 min (od razu następne źródło). Każdy kanał ma zawsze obraz.
+
+**v5.7**:
+- **Nowe motywy** (Ustawienia → Wygląd → Motyw), inspirowane systemami, z pełną obsługą pilota i dotyku: **MagicOS – karty** (czyste karty o dużych zaokrągleniach, zaznaczenie pełnym kolorem), **iOS – szkło** (półprzezroczyste warstwy z podświetloną krawędzią, sprężyste animacje paneli i powiększenia, rozmyte tło pod oknami na Androidzie 12+), **Windows 11 – mika** (tło z fakturą miki i odcieniem akcentu, akryl w oknach, zaznaczenie ramką w kolorze akcentu). Gradienty bez pasm (dithering), wspólna faktura szumu dla miki i szkła.
+- **Przytrzymanie OK – menu odtwarzania**: silnik odtwarzania (sprzętowy / programowy / tunelowanie), **akceleracja sprzętowa** wł./wył., kolejka dekodera i podgląd dekodera – zmiana działa od razu (kanał startuje z nowymi ustawieniami, archiwum wraca w to samo miejsce). Z menu przejście do szybkiego menu ikon. Ustawienia → Odtwarzanie: „Przytrzymanie OK / ekranu” (menu odtwarzania albo szybkie menu ikon), „Akceleracja sprzętowa obrazu”; pozycja „⚡ Silnik i akceleracja” do włączenia w szybkim menu ikon.
+- **Wyniki bez spoilerów** (Ustawienia → Wyniki → „Ukryj wyniki”): w zakładce wyników „?:?”, przy kanałach i w powiadomieniach same drużyny i minuta; wynik meczu odsłania „👁 Pokaż wynik” w jego szczegółach.
+- **Powiadomienia o golach**: wszystkie nowe bramki po kolei (wcześniej tylko pierwsza), wjazd z góry i płynne zniknięcie, nad panelami; kolejny gol nie znika przedwcześnie. Gole wykrywane przy każdym pobraniu wyników (menu główne, przewodnik, odtwarzacz) – nie giną, gdy wyniki pobrał inny ekran; ten sam gol nie pojawia się dwa razy. Chwilowy błąd jednej ligi nie usuwa jej meczów.
+- **Wyniki na żywo w EPG**: w siatce przewodnika przy trwającej audycji z meczem i w jej opisie, w liście programu kanału (zamiast „NA ŻYWO”); przewodnik sam odświeża wyniki. Wynik pojawia się też, gdy program TV wczytano po pobraniu wyników.
+- **Logo kanałów**: trwała pamięć logo na dysku (160 MB) niezależnie od nagłówków serwera, wspólny klient HTTP, przy szybkim przewijaniu logo wczytywane dopiero po zatrzymaniu wiersza, bez mignięcia logo poprzedniego kanału; doczytane logo nie przelicza układu całej listy (płynniejsze przewijanie).
+- **Ustawienia**: rozwijanie/zwijanie sekcji bez przebudowy całej karty; zwinięte sekcje stylowane dopiero przy rozwinięciu; zmiana wyglądu nakłada motyw raz (szybsze przełączanie kart i przewijanie).
+- **Czarny ekran przy przejściach** (ustawienia, menu, przewodnik): ekran pod spodem nie zanika razem z nowym (w połowie animacji prześwitywała czerń); tło okna od pierwszej klatki w kolorze motywu; zdjęcie tła menu w pamięci (bez ciemnej klatki przed wczytaniem).
+- **Okna**: płynne otwieranie (lekkie powiększenie), na telefonie/tablecie najwyżej 560 dp szerokości, wysokość pilnowana także po odświeżeniu treści (przyciski zawsze widoczne), klawiatura nie zasłania pól, okno nad odtwarzaczem nie wywołuje pasków systemu; płynne przejście zaznaczenia w listach.
 
 **v5.6 / Admin 2.4**:
 - **Silnik odtwarzania** (Ustawienia → Odtwarzanie → Silnik odtwarzania i akceleracja): Media3 z dekoderem sprzętowym (zalecany, dekodery sprzętowe zawsze przed programowymi), z dekoderem programowym (zgodność, gdy obraz jest zielony/czarny) albo z tunelowaniem (Android TV: obraz i dźwięk synchronizowane sprzętowo). Do tego kolejka dekodera (automatycznie / asynchroniczna / synchroniczna), zapasowy dekoder przy błędzie, „Niskie opóźnienie na żywo” (start po 0,5 s, bliżej bieżącej chwili transmisji) i podgląd bieżącego dekodera.

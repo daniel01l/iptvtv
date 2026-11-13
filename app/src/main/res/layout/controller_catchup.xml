@@ -49,7 +49,7 @@
                 android:nextFocusUp="@id/exo_play_pause" android:nextFocusLeft="@id/ctlSkip"/>
             <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
             <TextView android:id="@+id/ctlHint" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:textColor="#99FFFFFF" android:textSize="12sp" android:text="◄ ► przewijanie  •  2× ► pomiń reklamę  •  OK menu"/>
+                android:textColor="#99FFFFFF" android:textSize="12sp" android:text="◄ ► przewijanie (przytrzymaj – szybciej)  •  2× ► pomiń reklamę  •  ▲ oś czasu  •  OK menu"/>
         </LinearLayout>
     </LinearLayout>
 </FrameLayout>

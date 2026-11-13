@@ -7,8 +7,46 @@ import kotlinx.coroutines.launch
 import pl.iptv.tv.data.Repository
 import pl.iptv.tv.reminders.ReminderScheduler
 
-class IptvApp : Application() {
+class IptvApp : Application(), coil.ImageLoaderFactory {
+    /**
+     * Klient HTTP dla logo: długie limity czasu (wolne serwery picon), ponowienia przy błędzie sieci, 5xx i 429
+     * (2 próby, rosnąca przerwa), nagłówek User-Agent jak dla listy (część serwerów odrzuca żądania bez niego).
+     */
+    private fun piconHttp(): okhttp3.OkHttpClient = Repository.http.newBuilder()
+        .connectTimeout(PICON_CONNECT_S, java.util.concurrent.TimeUnit.SECONDS).readTimeout(PICON_READ_S, java.util.concurrent.TimeUnit.SECONDS)
+        .callTimeout(PICON_CALL_S, java.util.concurrent.TimeUnit.SECONDS).retryOnConnectionFailure(true)
+        .dispatcher(okhttp3.Dispatcher().apply { maxRequests = 12; maxRequestsPerHost = 6 })
+        .addInterceptor { chain ->
+            val req = chain.request().let { r -> if (r.header("User-Agent") == null) r.newBuilder().header("User-Agent", Repository.userAgent).build() else r }
+            var attempt = 0
+            while (true) {
+                val res = try { chain.proceed(req) } catch (e: java.io.IOException) { if (attempt >= PICON_RETRIES) throw e; null }
+                if (res != null && (res.isSuccessful || attempt >= PICON_RETRIES || (res.code < 500 && res.code != 429))) return@addInterceptor res
+                res?.close(); attempt++
+                Thread.sleep(700L * attempt)
+            }
+            @Suppress("UNREACHABLE_CODE") error("")
+        }.build()
+
+    /** Logo: pamięć RAM → dysk (160 MB, niezależnie od nagłówków serwera) → sieć z ponowieniami. */
+    override fun newImageLoader(): coil.ImageLoader {
+        val low = runCatching { pl.iptv.tv.data.Prefs.lowPerf }.getOrDefault(false)
+        return coil.ImageLoader.Builder(this)
+            .okHttpClient { piconHttp() }
+            .respectCacheHeaders(false)
+            .memoryCache { coil.memory.MemoryCache.Builder(this).maxSizePercent(if (low) 0.12 else 0.2).build() }
+            .diskCache { coil.disk.DiskCache.Builder().directory(cacheDir.resolve("picons")).maxSizeBytes(160L * 1024 * 1024).build() }
+            .crossfade(false)
+            .allowRgb565(low)
+            .build()
+    }
+
     companion object {
+        /** Limity czasu pobierania logo (s) i liczba ponowień jednego żądania – wolne serwery picon. */
+        const val PICON_CONNECT_S = 40L
+        const val PICON_READ_S = 75L
+        const val PICON_CALL_S = 180L
+        const val PICON_RETRIES = 3
         private var started = 0
         /** Czy jakiś ekran aplikacji jest widoczny (przypomnienie jako okno, nie powiadomienie). */
         val isForeground get() = started > 0

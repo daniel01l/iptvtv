@@ -75,6 +75,8 @@ object Scores {
         val homeFull: String = "", val awayFull: String = "",
     ) {
         val score get() = if (hs == null || aws == null || state == State.PRE) "–:–" else "$hs:$aws"
+        /** Wynik do pokazania: przy „bez spoilerów” zakrywany (do odsłonięcia w szczegółach meczu). */
+        val shownScore get() = if (Prefs.scoreHideResults && state != State.PRE) "?:?" else score
     }
 
     private fun get(url: String, headers: Map<String, String> = emptyMap()): String {
@@ -124,17 +126,53 @@ object Scores {
     /** Dzisiejsze mecze obserwowanych lig i drużyn (na żywo, potem nadchodzące, potem zakończone). */
     suspend fun fetch(): List<Match> = withContext(Dispatchers.IO) {
         val f = follows
-        if (f.isEmpty()) return@withContext emptyList<Match>().also { last = it; lastAt = System.currentTimeMillis() }
+        if (f.isEmpty()) return@withContext emptyList<Match>().also { last = it; lastAt = System.currentTimeMillis(); liveByChannel = emptyMap() }
+        val prev = last; val prevAt = lastAt
         val leagues = f.mapNotNull { league(it.league) }.distinct()
         val foot = leagues.filter { it.tsdb == 0 }
-        val all = (if (useAf) fetchAf(foot) else foot.filter { it.espn != null }.flatMap { l -> runCatching { fetchEspn(l) }.getOrDefault(emptyList()) }) +
-            leagues.filter { it.tsdb > 0 }.flatMap { l -> runCatching { fetchTsdb(l) }.getOrDefault(emptyList()) }
+        // chwilowy błąd jednej ligi nie usuwa jej meczów (wcześniej mecz znikał, a gol po powrocie nie był zgłaszany)
+        fun keep(l: League, load: () -> List<Match>) = runCatching(load).getOrElse { prev.filter { it.league == l.id } }
+        val all = (if (useAf) fetchAf(foot) else foot.filter { it.espn != null }.flatMap { l -> keep(l) { fetchEspn(l) } }) +
+            leagues.filter { it.tsdb > 0 }.flatMap { l -> keep(l) { fetchTsdb(l) } }
         val wanted = all.filter { m -> f.any { it.league == m.league && (it.team == null || it.team == m.homeId || it.team == m.awayId) } }
         val sorted = wanted.distinctBy { it.id }.sortedWith(compareBy({ when (it.state) { State.LIVE -> 0; State.PRE -> 1; State.POST -> 2 } }, { if (it.state == State.POST) -it.order else 0 }, { it.start }))
-        last = sorted; lastAt = System.currentTimeMillis()
-        liveByChannel = buildLive(sorted)
+        val now = System.currentTimeMillis()
+        // gole wykrywane tu, przy każdym pobraniu (menu główne, przewodnik, odtwarzacz) – nie giną, gdy wyniki pobrał inny ekran
+        if (prev.isNotEmpty() && now - prevAt < 30 * 60_000) queueGoals(goalMatches(prev, sorted), now)
+        last = sorted; lastAt = now
+        liveByChannel = buildLive(sorted); liveBuiltAt = now
         sorted
     }
+
+    /** Czy pora odświeżyć wyniki: mecz na żywo lub tuż przed startem – co [Prefs.scoreRefresh] s, poza tym co 10 min. */
+    fun due(now: Long = System.currentTimeMillis()): Boolean {
+        if (!Prefs.scoresEnabled || follows.isEmpty()) return false
+        val hot = last.any { it.state == State.LIVE } || last.any { it.state == State.PRE && it.start - now < 15 * 60_000 }
+        return now - lastAt >= if (hot) Prefs.scoreRefresh.coerceAtLeast(15) * 1000L - 1000 else 600_000L
+    }
+
+    /** Pobiera wyniki, gdy [due]; true = pobrano. */
+    suspend fun refreshIfDue(): Boolean = if (due()) runCatching { fetch() }.isSuccess else false
+
+    // ---------------- powiadomienia o golach ----------------
+
+    private val goalQueue = ArrayList<Pair<Match, Long>>()
+    /** Zgłoszone już stany (mecz + liczba bramek) – ten sam gol nie pojawia się dwa razy. */
+    private val announced = HashSet<String>()
+
+    private fun queueGoals(ms: List<Match>, now: Long) = synchronized(goalQueue) {
+        for (m in ms) if (announced.add("${m.id}:${(m.hs ?: 0) + (m.aws ?: 0)}")) goalQueue += m to now
+    }
+
+    /** Nowe gole do pokazania (najwyżej sprzed [maxAgeMs]); kolejka jest opróżniana. */
+    fun takeGoals(maxAgeMs: Long = 5 * 60_000L, now: Long = System.currentTimeMillis()): List<Match> = synchronized(goalQueue) {
+        val out = goalQueue.filter { now - it.second <= maxAgeMs }.map { it.first }
+        goalQueue.clear(); out
+    }
+
+    /** Tylko testy: ustawia poprzedni stan wyników. */
+    fun setLastForTest(ms: List<Match>, at: Long = System.currentTimeMillis()) { last = ms; lastAt = at; liveByChannel = buildLive(ms); liveBuiltAt = at }
+    fun clearGoalsForTest() = synchronized(goalQueue) { goalQueue.clear(); announced.clear() }
 
     private fun day(offset: Int = 0) = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date(System.currentTimeMillis() + offset * 86_400_000L))
 
@@ -279,17 +317,37 @@ object Scores {
 
     /** Wynik na żywo przy kanale z transmisją (lista kanałów, panel, lista po OK): klucz kanału -> „⚽ Leeds 1:0 Spurs 45'”. */
     @Volatile var liveByChannel: Map<String, String> = emptyMap(); private set
+    @Volatile private var liveBuiltAt = 0L
+    @Volatile private var liveHidden = false
 
     fun buildLive(ms: List<Match>): Map<String, String> {
         val out = HashMap<String, String>()
+        liveHidden = Prefs.scoreHideResults
         for (m in ms) if (m.state == State.LIVE) {
             val chs = broadcasts(m).filter { it.sure }.map { it.channel } + assignedFor(m)
-            chs.forEach { ch -> out.putIfAbsent(ch.key, "⚽ ${m.home} ${m.score} ${m.away}  ${m.clock}") }
+            // bez spoilerów: same drużyny i minuta
+            val label = if (liveHidden) "⚽ ${m.home} – ${m.away}  ${m.clock}" else "⚽ ${m.home} ${m.score} ${m.away}  ${m.clock}"
+            chs.forEach { ch -> out.putIfAbsent(ch.key, label) }
         }
         return out
     }
 
-    fun liveFor(ch: Channel): String? = if (Prefs.scoresEnabled) liveByChannel[ch.key] else null
+    /**
+     * Wynik przy kanale. Mapa jest przeliczana, gdy zmieniło się ustawienie ukrywania wyników albo (najwyżej co minutę)
+     * gdy trwa mecz, a żaden kanał nie ma wyniku – np. program TV wczytano po pobraniu wyników (wcześniej wynik nie pojawiał się w EPG).
+     */
+    fun liveFor(ch: Channel): String? {
+        if (!Prefs.scoresEnabled) return null
+        val now = System.currentTimeMillis()
+        if (liveHidden != Prefs.scoreHideResults || (liveByChannel.isEmpty() && now - liveBuiltAt > 60_000 && last.any { it.state == State.LIVE })) {
+            liveBuiltAt = now; liveByChannel = buildLive(last)
+        }
+        return liveByChannel[ch.key]
+    }
+
+    /** Mecz na żywo w audycji (przewodnik EPG): wynik przy programie, który właśnie trwa na kanale z meczem. */
+    fun liveForProgramme(ch: Channel, p: Programme, now: Long = System.currentTimeMillis()): String? =
+        if (p.start <= now && p.end > now) liveFor(ch) else null
 
     /** Całe słowo; dłuższe nazwy także w odmianie (np. „Barcelona” – „Barcelony”). */
     private fun hit(text: String, k: String) = " $k " in text || (k.length >= 6 && text.contains(" " + k.dropLast(1)))

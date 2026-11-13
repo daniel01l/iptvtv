@@ -106,6 +106,23 @@ class MainActivity : BaseActivity() {
         }
     }
 
+    /** Układ „karty poziome” (motywy konsolowe): u góry przyciski, kategorie i podgląd z programem, na dole przewijany rząd kart kanałów. */
+    private var cardsMode = false
+
+    private fun cardsLayout(content: android.widget.LinearLayout, info: android.widget.LinearLayout) {
+        cardsMode = true; channelAdapter.cards = true
+        content.orientation = android.widget.LinearLayout.VERTICAL
+        listOf(sideNav, groupsRv, channelsRv, info).forEach { content.removeView(it) }
+        val upper = android.widget.LinearLayout(this)
+        upper.addView(sideNav); upper.addView(groupsRv)
+        upper.addView(info, android.widget.LinearLayout.LayoutParams(0, -1, 1f).apply { marginStart = Ui.dp(10) })
+        content.addView(upper, android.widget.LinearLayout.LayoutParams(-1, 0, 1f))
+        // rząd kart: zapas na powiększenie zaznaczonej karty (bez ucinania u góry i na dole)
+        channelsRv.setPadding(Ui.dp(14), Ui.dp(12), Ui.dp(14), Ui.dp(12))
+        content.addView(channelsRv, android.widget.LinearLayout.LayoutParams(-1, Ui.dp(184)).apply { topMargin = Ui.dp(10) })
+        findViewById<TextView>(R.id.epgDesc).maxLines = 3
+    }
+
     private var layoutApplied = -1
     /** Układ menu głównego (Ustawienia → Wygląd → Układ menu). */
     private fun applyMainLayout() {
@@ -158,6 +175,7 @@ class MainActivity : BaseActivity() {
             }
             2 -> { weight(channelsRv, 0.8f); weight(info, 1.7f); wideBox() }
             3 -> { weight(channelsRv, 1.6f); weight(info, 1f) }
+            Ui.LAYOUT_CARDS -> cardsLayout(content, info)
         }
     }
 
@@ -188,8 +206,12 @@ class MainActivity : BaseActivity() {
         preview.setKeepContentOnPlayerReset(true)
         findViewById<View>(R.id.previewBox).visibility = if (Prefs.mainPreview) View.VISIBLE else View.GONE
         findViewById<View>(R.id.previewBox).setOnClickListener { shownEpgFor?.let { play(it) } }
-        channelsRv.layoutManager = LinearLayoutManager(this); channelsRv.adapter = channelAdapter
+        channelsRv.layoutManager = LinearLayoutManager(this, if (cardsMode) LinearLayoutManager.HORIZONTAL else LinearLayoutManager.VERTICAL, false)
+        channelsRv.adapter = channelAdapter
         progRv.layoutManager = LinearLayoutManager(this); progRv.adapter = progAdapter
+        // szybka nawigacja pilotem: bez animacji zmian elementów (odświeżenie EPG nie „mruga” i nie opóźnia fokusu), stały rozmiar list
+        listOf(groupsRv, channelsRv, progRv).forEach { it.itemAnimator = null; it.setHasFixedSize(true) }
+        Ui.roundClip(findViewById(R.id.previewBox), Ui.dp(maxOf(Ui.preset.radius - 4, 4)).toFloat())
         groupAdapter.label = { g ->
             if (g == EDIT_GROUPS) g else "$g  (${Repository.channelsFor(g).size})"
         }
@@ -337,6 +359,21 @@ class MainActivity : BaseActivity() {
             val chIdx = channelAdapter.indexOfKey(focusedChannel?.key).coerceAtLeast(0)
             when {
                 f == null -> {}
+                // karty poziome: ◄ ► po kartach (◄ z pierwszej – kategorie), ▲ – program kanału
+                cardsMode && inside(f, channelsRv) && (event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT ||
+                    (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && (channelsRv.findContainingViewHolder(f)?.bindingAdapterPosition ?: 0) > 0)) -> {
+                    val cur = channelsRv.findContainingViewHolder(f)?.bindingAdapterPosition ?: 0
+                    val next = cur + if (event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) 1 else -1
+                    if (next < channelAdapter.itemCount) channelsRv.focusPosition(next)
+                    return true
+                }
+                cardsMode && inside(f, channelsRv) && event.keyCode == KeyEvent.KEYCODE_DPAD_UP -> {
+                    val now = System.currentTimeMillis()
+                    if (progAdapter.itemCount > 0) progRv.focusPosition(progAdapter.items.indexOfFirst { it.isNow(now) }.coerceAtLeast(0), R.id.row)
+                    else groupsRv.focusPosition(groupAdapter.items.indexOf(groupAdapter.selected).coerceAtLeast(0))
+                    return true
+                }
+                cardsMode && inside(f, channelsRv) && event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN -> return true
                 event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && inside(f, channelsRv) -> {
                     setGroupsExpanded(true)
                     groupsRv.focusPosition(groupAdapter.items.indexOf(groupAdapter.selected).coerceAtLeast(0)); return true

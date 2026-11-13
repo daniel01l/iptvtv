@@ -38,7 +38,7 @@ class V36Test {
     @Before fun setup() {
         Playback.stop()
         Prefs.permissionsAsked = true; Prefs.setupDone = true; Prefs.startAction = 0; Prefs.playlistsJson = "[]"; Prefs.mainPreview = false
-        Prefs.mainLayout = 0; Prefs.orientation = 0; Prefs.miniMenuEnabled = true; MiniMenu.reset(); Prefs.miniApps = emptyList(); Prefs.keyMapJson = ""
+        Prefs.mainLayout = 0; Prefs.orientation = 0; Prefs.miniMenuEnabled = true; Prefs.okLongAction = 1; MiniMenu.reset(); Prefs.miniApps = emptyList(); Prefs.keyMapJson = ""
         val f = File(ctx.filesDir, "v36.m3u").apply { writeText((1..12).joinToString("", "#EXTM3U\n") { "#EXTINF:-1 tvg-id=\"c$it\" group-title=\"G${it % 3}\",K$it\nhttp://v36/$it\n" }) }
         Repository.resetAllEdits(); runBlocking { Repository.loadPlaylist(f.absolutePath) }
     }
@@ -71,7 +71,7 @@ class V36Test {
         down(a, KeyEvent.KEYCODE_DPAD_CENTER); down(a, KeyEvent.KEYCODE_DPAD_CENTER, 1); down(a, KeyEvent.KEYCODE_DPAD_CENTER, 2); up(a, KeyEvent.KEYCODE_DPAD_CENTER); idle()
         assertEquals(View.VISIBLE, mini.visibility)
         val icons = a.findViewById<LinearLayout>(R.id.miniIcons)
-        assertEquals(6, icons.childCount)                                   // domyślnie: ustawienia, program, opis, ulubione, nagrywanie, audio
+        assertEquals(7, icons.childCount)                                   // domyślnie: ustawienia, program, opis, ulubione, nagrywanie, audio, silnik
         assertEquals("Ustawienia", a.findViewById<TextView>(R.id.miniLabel).text.toString())
         key(a, KeyEvent.KEYCODE_DPAD_RIGHT); key(a, KeyEvent.KEYCODE_DPAD_RIGHT); key(a, KeyEvent.KEYCODE_DPAD_RIGHT)
         assertEquals("Dodaj do ulubionych", a.findViewById<TextView>(R.id.miniLabel).text.toString())
@@ -85,7 +85,7 @@ class V36Test {
         // konfiguracja: ukrycie pozycji
         MiniMenu.toggle("settings"); MiniMenu.toggle("channels")
         down(a, KeyEvent.KEYCODE_DPAD_CENTER); down(a, KeyEvent.KEYCODE_DPAD_CENTER, 1); up(a, KeyEvent.KEYCODE_DPAD_CENTER); idle()
-        assertEquals(6, icons.childCount); assertEquals("Program TV", a.findViewById<TextView>(R.id.miniLabel).text.toString())
+        assertEquals(7, icons.childCount); assertEquals("Program TV", a.findViewById<TextView>(R.id.miniLabel).text.toString())
         Repository.toggleFav(Repository.channels[0])
         c.pause().stop().destroy()
     }
@@ -98,8 +98,8 @@ class V36Test {
         val c = player(); val a = c.get()
         down(a, KeyEvent.KEYCODE_DPAD_CENTER); down(a, KeyEvent.KEYCODE_DPAD_CENTER, 1); up(a, KeyEvent.KEYCODE_DPAD_CENTER); idle()
         val icons = a.findViewById<LinearLayout>(R.id.miniIcons)
-        assertEquals(7, icons.childCount)
-        repeat(6) { key(a, KeyEvent.KEYCODE_DPAD_RIGHT) }
+        assertEquals(8, icons.childCount)
+        repeat(7) { key(a, KeyEvent.KEYCODE_DPAD_RIGHT) }
         assertEquals("Moja apka", a.findViewById<TextView>(R.id.miniLabel).text.toString())
         key(a, KeyEvent.KEYCODE_DPAD_CENTER)
         assertEquals(cn, shadowOf(a).nextStartedActivity.component!!.flattenToString())

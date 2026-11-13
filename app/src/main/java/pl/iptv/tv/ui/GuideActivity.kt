@@ -19,6 +19,8 @@ import pl.iptv.tv.data.Prefs
 import pl.iptv.tv.data.Programme
 import pl.iptv.tv.data.Reminders
 import pl.iptv.tv.data.Repository
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 /**
@@ -37,7 +39,7 @@ class GuideActivity : BaseActivity() {
     override fun finish() {
         super.finish()
         // powrót do odtwarzacza: to samo krótkie zanikanie co przy wejściu
-        @Suppress("DEPRECATION") if (intent.getBooleanExtra(EXTRA_FROM_PLAYER, false)) overridePendingTransition(R.anim.fade_in, R.anim.fade_out)
+        @Suppress("DEPRECATION") if (intent.getBooleanExtra(EXTRA_FROM_PLAYER, false)) overridePendingTransition(R.anim.hold, R.anim.fade_out)
     }
 
     private lateinit var rows: RecyclerView
@@ -99,10 +101,21 @@ class GuideActivity : BaseActivity() {
             updateNowLine()
             val n = adapter.itemCount
             if (n > 0) { if (focusRow > 0) adapter.notifyItemRangeChanged(0, focusRow); if (focusRow + 1 < n) adapter.notifyItemRangeChanged(focusRow + 1, n - focusRow - 1) }
+            // wyniki na żywo przy trwających audycjach (mecz) – pobierane także w przewodniku
+            if (pl.iptv.tv.data.Scores.due()) refreshScores()
             rows.postDelayed(this, 60_000)
         }
     }
     override fun onPause() { super.onPause(); if (!redirected) rows.removeCallbacks(minuteTick) }
+
+    private var scoresJob: kotlinx.coroutines.Job? = null
+    private fun refreshScores() {
+        if (scoresJob?.isActive == true) return
+        scoresJob = lifecycleScope.launch {
+            if (pl.iptv.tv.data.Scores.refreshIfDue()) { val n = adapter.itemCount
+                if (n > 0) { if (focusRow > 0) adapter.notifyItemRangeChanged(0, focusRow); if (focusRow + 1 < n) adapter.notifyItemRangeChanged(focusRow + 1, n - focusRow - 1) } }
+        }
+    }
 
     private var redirected = false
 
@@ -287,7 +300,8 @@ class GuideActivity : BaseActivity() {
             else -> ""
         }
         time.text = "${Fmt.shortDay(p.start)} ${Fmt.time(p.start)}–${Fmt.time(p.end)} • ${ch.name}" +
-            (if (status.isNotEmpty()) " • $status" else "") + (if (p.category.isNotBlank()) " • ${p.category}" else "")
+            (if (status.isNotEmpty()) " • $status" else "") + (if (p.category.isNotBlank()) " • ${p.category}" else "") +
+            (pl.iptv.tv.data.Scores.liveForProgramme(ch, p, now)?.let { " • $it" } ?: "")
         val next = Repository.nextEpisodeIfReady(ch, p)
         desc.text = p.desc.ifBlank { "Brak opisu w programie TV." } +
             (if (next != null) "\n⏭ Następny odcinek: ${ProgrammeActions.whenText(next.channel, next.programme)}" else "")
@@ -461,7 +475,14 @@ class GuideActivity : BaseActivity() {
                     p.start > now && Reminders.isSet(ch, p) -> "🔔 "
                     else -> ""
                 }
-                tv.text = mark + (if (Prefs.guideShowTime) "${Fmt.time(p.start)} " else "") + p.title
+                val base = mark + (if (Prefs.guideShowTime) "${Fmt.time(p.start)} " else "") + p.title
+                // trwający mecz: wynik na żywo przed tytułem audycji (jak na liście kanałów)
+                val live = pl.iptv.tv.data.Scores.liveForProgramme(ch, p, now)
+                tv.text = if (live == null) base else android.text.SpannableStringBuilder(live).apply {
+                    setSpan(android.text.style.ForegroundColorSpan(Ui.live), 0, length, 0)
+                    setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, length, 0)
+                    append("  ").append(base)
+                }
                 if (p.end <= now && !Repository.isInArchive(ch, p, now)) tv.alpha = 0.55f
                 tv.isActivated = p.isNow(now)
                 val open = { ProgrammeActions.menu(this@GuideActivity, ch, p, ::play, channelItem = true) { adapter.notifyDataSetChanged() } }

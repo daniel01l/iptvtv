@@ -95,6 +95,9 @@ object Playback {
     const val ENGINE_TUNNELING = 2
     val ENGINES = listOf("Media3 – dekoder sprzętowy (zalecany)", "Media3 – dekoder programowy (zgodność)", "Media3 – tunelowanie (Android TV)")
 
+    /** Dekoder programowy: silnik „programowy” albo wyłączona akceleracja sprzętowa (Ustawienia lub przytrzymanie OK). */
+    val softwareDecoding get() = pl.iptv.tv.data.Prefs.playerEngine == ENGINE_SOFTWARE || !pl.iptv.tv.data.Prefs.hwAccel
+
     /** Kolejność dekoderów: sprzętowe (akceleracja) przed programowymi – albo odwrotnie w trybie zgodności. */
     fun codecSelector(software: Boolean) = androidx.media3.exoplayer.mediacodec.MediaCodecSelector { mime, secure, tunneling ->
         val all = androidx.media3.exoplayer.mediacodec.MediaCodecUtil.getDecoderInfos(mime, secure, tunneling)
@@ -107,7 +110,7 @@ object Playback {
         val f = p.videoFormat ?: return "brak obrazu"
         val list = runCatching { androidx.media3.exoplayer.mediacodec.MediaCodecUtil.getDecoderInfos(f.sampleMimeType ?: "", false, false) }.getOrDefault(emptyList())
         val hw = list.count { it.hardwareAccelerated }
-        return "${f.sampleMimeType} ${f.width}×${f.height} • dekodery: $hw sprzętowe, ${list.size - hw} programowe • silnik: ${ENGINES.getOrNull(pl.iptv.tv.data.Prefs.playerEngine)}"
+        return "${f.sampleMimeType} ${f.width}×${f.height} • dekodery: $hw sprzętowe, ${list.size - hw} programowe • silnik: ${ENGINES.getOrNull(pl.iptv.tv.data.Prefs.playerEngine)} • akceleracja: ${if (pl.iptv.tv.data.Prefs.hwAccel) "wł." else "wył."}"
     }
 
     fun get(c: Context): ExoPlayer {
@@ -133,8 +136,8 @@ object Playback {
         val P = pl.iptv.tv.data.Prefs
         val engine = P.playerEngine
         // wybór dekodera: sprzętowy (akceleracja) przed programowym albo odwrotnie (tryb zgodności)
-        renderers.setMediaCodecSelector(codecSelector(software = engine == ENGINE_SOFTWARE))
-        renderers.setEnableDecoderFallback(P.decoderFallback || engine == ENGINE_SOFTWARE)
+        renderers.setMediaCodecSelector(codecSelector(software = softwareDecoding))
+        renderers.setEnableDecoderFallback(P.decoderFallback || softwareDecoding)
         when (P.asyncDecoder) {
             1 -> renderers.forceEnableMediaCodecAsynchronousQueueing()
             2 -> renderers.forceDisableMediaCodecAsynchronousQueueing()
@@ -145,7 +148,7 @@ object Playback {
             val b = buildUponParameters()
             if (low && P.lowMaxHeight > 0) b.setMaxVideoSize(P.lowMaxHeight * 16 / 9, P.lowMaxHeight).setExceedRendererCapabilitiesIfNecessary(false)
             // tunelowanie: obraz i dźwięk dekodowane i synchronizowane sprzętowo (Android TV) – najmniejsze obciążenie procesora
-            if (engine == ENGINE_TUNNELING) b.setTunnelingEnabled(true)
+            if (engine == ENGINE_TUNNELING && P.hwAccel) b.setTunnelingEnabled(true)
             setParameters(b)
         }
         val start = if (P.lowLatency) 500 else 1_000

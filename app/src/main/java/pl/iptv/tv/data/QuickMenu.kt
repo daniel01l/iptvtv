@@ -37,7 +37,7 @@ object QuickMenu : OrderedMenu(linkedMapOf(
 /** Mini menu ikon (długie OK / przytrzymanie ekranu w odtwarzaczu). */
 object MiniMenu : OrderedMenu(linkedMapOf(
     "settings" to "⚙ Ustawienia", "sys_settings" to "🛠 Ustawienia urządzenia", "guide" to "📅 Program TV", "desc" to "ℹ Opis programu", "fav" to "★ Dodaj do ulubionych",
-    "record" to "⏺ Nagrywanie", "tracks" to "🎧 Audio i napisy", "aspect" to "📐 Proporcje obrazu", "channels" to "☰ Lista kanałów",
+    "record" to "⏺ Nagrywanie", "tracks" to "🎧 Audio i napisy", "engine" to "⚡ Silnik i akceleracja", "aspect" to "📐 Proporcje obrazu", "channels" to "☰ Lista kanałów",
 ), { Prefs.miniOrder }, { Prefs.miniOrder = it }, { Prefs.miniHidden }, { Prefs.miniHidden = it }, defaultHidden = listOf("aspect", "channels", "sys_settings")) {
     const val APP = "app:"
     /** Skróty aplikacji: "app:pakiet/klasa" -> nazwa (Prefs.miniApps: "komponent|nazwa"). */

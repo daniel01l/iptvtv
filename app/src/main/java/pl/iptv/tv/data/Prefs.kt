@@ -47,6 +47,10 @@ object Prefs {
     var lowLatency: Boolean get() = bool("low_latency", false); set(v) = putBool("low_latency", v)
     /** Zapasowy dekoder, gdy sprzętowy się nie uruchomi. */
     var decoderFallback: Boolean get() = bool("dec_fallback", true); set(v) = putBool("dec_fallback", v)
+    /** Akceleracja sprzętowa obrazu: wyłączona = dekoder programowy (zgodność), niezależnie od silnika. */
+    var hwAccel: Boolean get() = bool("hw_accel", true); set(v) = putBool("hw_accel", v)
+    /** Przytrzymanie OK w odtwarzaczu: 0 = od razu menu odtwarzania (silnik, akceleracja), 1 = szybkie menu ikon z kafelkiem „Silnik i akceleracja” (domyślnie). */
+    var okLongAction: Int get() = int("ok_long", 1); set(v) = putInt("ok_long", v)
 
     /** Domyślne parametry trybu dla słabszych urządzeń. */
     fun resetLowPerfParams() = remove("low_max_h", "low_buf_min", "low_buf_max", "low_buf_mb", "low_epg_ahead", "low_desc", "low_epg_kbps", "low_zap_ms", "low_clean")
@@ -97,6 +101,8 @@ object Prefs {
     // ---- wyniki ----
     var scoresEnabled: Boolean get() = bool("scores_on", true); set(v) = putBool("scores_on", v)
     var scoreGoalAlerts: Boolean get() = bool("scores_goal", true); set(v) = putBool("scores_goal", v)
+    /** Bez spoilerów: wyniki meczów ukryte (lista wyników, kanały, powiadomienia) – odsłaniane na życzenie. */
+    var scoreHideResults: Boolean get() = bool("scores_hide", false); set(v) = putBool("scores_hide", v)
     var scoreRefresh: Int get() = int("scores_refresh", 60); set(v) = putInt("scores_refresh", v)
     var scoreFollowJson: String get() = str("scores_follow", "[]"); set(v) = put("scores_follow", v)
     var scoreChannelsJson: String get() = str("scores_channels", "{}"); set(v) = put("scores_channels", v)

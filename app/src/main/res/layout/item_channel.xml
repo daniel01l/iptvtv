@@ -5,7 +5,7 @@
     android:layout_marginBottom="4dp" android:orientation="horizontal" android:paddingStart="8dp" android:paddingEnd="8dp">
     <TextView android:id="@+id/num" android:layout_width="38dp" android:layout_height="wrap_content"
         android:gravity="end" android:layout_marginEnd="8dp" android:tag="text2"/>
-    <ImageView android:id="@+id/picon" android:layout_width="76dp" android:layout_height="46dp"
+    <pl.iptv.tv.ui.PiconView android:id="@+id/picon" android:layout_width="76dp" android:layout_height="46dp"
         android:scaleType="fitCenter"/>
     <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
         android:layout_marginStart="10dp" android:orientation="vertical">

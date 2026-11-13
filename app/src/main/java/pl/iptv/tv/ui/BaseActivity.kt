@@ -39,7 +39,11 @@ open class BaseActivity : AppCompatActivity() {
         if (requestedOrientation != o) requestedOrientation = o
     }
 
-    override fun onCreate(savedInstanceState: Bundle?) { applyOrientation(); super.onCreate(savedInstanceState) }
+    override fun onCreate(savedInstanceState: Bundle?) {
+        applyOrientation(); super.onCreate(savedInstanceState)
+        // tło okna od razu w kolorze motywu: zanim ekran się narysuje, widać tło motywu, nie stały ciemny kolor (mignięcie „czarnego ekranu”)
+        if (!isPlayerScreen) window.setBackgroundDrawable(Ui.bgDrawable())
+    }
 
     override fun onResume() {
         super.onResume()
@@ -101,17 +105,24 @@ open class BaseActivity : AppCompatActivity() {
     /** Ponownie nakłada motyw na cały ekran (np. po zmianie ustawień). */
     open fun applyTheme() {
         appliedVersion = Ui.version
-        rootFrame.background = Ui.bgDrawable()
+        // tło rysuje okno (jedna warstwa zamiast dwóch – mniej przerysowań całego ekranu na słabszych urządzeniach)
+        if (isPlayerScreen) rootFrame.background = Ui.bgDrawable()
+        else { rootFrame.background = null; window.setBackgroundDrawable(Ui.bgDrawable()) }
         window.statusBarColor = Ui.bg
         window.navigationBarColor = Ui.bg
         val f = Repository.bgImageFile
         if (Prefs.bgImageOn && f.exists()) {
             bgImage.visibility = View.VISIBLE
-            bgImage.load(f) { memoryCachePolicy(CachePolicy.DISABLED); diskCachePolicy(CachePolicy.DISABLED) }
+            // obraz w pamięci (klucz = data zmiany pliku): kolejne ekrany pokazują tło od razu, bez ciemnej klatki przed wczytaniem
+            val key = "bg:${f.lastModified()}:${f.length()}"
+            if (bgImage.getTag(pl.iptv.tv.R.id.ui_style) != key) {
+                bgImage.setTag(pl.iptv.tv.R.id.ui_style, key)
+                bgImage.load(f) { memoryCacheKey(key); diskCachePolicy(CachePolicy.DISABLED); crossfade(false) }
+            }
             dim.setBackgroundColor(Color.argb(Ui.DIMS[Ui.dimIndex.coerceIn(Ui.DIMS.indices)] * 255 / 100, 0, 0, 0))
             dim.visibility = View.VISIBLE
         } else {
-            bgImage.setImageDrawable(null); bgImage.visibility = View.GONE; dim.visibility = View.GONE
+            bgImage.setImageDrawable(null); bgImage.setTag(pl.iptv.tv.R.id.ui_style, null); bgImage.visibility = View.GONE; dim.visibility = View.GONE
         }
         Ui.style(content)
         if (::dim.isInitialized) updateVideo()

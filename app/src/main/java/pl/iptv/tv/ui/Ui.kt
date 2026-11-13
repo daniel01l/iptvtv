@@ -28,7 +28,79 @@ data class ThemePreset(
     val text: Int, val text2: Int,
     val radius: Int, val font: Int, val focusStyle: FocusStyle,
     val anim: Int, val progress: Int, val infoPos: Int, val zoom: Boolean,
+    /** Faktura powierzchni: [Ui.S_FLAT], [Ui.S_CARD] (karty), [Ui.S_GLASS] (szkło), [Ui.S_MICA] (mika). */
+    val surface: Int = 0,
+    /** Układ menu głównego narzucany przez motyw (-1 = bez zmiany, [Ui.LAYOUT_CARDS] = karty poziome). */
+    val layout: Int = -1,
 )
+
+/**
+ * Tło z fakturą: gradient w zaokrąglonym prostokącie, delikatny szum (mika/szkło – bez pasm na gradientach),
+ * podświetlenie górnej krawędzi i cienka ramka. Szum to jeden mały kafelek wspólny dla całej aplikacji.
+ */
+class TexturedDrawable(
+    private val c1: Int, private val c2: Int, private val radius: Float,
+    private val stroke: Int = 0, private val strokeW: Float = 0f,
+    private val noiseAlpha: Int = 0, private val highlight: Int = 0,
+    private val diagonal: Boolean = false,
+    /** Pasek akcentu u góry (ramka okna: Windows 11, Xbox); 0 = brak. */
+    private val topBar: Int = 0,
+) : Drawable() {
+    private val fill = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { isDither = true }
+    private val grain = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    private val line = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { style = android.graphics.Paint.Style.STROKE }
+    private val rect = android.graphics.RectF()
+    private val bar = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    private val clip = android.graphics.Path()
+    private var alphaMul = 255
+
+    override fun onBoundsChange(b: android.graphics.Rect) {
+        rect.set(b)
+        fill.shader = android.graphics.LinearGradient(b.left.toFloat(), b.top.toFloat(), if (diagonal) b.right.toFloat() else b.left.toFloat(), b.bottom.toFloat(),
+            c1, c2, android.graphics.Shader.TileMode.CLAMP)
+        if (noiseAlpha > 0) grain.shader = android.graphics.BitmapShader(noise, android.graphics.Shader.TileMode.REPEAT, android.graphics.Shader.TileMode.REPEAT)
+    }
+
+    override fun draw(c: android.graphics.Canvas) {
+        if (rect.isEmpty) return
+        fill.alpha = alphaMul
+        if (radius > 0) c.drawRoundRect(rect, radius, radius, fill) else c.drawRect(rect, fill)
+        if (noiseAlpha > 0) { grain.alpha = noiseAlpha * alphaMul / 255
+            if (radius > 0) c.drawRoundRect(rect, radius, radius, grain) else c.drawRect(rect, grain) }
+        if (topBar != 0) {
+            bar.color = topBar; bar.alpha = Color.alpha(topBar) * alphaMul / 255
+            clip.reset(); clip.addRoundRect(rect, radius, radius, android.graphics.Path.Direction.CW)
+            c.save(); c.clipPath(clip); c.drawRect(rect.left, rect.top, rect.right, rect.top + Ui.dp(3), bar); c.restore()
+        }
+        val half = strokeW / 2
+        if (highlight != 0 && strokeW > 0) {
+            // jaśniejsza górna krawędź (światło z góry – szkło, karty)
+            line.strokeWidth = strokeW; line.color = highlight; line.alpha = Color.alpha(highlight) * alphaMul / 255
+            c.save(); c.clipRect(rect.left, rect.top, rect.right, rect.top + rect.height() / 3)
+            c.drawRoundRect(rect.left + half, rect.top + half, rect.right - half, rect.bottom - half, radius, radius, line); c.restore()
+        }
+        if (stroke != 0 && strokeW > 0) {
+            line.strokeWidth = strokeW; line.color = stroke; line.alpha = Color.alpha(stroke) * alphaMul / 255
+            c.drawRoundRect(rect.left + half, rect.top + half, rect.right - half, rect.bottom - half, radius, radius, line)
+        }
+    }
+
+    override fun getOutline(o: android.graphics.Outline) { o.setRoundRect(bounds, radius) }
+    override fun setAlpha(a: Int) { alphaMul = a; invalidateSelf() }
+    override fun getAlpha() = alphaMul
+    override fun setColorFilter(cf: android.graphics.ColorFilter?) { fill.colorFilter = cf }
+    @Deprecated("Deprecated in Java")
+    override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
+
+    companion object {
+        /** Kafelek szumu 96×96 (szary, losowy, stały wzór) – faktura miki i matowego szkła. */
+        val noise: android.graphics.Bitmap by lazy {
+            val n = 96; val r = java.util.Random(7)
+            val px = IntArray(n * n) { val v = 96 + r.nextInt(128); Color.argb(255, v, v, v) }
+            android.graphics.Bitmap.createBitmap(px, n, n, android.graphics.Bitmap.Config.ARGB_8888)
+        }
+    }
+}
 
 /** Czcionka systemowa ([family]) albo dołączona do aplikacji ([res]) – te działają na każdym urządzeniu. */
 data class FontOption(val label: String, val family: String, val bold: Boolean = false, val res: Int = 0)
@@ -55,7 +127,47 @@ object Ui {
             c("#FFFFFF"), c("#A89A9A"), 4, 8, FocusStyle.FILL, 3, 1, 0, true),
         ThemePreset("forest", "Leśny", c("#0E1A12"), c("#15261B"), c("#66BB6A"), c("#2E7D32"), c("#FFFFFF"),
             c("#EAF5EA"), c("#9DB8A0"), 14, 10, FocusStyle.FILL, 2, 2, 0, true),
+        // inspirowane systemami (nie kopie): karty MagicOS, szkło iOS, mika Windows 11, konsole PS5 i Xbox
+        ThemePreset("magic", "MagicOS – karty", c("#0E0F13"), c("#1B1C22"), c("#2EC7FF"), c("#256FFF"), c("#FFFFFF"),
+            c("#F2F3F5"), c("#8E9099"), 18, 4, FocusStyle.FILL, 4, 2, 0, true, S_CARD),
+        ThemePreset("ios", "iOS – szkło", c("#05060A"), c("#1C1C1E"), c("#0A84FF"), c("#F2F2F7"), c("#000000"),
+            c("#FFFFFF"), c("#8E8E93"), 22, 8, FocusStyle.FILL, 5, 2, 0, true, S_GLASS),
+        ThemePreset("win11", "Windows 11 – mika", c("#1C1C1C"), c("#2B2B2B"), c("#4CC2FF"), c("#4CC2FF"), c("#FFFFFF"),
+            c("#FFFFFF"), c("#A6A6A6"), 8, 0, FocusStyle.OUTLINE, 6, 0, 0, false, S_MICA),
+        ThemePreset("ps5", "PlayStation 5 – konsola", c("#070B18"), c("#121A30"), c("#3D8BFF"), c("#F4F8FF"), c("#07122A"),
+            c("#FFFFFF"), c("#8C97B0"), 14, 4, FocusStyle.FILL, 7, 2, 0, true, S_PS, LAYOUT_CARDS),
+        ThemePreset("xbox", "Xbox Series X – konsola", c("#0B0B0B"), c("#1C1C1C"), c("#107C10"), c("#107C10"), c("#FFFFFF"),
+            c("#F2F2F2"), c("#9A9A9A"), 2, 2, FocusStyle.OUTLINE, 8, 1, 0, true, S_XBOX, LAYOUT_CARDS),
     )
+
+    const val S_FLAT = 0
+    const val S_CARD = 1
+    const val S_GLASS = 2
+    const val S_MICA = 3
+    const val S_PS = 4
+    const val S_XBOX = 5
+    /** Układ menu głównego „karty poziome” (konsole). */
+    const val LAYOUT_CARDS = 4
+    val surface get() = preset.surface
+
+    /**
+     * Geometria motywu (poza kolorami): powiększenie zaznaczenia, wielkość nagłówków, czas i sprężystość animacji,
+     * ramka okien (tytuł, pasek akcentu, poświata), kształt kafelków ikon, rozmycie pod oknami.
+     */
+    data class Geometry(
+        val zoomMax: Float = 0.035f, val headerScale: Float = 1f, val zoomMs: Long = 110, val overshoot: Float = 0f,
+        val titleCenter: Boolean = false, val topBar: Boolean = false, val glow: Boolean = false,
+        val iconRound: Boolean = false, val blur: Int = 0, val focusStroke: Int = 2,
+    )
+
+    val geo: Geometry get() = when (surface) {
+        S_CARD -> Geometry(zoomMax = 0.045f, headerScale = 1.1f, zoomMs = 140, iconRound = true, blur = 14)
+        S_GLASS -> Geometry(zoomMax = 0.05f, headerScale = 1.35f, zoomMs = 170, overshoot = 1.4f, titleCenter = true, iconRound = true, blur = 28)
+        S_MICA -> Geometry(zoomMax = 0f, headerScale = 1.05f, zoomMs = 90, topBar = true, blur = 18)
+        S_PS -> Geometry(zoomMax = 0.09f, headerScale = 1.2f, zoomMs = 200, overshoot = 1.1f, glow = true, iconRound = true, blur = 24)
+        S_XBOX -> Geometry(zoomMax = 0.05f, headerScale = 1.1f, zoomMs = 80, topBar = true, focusStroke = 3)
+        else -> Geometry()
+    }
 
     val FONTS = listOf(
         FontOption("Systemowa", "sans-serif"),
@@ -80,12 +192,14 @@ object Ui {
     fun init(c: android.content.Context) { app = c.applicationContext }
     private val fontCache = HashMap<Int, Typeface?>()
     val FONT_SCALES = listOf(0.85f to "Mała", 1f to "Normalna", 1.15f to "Duża", 1.3f to "Bardzo duża")
-    val ANIMS = listOf("Brak", "Zanikanie", "Przesunięcie", "Powiększenie")
+    val ANIMS = listOf("Brak", "Zanikanie", "Przesunięcie", "Powiększenie", "Unoszenie (MagicOS)", "Sprężyna (iOS)", "Przyciąganie (Windows 11)",
+        "Konsola – wejście w kartę (PS5)", "Konsola – szybkie (Xbox)")
     val ANIM_SPEEDS = listOf(150L to "Szybko", 250L to "Normalnie", 450L to "Wolno")
     val PROGRESS = listOf("Cienka linia", "Gruby pasek", "Zaokrąglony", "Segmenty (klasyczny)", "Ukryty")
     val INFO_POS = listOf("Na dole", "Na górze")
     val INFO_TIMEOUTS = listOf(3, 5, 8, 12)
-    val INFO_STYLES = listOf("Gradient (nowoczesny)", "Pływający panel", "Szkło (przezroczyste)", "Klasyczny dekoder", "Minimalny (sam tekst)")
+    val INFO_STYLES = listOf("Gradient (nowoczesny)", "Pływający panel", "Szkło (przezroczyste)", "Klasyczny dekoder", "Minimalny (sam tekst)",
+        "MagicOS – pływająca karta", "iOS – szklana kapsuła", "Windows 11 – panel mika", "PS5 – pasek z poświatą", "Xbox – ostry pasek")
     val INFO_ALPHAS = listOf(100, 85, 70, 55, 40)
     val INFO_SIZES = listOf(0.85f to "Mały", 1f to "Normalny", 1.2f to "Duży")
     val ARCHIVE_TIMEOUTS = listOf(1, 2, 3, 5)
@@ -116,7 +230,14 @@ object Ui {
 
     val preset: ThemePreset get() = PRESETS.firstOrNull { it.id == Prefs.theme } ?: PRESETS[0]
 
-    fun applyPreset(id: String) { Prefs.theme = id; Prefs.remove(*PRESET_KEYS) }
+    fun applyPreset(id: String) {
+        val old = preset
+        Prefs.theme = id; Prefs.remove(*PRESET_KEYS)
+        // motywy konsolowe ustawiają też układ menu (karty poziome); powrót do zwykłego motywu przywraca układ klasyczny
+        val p = preset
+        if (p.layout >= 0) Prefs.mainLayout = p.layout
+        else if (old.layout >= 0 && Prefs.mainLayout == old.layout) Prefs.mainLayout = 0
+    }
     fun resetColors() = Prefs.remove(*(COLOR_KEYS.map { "c_${it.first}" } + GRADIENT_KEYS.map { "c2_$it" }).toTypedArray())
 
     /** Drugi kolor gradientu albo null (kolor jednolity). */
@@ -138,7 +259,44 @@ object Ui {
         return g
     }
 
-    fun bgDrawable(): Drawable = fill("bg", radius = false)
+    /** Tło ekranu; motywy z fakturą: mika (szum + odcień akcentu), szkło (poświata akcentu), karty (lekki gradient). */
+    fun bgDrawable(): Drawable {
+        if (color2("bg") != null || surface == S_FLAT) return fill("bg", radius = false).apply { setDither(true) }
+        val b = bg
+        return when (surface) {
+            S_MICA -> TexturedDrawable(blend(b, accent, 0.07f), shade(b, -0.12f), 0f, noiseAlpha = 0x0E, diagonal = true)
+            S_GLASS -> TexturedDrawable(blend(b, accent, 0.16f), b, 0f, noiseAlpha = 0x08, diagonal = true)
+            // PS5: głęboki granat z niebieską poświatą; Xbox: grafit z delikatną zielenią
+            S_PS -> TexturedDrawable(blend(b, accent, 0.24f), shade(b, -0.2f), 0f, noiseAlpha = 0x06, diagonal = true)
+            S_XBOX -> TexturedDrawable(blend(b, accent, 0.07f), shade(b, -0.1f), 0f)
+            else -> TexturedDrawable(shade(b, 0.03f), shade(b, -0.08f), 0f)
+        }
+    }
+
+    fun blend(a: Int, b: Int, f: Float): Int {
+        fun ch(x: Int, y: Int) = (x + (y - x) * f).toInt().coerceIn(0, 255)
+        return Color.argb(Color.alpha(a), ch(Color.red(a), Color.red(b)), ch(Color.green(a), Color.green(b)), ch(Color.blue(a), Color.blue(b)))
+    }
+
+    /** Powierzchnia (panel, okno) w fakturze motywu; null = motyw bez faktury (zwykłe tła). */
+    private fun texturedSurface(base: Int, alpha: Int, radiusDp: Int, frame: Boolean = false): Drawable? {
+        val tb = if (frame && geo.topBar) accent else 0
+        val r = dp(radiusDp).toFloat()
+        return when (surface) {
+            S_CARD -> TexturedDrawable(withAlpha(shade(base, 0.05f), alpha), withAlpha(base, alpha), r,
+                stroke = withAlpha(text, 0x10), strokeW = dp(1).toFloat())
+            S_GLASS -> TexturedDrawable(withAlpha(shade(base, 0.10f), minOf(alpha, 0xD8)), withAlpha(base, minOf(alpha, 0xC4)), r,
+                stroke = withAlpha(Color.WHITE, 0x1E), strokeW = dp(1).toFloat(), noiseAlpha = 0x0A, highlight = withAlpha(Color.WHITE, 0x40))
+            S_MICA -> TexturedDrawable(withAlpha(blend(base, accent, 0.05f), alpha), withAlpha(shade(base, -0.06f), alpha), r,
+                stroke = withAlpha(Color.WHITE, 0x16), strokeW = dp(1).toFloat(), noiseAlpha = 0x0C, highlight = withAlpha(Color.WHITE, 0x22), topBar = tb)
+            // PS5: matowe szkło z niebieską ramką; Xbox: jednolita, ostra powierzchnia
+            S_PS -> TexturedDrawable(withAlpha(blend(base, accent, 0.10f), minOf(alpha, 0xDC)), withAlpha(base, minOf(alpha, 0xCC)), r,
+                stroke = withAlpha(accent, 0x60), strokeW = dp(1).toFloat(), noiseAlpha = 0x0A, highlight = withAlpha(Color.WHITE, 0x48))
+            S_XBOX -> TexturedDrawable(withAlpha(base, alpha), withAlpha(shade(base, -0.05f), alpha), r,
+                stroke = withAlpha(Color.WHITE, 0x14), strokeW = dp(1).toFloat(), topBar = tb)
+            else -> null
+        }
+    }
 
     /** Opis koloru do ustawień: "#RRGGBB" lub "#RRGGBB → #RRGGBB". */
     fun colorLabel(key: String): String {
@@ -171,7 +329,10 @@ object Ui {
     var infoPos: Int get() = Prefs.optInt("info_pos") ?: preset.infoPos; set(v) = Prefs.setOptInt("info_pos", v)
     var infoTimeoutIndex: Int get() = Prefs.optInt("info_timeout") ?: 1; set(v) = Prefs.setOptInt("info_timeout", v)
     var zoom: Boolean get() = (Prefs.optInt("zoom") ?: if (preset.zoom) 1 else 0) == 1; set(v) = Prefs.setOptInt("zoom", if (v) 1 else 0)
-    var infoStyle: Int get() = (Prefs.optInt("info_style") ?: if (preset.focusStyle == FocusStyle.GRADIENT) 3 else 0).coerceIn(INFO_STYLES.indices); set(v) = Prefs.setOptInt("info_style", v)
+    /** Styl paska informacji; domyślnie wg motywu (motywy systemowe i konsolowe mają własny pasek). */
+    var infoStyle: Int get() = (Prefs.optInt("info_style") ?: when (surface) {
+        S_CARD -> 5; S_GLASS -> 6; S_MICA -> 7; S_PS -> 8; S_XBOX -> 9
+        else -> if (preset.focusStyle == FocusStyle.GRADIENT) 3 else 0 }).coerceIn(INFO_STYLES.indices); set(v) = Prefs.setOptInt("info_style", v)
     var infoAlphaIndex: Int get() = (Prefs.optInt("info_alpha") ?: 0).coerceIn(INFO_ALPHAS.indices); set(v) = Prefs.setOptInt("info_alpha", v)
     var infoSizeIndex: Int get() = (Prefs.optInt("info_size") ?: 1).coerceIn(INFO_SIZES.indices); set(v) = Prefs.setOptInt("info_size", v)
     var infoPicon: Boolean get() = Prefs.optInt("info_picon") != 0; set(v) = Prefs.setOptInt("info_picon", if (v) 1 else 0)
@@ -180,7 +341,7 @@ object Ui {
     var archiveInfoIndex: Int get() = (Prefs.optInt("info_archive") ?: 1).coerceIn(ARCHIVE_TIMEOUTS.indices); set(v) = Prefs.setOptInt("info_archive", v)
     val archiveInfoMs get() = ARCHIVE_TIMEOUTS[archiveInfoIndex] * 1000L
     val infoScale get() = INFO_SIZES[infoSizeIndex].first
-    val infoFloating get() = infoStyle == 1 || infoStyle == 2
+    val infoFloating get() = infoStyle in intArrayOf(1, 2, 5, 6, 7)
 
     /** Tło paska informacji wg stylu i przezroczystości (null = bez tła). */
     fun infoBarBg(top: Boolean): Drawable? {
@@ -190,6 +351,17 @@ object Ui {
             3 -> GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(shade(panel, 0.15f), panel, shade(panel, -0.3f)))
                 .apply { setStroke(dp(2), withAlpha(accent, 0xD0)) }
             4 -> return null
+            // paski w języku motywu: karta (MagicOS), kapsuła ze szkła (iOS), mika z paskiem akcentu (Windows 11),
+            // szeroki pasek z niebieską poświatą u góry (PS5), ostry pasek z linią limonki (Xbox)
+            5 -> TexturedDrawable(withAlpha(shade(panel, 0.05f), 0xF4), withAlpha(panel, 0xF4), dp(24).toFloat(), stroke = withAlpha(text, 0x14), strokeW = dp(1).toFloat())
+            6 -> TexturedDrawable(withAlpha(shade(panel, 0.12f), 0xD8), withAlpha(panel, 0xC8), dp(30).toFloat(), stroke = withAlpha(Color.WHITE, 0x22),
+                strokeW = dp(1).toFloat(), noiseAlpha = 0x0A, highlight = withAlpha(Color.WHITE, 0x50))
+            7 -> TexturedDrawable(withAlpha(blend(panel, accent, 0.05f), 0xEE), withAlpha(shade(panel, -0.06f), 0xEE), dp(8).toFloat(),
+                stroke = withAlpha(Color.WHITE, 0x18), strokeW = dp(1).toFloat(), noiseAlpha = 0x0C, topBar = accent)
+            8 -> TexturedDrawable(if (top) withAlpha(shade(bg, -0.3f), 0xF4) else withAlpha(blend(bg, accent, 0.28f), 0x70),
+                if (top) withAlpha(blend(bg, accent, 0.28f), 0x70) else withAlpha(shade(bg, -0.3f), 0xF4), 0f, noiseAlpha = 0x06,
+                topBar = if (top) 0 else withAlpha(accent, 0xC0))
+            9 -> TexturedDrawable(withAlpha(shade(panel, -0.1f), 0xF0), withAlpha(shade(panel, -0.1f), 0xF0), 0f, topBar = focus)
             else -> GradientDrawable(if (top) GradientDrawable.Orientation.TOP_BOTTOM else GradientDrawable.Orientation.BOTTOM_TOP,
                 intArrayOf(withAlpha(shade(bg, -0.5f), 0xF0), withAlpha(bg, 0xB0), Color.TRANSPARENT))
         }
@@ -225,7 +397,41 @@ object Ui {
     /** Wygląd zaznaczonego elementu (np. do podglądu). */
     fun focusedBg(): Drawable = focusDrawable()
 
-    private fun focusDrawable(): Drawable = when (preset.focusStyle) {
+    private fun focusDrawable(): Drawable = when {
+        // karty / szkło: jednolite wypełnienie bez ramki (czyste, jak kafelki systemu)
+        // iOS: jasna karta z miękkim, świecącym pierścieniem
+        preset.focusStyle == FocusStyle.FILL && surface == S_GLASS && color2("focus") == null -> glowFocus(Color.WHITE)
+        // MagicOS: pływająca karta z cienką, neonowo-błękitną krawędzią
+        preset.focusStyle == FocusStyle.FILL && surface == S_CARD && color2("focus") == null -> shape(focus, 1, withAlpha(accent, 0xB0))
+        // mika: delikatne podświetlenie i ramka w kolorze akcentu
+        preset.focusStyle == FocusStyle.OUTLINE && surface == S_MICA -> shape(withAlpha(focus, 0x2C), 2, focus)
+        // PS5: biała karta z niebieską poświatą; Xbox: ostra, gruba ramka w kolorze limonki
+        surface == S_PS && color2("focus") == null -> glowFocus()
+        surface == S_XBOX -> xboxFocus()
+        else -> focusDrawableClassic()
+    }
+
+    /** Zaznaczenie z poświatą: dwa półprzezroczyste pierścienie w kolorze akcentu wokół jasnej karty. */
+    private fun glowFocus(ring: Int = accent): Drawable {
+        val r = dp(preset.radius).toFloat()
+        val accent = ring
+        fun ring(rad: Float, w: Int, c: Int) = GradientDrawable().apply { cornerRadius = rad; setColor(Color.TRANSPARENT); setStroke(dp(w), c) }
+        val inner = GradientDrawable().apply { cornerRadius = maxOf(r - dp(4), 0f); setColor(focus); setStroke(dp(1), withAlpha(Color.WHITE, 0xFF)) }
+        return android.graphics.drawable.LayerDrawable(arrayOf(ring(r, 3, withAlpha(accent, 0x40)), ring(maxOf(r - dp(2), 0f), 2, withAlpha(accent, 0xA0)), inner)).apply {
+            setLayerInset(1, dp(2), dp(2), dp(2), dp(2)); setLayerInset(2, dp(4), dp(4), dp(4), dp(4))
+        }
+    }
+
+    /** Xbox: ostra ramka limonki (#107C10) o dużym kontraście – wewnętrzna jasna linia oddziela ją od ciemnego tła. */
+    private fun xboxFocus(): Drawable {
+        val outer = shape(withAlpha(focus, 0x30), geo.focusStroke, focus)
+        val inner = GradientDrawable().apply { setColor(Color.TRANSPARENT); setStroke(dp(1), withAlpha(Color.WHITE, 0xD0)) }
+        return android.graphics.drawable.LayerDrawable(arrayOf(outer, inner)).apply {
+            val i = dp(geo.focusStroke); setLayerInset(1, i, i, i, i)
+        }
+    }
+
+    private fun focusDrawableClassic(): Drawable = when (preset.focusStyle) {
         FocusStyle.FILL -> fill("focus").apply { setStroke(dp(2), shade(color("focus"), 0.45f)) }
         FocusStyle.OUTLINE -> shape(withAlpha(focus, 0x40), 2, focus)
         FocusStyle.GRADIENT -> GradientDrawable(
@@ -233,12 +439,32 @@ object Ui {
         ).apply { cornerRadius = dp(preset.radius).toFloat(); setStroke(dp(1), shade(focus, 0.5f)) }
     }
 
-    fun itemBg(border: Boolean = true): Drawable = StateListDrawable().apply {
+    /** Tła elementów list – tworzone raz na wersję wyglądu, każdy widok dostaje kopię (szybsze budowanie ekranów, np. ustawień). */
+    private val itemBgCache = HashMap<Boolean, Pair<Int, Drawable.ConstantState?>>()
+
+    fun itemBg(border: Boolean = true): Drawable {
+        val key = java.util.Objects.hash(version, Prefs.theme, focus, text, accent, color2("focus"), anim)
+        itemBgCache[border]?.let { (v, st) -> if (v == key && st != null) return st.newDrawable() }
+        val d = createItemBg(border)
+        itemBgCache[border] = key to d.constantState
+        return d
+    }
+
+    private fun createItemBg(border: Boolean): Drawable = StateListDrawable().apply {
         addState(intArrayOf(android.R.attr.state_focused), focusDrawable())
         addState(intArrayOf(android.R.attr.state_pressed), focusDrawable())
         addState(intArrayOf(android.R.attr.state_selected), focusDrawable())
         addState(intArrayOf(android.R.attr.state_activated), shape(withAlpha(accent, 0x45), if (border) 1 else 0, withAlpha(accent, 0x90)))
-        addState(intArrayOf(), if (border) shape(Color.TRANSPARENT, 1, withAlpha(text, 0x1C)) else shape(Color.TRANSPARENT))
+        addState(intArrayOf(), when (surface) {
+            // karty: każdy element to delikatnie wyróżniona karta
+            S_CARD -> shape(withAlpha(text, 0x0B))
+            S_GLASS -> shape(withAlpha(Color.WHITE, 0x0E), if (border) 1 else 0, withAlpha(Color.WHITE, 0x14))
+            S_PS -> shape(withAlpha(Color.WHITE, 0x10), if (border) 1 else 0, withAlpha(Color.WHITE, 0x1C))
+            S_XBOX -> shape(withAlpha(Color.WHITE, 0x0A))
+            S_MICA -> shape(withAlpha(Color.WHITE, 0x08), if (border) 1 else 0, withAlpha(Color.WHITE, 0x12))
+            else -> if (border) shape(Color.TRANSPARENT, 1, withAlpha(text, 0x1C)) else shape(Color.TRANSPARENT)
+        })
+        setEnterFadeDuration(if (anim == 0) 0 else 90); setExitFadeDuration(if (anim == 0) 0 else 90)
     }
 
     /** Tło komórki przewodnika: 0 kafelki, 1 linie, 2 kompakt, 3 klasyczny. */
@@ -261,8 +487,41 @@ object Ui {
     fun tileBg(): Drawable = StateListDrawable().apply {
         addState(intArrayOf(android.R.attr.state_focused), focusDrawable())
         addState(intArrayOf(android.R.attr.state_pressed), focusDrawable())
-        addState(intArrayOf(android.R.attr.state_activated), surfaceBg(0xF0).apply { setStroke(dp(2), withAlpha(accent, 0xC0)) })
-        addState(intArrayOf(), surfaceBg(0xE0).apply { setStroke(dp(1), withAlpha(text, 0x22)) })
+        addState(intArrayOf(android.R.attr.state_activated), surfaceClassic(0xF0, maxOf(preset.radius, 12)).apply { setStroke(dp(2), withAlpha(accent, 0xC0)) })
+        addState(intArrayOf(), (texturedSurface(shade(bg, -0.1f), 0xE0, maxOf(preset.radius, 12))
+            ?: surfaceClassic(0xE0, maxOf(preset.radius, 12)).apply { setStroke(dp(1), withAlpha(text, 0x22)) }))
+    }
+
+    /** Przycina widok do zaokrąglonego prostokąta (logo, podgląd, kafelki) – obraz nie wychodzi poza ramkę. */
+    fun roundClip(v: View, radiusPx: Float) {
+        v.outlineProvider = object : android.view.ViewOutlineProvider() {
+            override fun getOutline(view: View, o: android.graphics.Outline) { o.setRoundRect(0, 0, view.width, view.height, radiusPx) }
+        }
+        v.clipToOutline = true
+    }
+
+    /** Promień zaokrąglenia logo kanałów wg motywu (ostre w Xbox, łagodne w pozostałych). */
+    val logoRadius get() = dp(if (surface == S_XBOX) 1 else minOf(maxOf(preset.radius, 4), 10)).toFloat()
+
+    /** Tło kafelka logo w pasku informacji wg stylu paska (null = logo bez kafelka). */
+    fun infoLogoBg(): Drawable? {
+        fun tile(r: Int, fill: Int, sw: Int = 0, sc: Int = 0) = GradientDrawable().apply { cornerRadius = dp(r).toFloat(); setColor(fill); if (sw > 0) setStroke(dp(sw), sc) }
+        return when (infoStyle) {
+            5 -> tile(16, withAlpha(text, 0x10)); 6 -> tile(18, withAlpha(Color.WHITE, 0x1A), 1, withAlpha(Color.WHITE, 0x22))
+            7 -> tile(6, withAlpha(Color.WHITE, 0x0C), 1, withAlpha(Color.WHITE, 0x14)); 8 -> tile(12, withAlpha(Color.WHITE, 0x14), 1, withAlpha(accent, 0x90))
+            9 -> tile(0, withAlpha(Color.WHITE, 0x0A), 2, withAlpha(focus, 0xC0)); else -> null
+        }
+    }
+
+    /** Tło kafelka ikony (szybkie menu): koło w motywach z okrągłymi ikonami, w pozostałych tło elementu listy. */
+    fun iconBoxBg(): Drawable {
+        if (!geo.iconRound) return itemBg()
+        fun oval(fill: Int, sw: Int = 0, sc: Int = 0) = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(fill); if (sw > 0) setStroke(dp(sw), sc) }
+        val f = oval(focus, if (geo.glow) 3 else 0, withAlpha(accent, 0xB0))
+        return StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_focused), f); addState(intArrayOf(android.R.attr.state_pressed), f)
+            addState(intArrayOf(), oval(withAlpha(Color.WHITE, 0x12), 1, withAlpha(Color.WHITE, 0x1C)))
+        }
     }
 
     /** Kolor ikon: akcent, a na zaznaczonym elemencie kolor tekstu zaznaczenia. */
@@ -280,7 +539,10 @@ object Ui {
     fun glassBg(): Drawable = surfaceBg(0xE6)
 
     /** Tło w stylu paska informacji: ciemny gradient z koloru tła motywu, cienka ramka w kolorze akcentu. */
-    fun surfaceBg(alpha: Int = 0xF0, radius: Int = maxOf(preset.radius, 12)): GradientDrawable =
+    fun surfaceBg(alpha: Int = 0xF0, radius: Int = maxOf(preset.radius, 12)): Drawable =
+        texturedSurface(shade(bg, -0.1f), alpha, radius) ?: surfaceClassic(alpha, radius)
+
+    private fun surfaceClassic(alpha: Int, radius: Int): GradientDrawable =
         GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
             intArrayOf(withAlpha(shade(bg, -0.25f), alpha), withAlpha(shade(bg, -0.55f), alpha))).apply {
             cornerRadius = dp(radius).toFloat(); setStroke(dp(1), withAlpha(accent, 0x66))
@@ -294,7 +556,7 @@ object Ui {
     val panelAlpha get() = PANEL_ALPHAS[panelAlphaIndex.coerceIn(PANEL_ALPHAS.indices)] * 255 / 100
 
     fun panelBg(alpha: Int = panelAlpha): Drawable = if (color2("panel") != null) fill("panel", alpha)
-    else if (preset.focusStyle == FocusStyle.GRADIENT)
+    else texturedSurface(panel, alpha, preset.radius) ?: if (preset.focusStyle == FocusStyle.GRADIENT)
         GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
             intArrayOf(withAlpha(shade(panel, 0.12f), alpha), withAlpha(panel, alpha), withAlpha(shade(panel, -0.3f), alpha)))
             .apply { cornerRadius = dp(preset.radius).toFloat(); setStroke(dp(1), withAlpha(shade(panel, 0.4f), 0xC0)) }
@@ -335,10 +597,12 @@ object Ui {
      * małe kafelki do 3,5%), uniesione nad sąsiadów – nic nie wychodzi poza obramowanie paneli.
      */
     private fun zoomAnimator(v: View, w: Int, h: Int): StateListAnimator {
-        val sx = 1f + minOf(0.035f, dp(12).toFloat() / maxOf(w, 1)); val sy = 1f + minOf(0.035f, dp(8).toFloat() / maxOf(h, 1))
+        val g = geo; val room = if (g.zoomMax > 0.04f) 26 else 12
+        val sx = 1f + minOf(g.zoomMax, dp(room).toFloat() / maxOf(w, 1)); val sy = 1f + minOf(g.zoomMax, dp(room * 2 / 3).toFloat() / maxOf(h, 1))
         val s = minOf(sx, sy)
         fun a(sc: Float, z: Float) = ObjectAnimator.ofPropertyValuesHolder(v, PropertyValuesHolder.ofFloat(View.SCALE_X, sc),
-            PropertyValuesHolder.ofFloat(View.SCALE_Y, sc), PropertyValuesHolder.ofFloat(View.TRANSLATION_Z, z)).setDuration(110)
+            PropertyValuesHolder.ofFloat(View.SCALE_Y, sc), PropertyValuesHolder.ofFloat(View.TRANSLATION_Z, z)).setDuration(g.zoomMs)
+            .apply { if (g.overshoot > 0f && sc > 1f) interpolator = android.view.animation.OvershootInterpolator(g.overshoot) }
         return StateListAnimator().apply {
             addState(intArrayOf(android.R.attr.state_focused), a(s, dp(4).toFloat()))
             addState(intArrayOf(), a(1f, 0f))
@@ -365,10 +629,13 @@ object Ui {
     fun style(v: View, inItem: Boolean = false) {
         val tags = v.tag?.toString()?.split(' ') ?: emptyList()
         var item = inItem
-        if ("panel" in tags) v.background = panelBg()
-        if ("glass" in tags) v.background = glassBg()
+        // panele przycinają treść do własnej (zaokrąglonej) ramki – powiększone elementy, logo i obraz nie wychodzą poza panel
+        if ("panel" in tags) { v.background = panelBg(); v.clipToOutline = true }
+        if ("glass" in tags) { v.background = glassBg(); v.clipToOutline = true }
         if ("item" in tags) {
             v.background = itemBg(border = "noborder" !in tags)
+            // treść elementu (logo, miniatury, tła) przycięta do jego zaokrąglonego kształtu – nic nie wychodzi poza kafelek
+            if ("noclip" !in tags) roundClip(v, dp(preset.radius).toFloat())
             if ("nozoom" !in tags) applyZoom(v) else v.stateListAnimator = null
             // powiększony element nie może być przycinany przez rodzica
             // (lista przycina się na swoich granicach – przewinięte elementy nie nachodzą na nagłówki obok)
@@ -423,6 +690,12 @@ object Ui {
         return openDialogs.entries.firstOrNull { (o, v) -> o !== except && v.first == key && o.isShowing && now - v.second < DUP_MS }?.key
     }
 
+    /** Zamyka otwarte okna ekranu [c] (np. przed pokazaniem menu ikon z menu odtwarzania). */
+    fun dismissOpenDialogs(c: android.content.Context) {
+        val prefix = System.identityHashCode(c).toString() + "|"
+        openDialogs.entries.filter { (d, v) -> v.first.startsWith(prefix) && d.isShowing }.map { it.key }.forEach { runCatching { it.dismiss() } }
+    }
+
     private fun dialogKey(c: android.content.Context, title: CharSequence?) = System.identityHashCode(c).toString() + "|" + (title?.toString() ?: "")
 
     fun dialog(c: android.content.Context): androidx.appcompat.app.AlertDialog.Builder =
@@ -449,8 +722,14 @@ object Ui {
             }
         }
 
-    fun dialogBg(): Drawable = (if (color2("panel") != null) fill("panel").apply { setStroke(dp(1), withAlpha(accent, 0x90)) }
-        else surfaceBg(0xF6, maxOf(preset.radius, 14))).apply { cornerRadius = dp(maxOf(preset.radius, 14)).toFloat() }
+    fun dialogBg(): Drawable {
+        // ramka okna wg motywu: ostra (Xbox), lekko zaokrąglona (Windows 11), duże zaokrąglenia (iOS)
+        val r = when (surface) { S_XBOX -> 2; S_MICA -> 8; S_GLASS -> 22; S_CARD -> 24; else -> maxOf(preset.radius, 14) }
+        if (color2("panel") != null) return fill("panel").apply { setStroke(dp(1), withAlpha(accent, 0x90)); cornerRadius = dp(r).toFloat() }
+        // szkło/mika: okno półprzezroczyste (rozmycie tła pod oknem, gdy system je obsługuje)
+        return texturedSurface(panel, if (geo.blur > 0 && surface != S_XBOX) 0xE4 else 0xFA, r, frame = true)
+            ?: surfaceClassic(0xF6, r).apply { cornerRadius = dp(r).toFloat() }
+    }
 
     private fun pillBg(primary: Boolean): Drawable = StateListDrawable().apply {
         val r = dp(22).toFloat()
@@ -466,14 +745,33 @@ object Ui {
         val dm = d.context.resources.displayMetrics
         val wide = dm.widthPixels / dm.density >= 900
         w.setBackgroundDrawable(dialogBg())
-        w.setLayout((dm.widthPixels * if (wide) 0.46f else 0.92f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
+        // TV: 46% szerokości; telefon/tablet: do 92%, ale nie szerzej niż 560 dp (w poziomie okno nie rozciąga się na cały ekran)
+        w.setLayout(if (wide) (dm.widthPixels * 0.46f).toInt() else minOf((dm.widthPixels * 0.92f).toInt(), dp(560)), ViewGroup.LayoutParams.WRAP_CONTENT)
         w.setDimAmount(0.7f)
+        if (anim != 0) w.setWindowAnimations(R.style.DialogAnim)
+        // szkło / mika: rozmyte tło pod oknem (Android 12+, gdy urządzenie obsługuje rozmycie między oknami)
+        if (geo.blur > 0 && android.os.Build.VERSION.SDK_INT >= 31 &&
+            (d.context.getSystemService(android.content.Context.WINDOW_SERVICE) as? android.view.WindowManager)?.isCrossWindowBlurEnabled == true) {
+            w.addFlags(android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+            w.attributes = w.attributes.apply { blurBehindRadius = dp(geo.blur) }
+            w.setDimAmount(0.4f)
+        }
+        // okno nad odtwarzaczem pełnoekranowym nie wywołuje pasków systemu (obraz nie „skacze”)
+        (d.ownerActivity ?: (d.context as? android.content.ContextWrapper)?.baseContext as? Activity)?.window?.let { aw ->
+            if (aw.attributes.flags and android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN != 0)
+                w.addFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        }
+        w.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         // treść odsunięta od zaokrąglonej ramki – zaznaczenia i przyciski nie są ucinane na rogach
         w.decorView.setPadding(dp(10), dp(8), dp(10), dp(10))
         styleDialogTree(w.decorView)
         d.findViewById<TextView>(androidx.appcompat.R.id.alertTitle)?.apply {
             setTextColor(Ui.accent); typeface = Ui.typeface(Typeface.BOLD)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f * fontScale); maxLines = 3
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f * fontScale * geo.headerScale); maxLines = 3
+            // iOS: duży, wyśrodkowany tytuł; pozostałe – do lewej
+            gravity = if (geo.titleCenter) android.view.Gravity.CENTER_HORIZONTAL else android.view.Gravity.START
+            (parent as? android.widget.LinearLayout)?.gravity = if (geo.titleCenter) android.view.Gravity.CENTER else android.view.Gravity.CENTER_VERTICAL or android.view.Gravity.START
+            if (geo.titleCenter) layoutParams = (layoutParams as? android.widget.LinearLayout.LayoutParams)?.apply { width = 0; weight = 1f } ?: layoutParams
         }
         d.findViewById<TextView>(android.R.id.message)?.apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f * fontScale); setLineSpacing(0f, 1.15f)
@@ -503,7 +801,7 @@ object Ui {
                     edit.requestFocus(); edit.setSelection(edit.text.length)
                     // telefon: klawiatura od razu; TV: klawiatura po OK na polu
                     if (d.context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TOUCHSCREEN))
-                        w.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
+                        w.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE or android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
                 }
                 list != null -> if (!list.hasFocus()) { list.requestFocus(); if (list.checkedItemPosition < 0) list.setSelection(0) }
                 else -> {
@@ -513,9 +811,15 @@ object Ui {
                         ?: d.getButton(android.content.DialogInterface.BUTTON_NEGATIVE)?.takeIf { it.isShown })?.requestFocus()
                 }
             }
-            // okno nie wyższe niż ekran – przyciski na dole zawsze widoczne (treść przewija się)
-            val maxH = (dm.heightPixels * 0.9f).toInt()
-            if (w.decorView.height > maxH) w.setLayout(w.attributes.width, maxH)
+        }
+        // okno nie wyższe niż ekran – przyciski na dole zawsze widoczne (treść przewija się);
+        // sprawdzane przy każdej zmianie rozmiaru (np. lista odświeżona w oknie „na żywo”), nie tylko raz po otwarciu
+        if (w.decorView.getTag(R.id.ui_clip) == null) {
+            w.decorView.setTag(R.id.ui_clip, true)
+            w.decorView.addOnLayoutChangeListener { v, _, t, _, b, _, _, _, _ ->
+                val maxH = (v.resources.displayMetrics.heightPixels * 0.9f).toInt()
+                if (b - t > maxH && w.attributes.height != maxH) v.post { w.setLayout(w.attributes.width, maxH) }
+            }
         }
     }
 
@@ -609,12 +913,21 @@ object Ui {
 
     // ------------- animacje -------------
 
+    /**
+     * Przejścia między ekranami. Ekran pod spodem stoi nieruchomo ([R.anim.hold]) – wcześniej oba ekrany jednocześnie
+     * zanikały/pojawiały się i w połowie animacji przez oba prześwitywała czerń (czarny ekran przy wejściu/wyjściu z ustawień i menu).
+     */
     fun openTransition(a: Activity) {
         @Suppress("DEPRECATION")
         when (anim) {
-            1 -> a.overridePendingTransition(R.anim.fade_in, R.anim.fade_out)
+            1 -> a.overridePendingTransition(R.anim.fade_in, R.anim.hold)
             2 -> a.overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
-            3 -> a.overridePendingTransition(R.anim.zoom_in, R.anim.fade_out)
+            3 -> a.overridePendingTransition(R.anim.zoom_in, R.anim.hold)
+            4 -> a.overridePendingTransition(R.anim.float_in, R.anim.hold)
+            5 -> a.overridePendingTransition(R.anim.spring_in_right, R.anim.parallax_out_left)
+            6 -> a.overridePendingTransition(R.anim.snap_in, R.anim.hold)
+            7 -> a.overridePendingTransition(R.anim.console_in, R.anim.hold)
+            8 -> a.overridePendingTransition(R.anim.xbox_in, R.anim.hold)
             else -> a.overridePendingTransition(0, 0)
         }
     }
@@ -622,9 +935,14 @@ object Ui {
     fun closeTransition(a: Activity) {
         @Suppress("DEPRECATION")
         when (anim) {
-            1 -> a.overridePendingTransition(R.anim.fade_in, R.anim.fade_out)
+            1 -> a.overridePendingTransition(R.anim.hold, R.anim.fade_out)
             2 -> a.overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
-            3 -> a.overridePendingTransition(R.anim.fade_in, R.anim.zoom_out)
+            3 -> a.overridePendingTransition(R.anim.hold, R.anim.zoom_out)
+            4 -> a.overridePendingTransition(R.anim.hold, R.anim.float_out)
+            5 -> a.overridePendingTransition(R.anim.parallax_in_left, R.anim.spring_out_right)
+            6 -> a.overridePendingTransition(R.anim.hold, R.anim.snap_out)
+            7 -> a.overridePendingTransition(R.anim.hold, R.anim.console_out)
+            8 -> a.overridePendingTransition(R.anim.hold, R.anim.xbox_out)
             else -> a.overridePendingTransition(0, 0)
         }
     }
@@ -645,7 +963,9 @@ object Ui {
         v.translationX = if (fromLeft) -d else d
         v.alpha = if (anim == 2) 1f else 0f
         // krótsza droga i hamowanie na końcu – płynniej na słabszych urządzeniach
-        v.animate().translationX(0f).alpha(1f).setDuration(animDuration).setInterpolator(android.view.animation.DecelerateInterpolator(1.6f)).withLayer().start()
+        // szkło (iOS): sprężyste dojście do miejsca; pozostałe – hamowanie na końcu
+        val interp = if (geo.overshoot > 0f) android.view.animation.OvershootInterpolator(geo.overshoot * 0.5f) else android.view.animation.DecelerateInterpolator(if (surface == S_XBOX || surface == S_MICA) 2.4f else 1.6f)
+        v.animate().translationX(0f).alpha(1f).setDuration(animDuration).setInterpolator(interp).withLayer().start()
     }
 
     fun slideOut(v: View, toLeft: Boolean, end: () -> Unit = {}) {

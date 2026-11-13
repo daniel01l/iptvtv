@@ -52,7 +52,8 @@ class SettingsActivity : BaseActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(Ui.dp(if (narrow) 12 else 32), Ui.dp(16), Ui.dp(if (narrow) 12 else 32), Ui.dp(8))
         }
-        root.addView(TextView(this).apply { text = "Ustawienia"; textSize = 24f; tag = "accent"; setTypeface(typeface, 1) })
+        // nagłówek wg motywu (iOS: duży, pogrubiony)
+        root.addView(TextView(this).apply { text = "Ustawienia"; textSize = 24f * Ui.geo.headerScale; tag = "accent"; setTypeface(typeface, 1) })
         // karty w pionowej kolumnie po lewej, treść po prawej
         // telefon w pionie: karty w przewijanym pasku u góry, treść na pełną szerokość (TV i poziom – kolumna po lewej)
         val portrait = narrow && resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT
@@ -74,7 +75,8 @@ class SettingsActivity : BaseActivity() {
             body.addView(tabStrip, LinearLayout.LayoutParams(-1, -2))
         } else body.addView(ScrollView(this).apply { isFocusable = false; addView(tabCol) }, LinearLayout.LayoutParams(Ui.dp(if (narrow) 150 else 240), -1))
         // pion: treść przycięta do szerokości ekranu (bez wystawania i poziomego „rozjeżdżania”), pasek przewijania poza treścią
-        scroll = ScrollView(this).apply { isFillViewport = true; isFocusable = false; clipChildren = portrait
+        // treść przycinana na krawędzi przewijanego obszaru (powiększony wiersz nie wchodzi na kolumnę kart)
+        scroll = ScrollView(this).apply { isFillViewport = true; isFocusable = false; clipChildren = true
             if (portrait) { scrollBarStyle = View.SCROLLBARS_OUTSIDE_OVERLAY; isVerticalScrollBarEnabled = false } }
         container = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(Ui.dp(if (portrait) 4 else 20), Ui.dp(12), Ui.dp(if (portrait) 4 else 14), Ui.dp(40)); clipChildren = portrait; clipToPadding = portrait }
         scroll.addView(container)
@@ -141,10 +143,16 @@ class SettingsActivity : BaseActivity() {
     }
 
     /** Buduje bieżącą kartę; zachowuje fokus na tym samym wierszu (po tytule). */
-    private fun build(keepFocus: Boolean = false) {
+    private fun build(keepFocus: Boolean = false, key: Any? = null) {
         if (tab !in TAB_NAMES.indices) tab = 0
-        val focusKey = if (keepFocus) (generateSequence(container.findFocus() ?: sticky.findFocus()) { it.parent as? View }
-            .firstNotNullOfOrNull { it.getTag(R.id.row_key) } ?: lastKey) else null
+        val focusKey = key ?: if (keepFocus) currentKey() else null
+        buildNow(focusKey)
+    }
+
+    private fun currentKey(): Any? = (generateSequence(container.findFocus() ?: sticky.findFocus()) { it.parent as? View }
+            .firstNotNullOfOrNull { it.getTag(R.id.row_key) } ?: lastKey)
+
+    private fun buildNow(focusKey: Any?) {
         container.removeAllViews(); section = null; sectionIndex = 0
         sticky.removeAllViews()
         playlistUrl = null; epgUrl = null; piconUrl = null; userAgent = null; log = null
@@ -157,9 +165,17 @@ class SettingsActivity : BaseActivity() {
         }
         section = null
         saveButton()
-        Ui.style(container); Ui.style(sticky)
+        // stylowane tylko widoczne elementy; zwinięte sekcje – dopiero przy rozwinięciu (szybsze przełączanie kart i przebudowa)
+        for (i in 0 until container.childCount) container.getChildAt(i).let { if (it.visibility == View.VISIBLE) styleSection(it) }
+        Ui.style(sticky)
         sticky.visibility = if (sticky.childCount > 0) View.VISIBLE else View.GONE
         focusKey?.let { k -> ((findByKey(container, k) ?: findByKey(sticky, k)) ?: tabs.getOrNull(tab))?.requestFocus() }
+    }
+
+    private fun styleSection(v: View) {
+        if (v.getTag(R.id.settings_styled) == Ui.version) return
+        v.setTag(R.id.settings_styled, Ui.version)
+        Ui.style(v)
     }
 
     private fun findByKey(v: View, k: Any): View? {
@@ -187,7 +203,9 @@ class SettingsActivity : BaseActivity() {
     }
 
     private fun lookChanged() {
-        Ui.changed(); applyTheme(); build(keepFocus = true)
+        // najpierw pusta karta: nowy motyw nakładany raz (wcześniej cała karta była stylowana dwukrotnie)
+        val k = currentKey(); container.removeAllViews(); sticky.removeAllViews()
+        Ui.changed(); applyTheme(); build(key = k)
     }
 
     // ---------------- elementy ----------------
@@ -227,22 +245,27 @@ class SettingsActivity : BaseActivity() {
         val key = "$tab|$t"
         val open = key in Prefs.settingsOpen        // domyślnie wszystkie sekcje zwinięte
         sectionIndex++
-        val h = TextView(this).apply {
-            text = (if (open) "▾  " else "▸  ") + t; textSize = 17f; tag = "item"; setTypeface(typeface, 1)
-            isFocusable = true; isClickable = true; setPadding(Ui.dp(12), Ui.dp(12), Ui.dp(12), Ui.dp(12))
-            setTag(R.id.row_key, "hdr|$key")
-            setOnClickListener {
-                if (open) { Prefs.settingsOpen = Prefs.settingsOpen - key; Prefs.settingsClosed = (Prefs.settingsClosed - key) + key }
-                else { Prefs.settingsClosed = Prefs.settingsClosed - key; Prefs.settingsOpen = (Prefs.settingsOpen - key) + key }
-                build(keepFocus = true)
-            }
-        }
-        container.addView(h, LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(8) })
         val sec = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setPadding(Ui.dp(if (portraitPhone) 6 else 14), Ui.dp(4), Ui.dp(if (portraitPhone) 2 else 6), Ui.dp(4))
             clipChildren = portraitPhone; clipToPadding = portraitPhone
             visibility = if (open) View.VISIBLE else View.GONE
         }
+        val h = TextView(this).apply {
+            text = (if (open) "▾  " else "▸  ") + t; textSize = 17f * (1f + (Ui.geo.headerScale - 1f) / 2); tag = "item"; setTypeface(typeface, 1)
+            isFocusable = true; isClickable = true; setPadding(Ui.dp(12), Ui.dp(12), Ui.dp(12), Ui.dp(12))
+            setTag(R.id.row_key, "hdr|$key")
+            // rozwinięcie / zwinięcie bez przebudowy całej karty (wcześniej każde OK na nagłówku tworzyło kartę od nowa)
+            setOnClickListener {
+                val nowOpen = sec.visibility != View.VISIBLE
+                if (nowOpen) { Prefs.settingsClosed = Prefs.settingsClosed - key; Prefs.settingsOpen = (Prefs.settingsOpen - key) + key }
+                else { Prefs.settingsOpen = Prefs.settingsOpen - key; Prefs.settingsClosed = (Prefs.settingsClosed - key) + key }
+                text = (if (nowOpen) "▾  " else "▸  ") + t
+                if (nowOpen) styleSection(sec)
+                sec.visibility = if (nowOpen) View.VISIBLE else View.GONE
+                lastKey = "hdr|$key"
+            }
+        }
+        container.addView(h, LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(8) })
         container.addView(sec)
         section = sec
     }
@@ -790,6 +813,7 @@ class SettingsActivity : BaseActivity() {
         row("↺ Przywróć domyślne menu") { pl.iptv.tv.data.QuickMenu.reset(); build(keepFocus = true) }
 
         header("Szybkie menu ikon (przytrzymaj OK lub ekran)")
+        choice("Przytrzymanie OK / ekranu", listOf("Od razu menu silnika i akceleracji", "Szybkie menu ikon (z kafelkiem silnika)"), { Prefs.okLongAction.coerceIn(0, 1) }, look = false) { Prefs.okLongAction = it }
         toggle("Szybkie menu ikon w odtwarzaczu", { Prefs.miniMenuEnabled }) { Prefs.miniMenuEnabled = it }
         note("Ikony obok siebie na środku ekranu, podpis pod zaznaczoną; znika po 3 s. OK na pozycji: pokaż/ukryj i kolejność.")
         val mini = pl.iptv.tv.data.MiniMenu
@@ -815,6 +839,8 @@ class SettingsActivity : BaseActivity() {
         choice("Silnik odtwarzania", Playback.ENGINES, { Prefs.playerEngine.coerceIn(Playback.ENGINES.indices) }, look = false) { Prefs.playerEngine = it; Playback.stop() }
         note("Dekoder sprzętowy: obraz dekoduje układ graficzny (najmniejsze obciążenie, zalecany). Programowy: gdy sprzętowy daje zielony/czarny obraz lub nie obsługuje formatu (większe obciążenie procesora). Tunelowanie: obraz i dźwięk synchronizowane sprzętowo – na zgodnych Android TV najpłynniejszy obraz; synchronizacja dźwięku z ustawień może wtedy nie działać.")
         choice("Kolejka dekodera", listOf("Automatycznie", "Asynchroniczna (szybsza)", "Synchroniczna (gdy obraz zamarza)"), { Prefs.asyncDecoder.coerceIn(0, 2) }, look = false) { Prefs.asyncDecoder = it; Playback.stop() }
+        toggle("Akceleracja sprzętowa obrazu", { Prefs.hwAccel }) { Prefs.hwAccel = it; Playback.stop() }
+        note("Wyłączona akceleracja = dekoder programowy (gdy obraz ma artefakty lub jest zielony). Silnik i akceleracja zmienisz też podczas oglądania: przytrzymaj OK.")
         toggle("Zapasowy dekoder przy błędzie", { Prefs.decoderFallback }) { Prefs.decoderFallback = it; Playback.stop() }
         toggle("Niskie opóźnienie na żywo", { Prefs.lowLatency }) { Prefs.lowLatency = it; Playback.stop() }
         note("Niskie opóźnienie: start po 0,5 s buforu i odtwarzanie bliżej bieżącej chwili transmisji (mniejsze opóźnienie, przy słabym łączu częstsze buforowanie).")
@@ -1001,6 +1027,8 @@ class SettingsActivity : BaseActivity() {
         header("Wyniki meczów (► ► podczas oglądania)")
         toggle("Wyniki meczów (2× ►)", { Prefs.scoresEnabled }) { Prefs.scoresEnabled = it }
         toggle("Powiadomienie o golu nad obrazem", { Prefs.scoreGoalAlerts }) { Prefs.scoreGoalAlerts = it }
+        toggle("Ukryj wyniki (bez spoilerów)", { Prefs.scoreHideResults }) { Prefs.scoreHideResults = it }
+        note("Bez spoilerów: w zakładce wyników, przy kanałach i w powiadomieniach widać drużyny i minutę, ale nie wynik. Wynik meczu odsłonisz w jego szczegółach („👁 Pokaż wynik”).")
         val rates = listOf(30, 60, 120, 300)
         choice("Odświeżanie podczas meczu", rates.map { "co $it s" }, { rates.indexOf(Prefs.scoreRefresh).coerceAtLeast(1) }, look = false) { Prefs.scoreRefresh = rates[it] }
 
@@ -1499,6 +1527,6 @@ class SettingsActivity : BaseActivity() {
         val TAB_NAMES = listOf("Listy", "Wygląd", "Menu i kanały", "Odtwarzanie", "Program TV", "Archiwum (catch-up)", "Kontrola rodzicielska",
             "Nagrywanie", "Wyniki i pogoda", "Pilot", "System")
         val PARENTAL_TAB = 6
-        val MAIN_LAYOUTS = listOf("Klasyczny (kanały | podgląd i program)", "Podgląd na środku (kanały | podgląd | program)", "Duży podgląd", "Szeroka lista kanałów")
+        val MAIN_LAYOUTS = listOf("Klasyczny (kanały | podgląd i program)", "Podgląd na środku (kanały | podgląd | program)", "Duży podgląd", "Szeroka lista kanałów", "Karty poziome (konsola)")
     }
 }

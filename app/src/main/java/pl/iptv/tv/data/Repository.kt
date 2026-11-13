@@ -529,6 +529,15 @@ object Repository {
         return ch.epgIcon
     }
 
+    /** Kolejne źródła logo: wg ustawień (picony/tvg-logo), potem samo tvg-logo, potem ikona z EPG. */
+    fun piconCandidates(ch: Channel): List<String> {
+        val out = ArrayList<String>(3)
+        piconFor(ch)?.let { out += it }
+        if (ch.logo.startsWith("http", true)) out += ch.logo
+        ch.epgIcon?.takeIf { it.startsWith("http", true) }?.let { out += it }
+        return out.distinct()
+    }
+
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8").replace("+", "%20")
 
     // ---------------- Tło ----------------

@@ -41,7 +41,7 @@ class V41Test {
     @Before fun setup() {
         Playback.stop()
         Prefs.permissionsAsked = true; Prefs.setupDone = true; Prefs.startAction = 0; Prefs.playlistsJson = "[]"; Prefs.mainPreview = false
-        Prefs.keyMapJson = ""; Prefs.zapListEnabled = true; Prefs.zapRows = 8; Prefs.miniMenuEnabled = true; MiniMenu.reset(); Prefs.miniApps = emptyList()
+        Prefs.keyMapJson = ""; Prefs.zapListEnabled = true; Prefs.zapRows = 8; Prefs.miniMenuEnabled = true; Prefs.okLongAction = 1; MiniMenu.reset(); Prefs.miniApps = emptyList()
         val f = File(ctx.filesDir, "v41.m3u").apply { writeText((1..20).joinToString("", "#EXTM3U\n") { "#EXTINF:-1 tvg-id=\"c$it\",K$it\nhttp://v41/$it\n" }) }
         Repository.resetAllEdits(); runBlocking { Repository.loadPlaylist(f.absolutePath) }
     }
@@ -146,7 +146,7 @@ class V41Test {
         val icons = a.findViewById<LinearLayout>(R.id.miniIcons)
         assertEquals(LinearLayout.VERTICAL, icons.orientation)                   // kilka rzędów
         val boxes = (0 until icons.childCount).flatMap { r -> (icons.getChildAt(r) as LinearLayout).let { row -> (0 until row.childCount).map { row.getChildAt(it) } } }
-        assertEquals(6, boxes.size)
+        assertEquals(7, boxes.size)
         boxes.forEach { b -> val loc = IntArray(2); b.getLocationInWindow(loc); assertTrue(loc[0] >= 0 && loc[0] + b.width <= a.resources.displayMetrics.widthPixels) }
         c.pause().stop().destroy()
     }

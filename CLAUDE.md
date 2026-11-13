@@ -5,7 +5,7 @@
 - Kod: `IptvTv-source.tar.gz` (Gradle 8.14.3, AGP 8.7.3, Kotlin 2.0.21, Media3 1.4.1, OkHttp, Coil 2.7, Robolectric 4.13).
 - Moduły: `:app` (pl.iptv.tv), `:admin` (pl.iptv.admin); wspólny kod `shared/pl/iptv/shared/` (RelayCrypto.kt, ActivationFormat.kt).
 - Flavory app: `full` (pl.iptv.tv, plik D-iptv-Player.apk, iptvtv.json, repo github daniel01l/iptvtv) i `secure` (pl.iptv.dplayer, wersja TEST, DPlayer.apk, dplayer.json, repo daniel01l/dplayer). Zmiany robimy tylko w `full`.
-- Aktualna wersja: Player 5.6 (versionCode 49), Admin 2.4 (versionCode 10), TEST 1.2 (versionCode 3).
+- Aktualna wersja: Player 6.0 (versionCode 53), Admin 2.4 (versionCode 10), TEST 1.2 (versionCode 3).
 
 ## Podpis i aktywacja
 - Klucz podpisu: `iptvtv.keystore` (hasło android, alias androiddebugkey) – umieścić w `keystore/` projektu. Nie publikować.
@@ -26,7 +26,19 @@ Na Windows: `JAVA_HOME=C:\Users\dkier\.jdks\jbr-21.0.11`.
 3. Zbudować, sprawdzić podpis (`apksigner verify --print-certs`, SHA-256 041b543f…).
 4. Zaktualizować `iptvtv.json` (versionCode, versionName, apk, notes) i wgrać wydanie na GitHub (daniel01l/iptvtv).
 
-## Ostatnie zmiany (5.6 / Admin 2.4)
+## Ostatnie zmiany (6.0)
+Motywy: iOS promień 22 + `glowFocus(Color.WHITE)`, MagicOS akcent #2EC7FF + krawędź zaznaczenia, Win11 promień 8, Xbox focus #107C10 (`Ui.xboxFocus`); `Ui.style` przycina każdy `item` (`roundClip`, wyjątek tag `noclip`); logo: `IptvApp.PICON_*` (40/75/180 s, 3 ponowienia), `PICON_RETRY_DELAYS` (4/15/45 s), inicjały od razu w `loadPicon`. Testy: `V60Test`.
+
+## Zmiany 5.9
+Przycinanie: `Ui.style` (panel/glass → `clipToOutline`), `Ui.roundClip`, `PiconView` (zaokrąglone logo, `Ui.logoRadius`); pasek informacji: style 5–9 w `Ui.infoBarBg`, `Ui.infoLogoBg`, domyślny styl wg motywu; archiwum: `setupCatchupBar` (kształty, fokus, oś czasu), `seekAccel`, podpowiedź z godziną; listy menu bez `itemAnimator`. Testy: `V59Test`.
+
+## Zmiany 5.8
+Geometria motywów `Ui.Geometry`/`Ui.geo` (zoom, nagłówki, ramki okien z `TexturedDrawable.topBar`, `iconBoxBg`, rozmycie), motywy ps5/xbox (`S_PS`, `S_XBOX`, `ThemePreset.layout`), przejścia anim 4–8 (`res/anim`), układ kart `MainActivity.cardsLayout` + `ChannelAdapter.cards`; kafelek „engine” w `MiniMenu` (domyślnie, `okLongAction`=1); logo: `IptvApp.piconHttp` (ponowienia), `Repository.piconCandidates`, `loadPiconChain`, `MonogramDrawable`. Testy: `V58Test`.
+
+## Zmiany 5.7
+Motywy z fakturą (`ThemePreset.surface`, `TexturedDrawable`: magic/ios/win11), cache `Ui.itemBg`; przejścia z `R.anim.hold` (czarny ekran), tło okna w `BaseActivity`; Ustawienia: sekcje bez przebudowy (`styleSection`); logo: `IptvApp.newImageLoader`, `PiconView`, opóźnione `loadPicon`; przytrzymanie OK = `PlayerActivity.playbackMenu` (`Prefs.okLongAction`, `Prefs.hwAccel`, `Playback.softwareDecoding`); wyniki: `Prefs.scoreHideResults`, kolejka goli `Scores.takeGoals`, `Scores.liveForProgramme` (EPG). Testy: `V57Test`.
+
+## Wcześniejsze zmiany (5.6 / Admin 2.4)
 Silnik odtwarzania i parametry trybu słabszych urządzeń (`Prefs`, `ui/Playback.kt`, Ustawienia → Odtwarzanie); lista po OK z kategoriami ◄ ► (`PlayerActivity.zapCycleGroup`); OK na kategorii w menu; `Ui.stripIcon` (nazwy list bez obcinania); blokada podwójnych okien w `Ui.dialog`; Ustawienia z `screenOrientation=behind`. Admin: Moje urządzenia od razu (`Admin.addPending`, `Activations.update` zwraca zapisany stan), „Nazwa: KOD” (`deviceLabel`), wybór listy (`use_list`), zapisane listy. Testy: `V56Test`, `MyDevicesTest`.
 
 ## Zasady pracy (wymagania użytkownika)

@@ -234,6 +234,7 @@ class PlayerActivity : BaseActivity() {
         // ekran w pełni widoczny – obraz zawsze z powrotem na tę powierzchnię
         playerView.post { if (player != null) { Playback.reattach(playerView); if (isCatchup) playerView.showController() } }
         handler.removeCallbacks(scoresTick); handler.postDelayed(scoresTick, 2000)
+        showGoals(pl.iptv.tv.data.Scores.takeGoals())          // gole wykryte, gdy odtwarzacz był w tle (menu, przewodnik)
     }
 
     override fun onStop() {
@@ -305,6 +306,13 @@ class PlayerActivity : BaseActivity() {
         }
         ((findViewById<View>(R.id.oPicon).parent as View).let { (it as android.view.ViewGroup).getChildAt(1).layoutParams as LinearLayout.LayoutParams }).marginStart = Ui.dp(if (narrow) 12 else 20)
         findViewById<View>(R.id.oClock).visibility = if (Ui.infoClock) View.VISIBLE else View.GONE
+        // logo w kafelku w języku motywu, przycięte do jego kształtu
+        findViewById<ImageView>(R.id.oPicon).apply {
+            background = Ui.infoLogoBg(); val pad = if (background != null) Ui.dp(6) else 0; setPadding(pad, pad, pad, pad)
+            Ui.roundClip(this, if (background != null) Ui.dp(if (Ui.infoStyle == 9) 0 else 12).toFloat() else Ui.logoRadius)
+        }
+        // iOS i konsole: większa, pogrubiona nazwa kanału
+        if (Ui.infoStyle in 6..9) size(R.id.oName, 24f * Ui.geo.headerScale.coerceAtMost(1.25f))
         // styl minimalny: cień pod tekstem zamiast tła
         listOf(R.id.oName, R.id.oClock, R.id.oNow, R.id.oNext).forEach { id ->
             findViewById<TextView>(id).setShadowLayer(if (Ui.infoStyle == 4) 8f else 0f, 0f, 2f, android.graphics.Color.BLACK)
@@ -388,14 +396,19 @@ class PlayerActivity : BaseActivity() {
         seekAcc = 0; seekHint()
     }
 
-    private val HINT = "◄ ► przewijanie  •  2× ► pomiń reklamę  •  OK menu"
+    private val HINT = "◄ ► przewijanie (przytrzymaj – szybciej)  •  2× ► pomiń reklamę  •  ▲ oś czasu  •  OK menu"
 
     private fun seekHint() {
         val t = playerView.findViewById<TextView>(R.id.ctlHint) ?: return
         if (seekAcc == 0L) { t.text = HINT; return }
         val sec = kotlin.math.abs(seekAcc) / 1000
-        t.text = (if (seekAcc > 0) "⏩ +" else "⏪ −") + "%d:%02d".format(sec / 60, sec % 60)
+        // przesunięcie i godzina, w którą trafi przewijanie (np. „⏩ +1:30 → 20:47”)
+        val target = catchStart - Prefs.cuPadBefore * 60_000L + ((player?.currentPosition ?: 0L) + seekAcc).coerceAtLeast(0)
+        t.text = (if (seekAcc > 0) "⏩ +" else "⏪ −") + "%d:%02d".format(sec / 60, sec % 60) + "  →  " + Fmt.time(target)
     }
+
+    /** Przytrzymany ◄ ►: coraz większy krok (1× → 2× → 4× → 8×) – szybkie przewijanie długiej audycji pilotem. */
+    private fun seekAccel(repeat: Int) = when { repeat < 3 -> 1; repeat < 10 -> 2; repeat < 20 -> 4; else -> 8 }
 
     private fun seekBy(ms: Long) {
         if (player == null) return
@@ -432,17 +445,33 @@ class PlayerActivity : BaseActivity() {
         playerView.findViewById<View>(R.id.ctlLive)?.setOnClickListener { catchStart = 0; catchEnd = 0; playerView.hideController(); playCurrent() }
         playerView.findViewById<androidx.media3.ui.DefaultTimeBar>(R.id.exo_progress)?.apply {
             setKeyTimeIncrement(Prefs.cuFwd * 1000L); setPlayedColor(Ui.accent); setScrubberColor(Ui.accent)
+            // oś czasu osiągalna pilotem: ▲ z przycisków – oś (◄ ► przewijają), ▼ z osi – ▶‖
+            isFocusable = true; nextFocusDownId = androidx.media3.ui.R.id.exo_play_pause
+            setScrubberColor(Ui.accent); setAdMarkerColor(Ui.withAlpha(Ui.accent, 0x80))
         }
+        listOf(R.id.ctlBack, R.id.ctlFwd, androidx.media3.ui.R.id.exo_play_pause).forEach { playerView.findViewById<View>(it)?.nextFocusUpId = androidx.media3.ui.R.id.exo_progress }
         listOf(R.id.ctlBack, R.id.ctlFwd, androidx.media3.ui.R.id.exo_play_pause, R.id.ctlSkip, R.id.ctlLive).forEach { id ->
             playerView.findViewById<View>(id)?.let { v ->
+                // przyciski w kształcie motywu: kapsuła (iOS, MagicOS, PS5 – z poświatą), łagodny prostokąt (Windows 11), ostry z limonkową ramką (Xbox)
+                val r = Ui.dp(when (Ui.surface) { Ui.S_XBOX -> 2; Ui.S_MICA -> 6; else -> 22 }).toFloat()
                 v.background = android.graphics.drawable.StateListDrawable().apply {
-                    fun g(c: Int) = android.graphics.drawable.GradientDrawable().apply { setColor(c); cornerRadius = Ui.dp(22).toFloat() }
-                    addState(intArrayOf(android.R.attr.state_focused), g(Ui.focus)); addState(intArrayOf(android.R.attr.state_pressed), g(Ui.focus))
+                    fun g(c: Int, sw: Int = 0, sc: Int = 0) = android.graphics.drawable.GradientDrawable().apply { setColor(c); cornerRadius = r; if (sw > 0) setStroke(Ui.dp(sw), sc) }
+                    val focused = when (Ui.surface) {
+                        Ui.S_PS -> g(Ui.focus, 3, Ui.withAlpha(Ui.accent, 0xC0)); Ui.S_XBOX -> g(Ui.withAlpha(Ui.focus, 0x30), 3, Ui.focus)
+                        Ui.S_MICA -> g(Ui.withAlpha(Ui.focus, 0x30), 2, Ui.focus); else -> g(Ui.focus)
+                    }
+                    addState(intArrayOf(android.R.attr.state_focused), focused); addState(intArrayOf(android.R.attr.state_pressed), focused)
                     addState(intArrayOf(), g(Ui.withAlpha(Ui.text, 0x26)))
+                    setEnterFadeDuration(if (Ui.anim == 0) 0 else 80)
                 }
                 (v as? android.widget.ImageView)?.imageTintList = Ui.textColors(Ui.text)
                 (v as? TextView)?.setTextColor(Ui.textColors(Ui.text))
-                v.setOnFocusChangeListener { _, _ -> (v as? android.widget.ImageView)?.refreshDrawableState() }
+                // zaznaczony przycisk wyraźnie powiększony (czytelny fokus z daleka)
+                v.setOnFocusChangeListener { _, f ->
+                    (v as? android.widget.ImageView)?.refreshDrawableState()
+                    val s = if (f) 1.12f else 1f
+                    if (Ui.anim == 0) { v.scaleX = s; v.scaleY = s } else v.animate().scaleX(s).scaleY(s).setDuration(Ui.geo.zoomMs.coerceAtLeast(90)).start()
+                }
             }
         }
     }
@@ -451,7 +480,7 @@ class PlayerActivity : BaseActivity() {
         val ch = list[pos]
         val p = Repository.programmes(ch).firstOrNull { it.start == catchStart }
         styleCatchupBar()
-        playerView.findViewById<ImageView>(R.id.ctlLogo)?.loadPicon(ch)
+        playerView.findViewById<ImageView>(R.id.ctlLogo)?.let { Ui.roundClip(it, Ui.logoRadius); it.loadPicon(ch) }
         playerView.findViewById<TextView>(R.id.ctlTitle)?.text = "${ch.name}  •  ${p?.fullTitle ?: "Archiwum"}"
         handler.removeCallbacks(catchupClock); handler.post(catchupClock)
         playerView.findViewById<TextView>(R.id.ctlInfo)?.text = "⟲ ${Fmt.day(catchStart)}  ${Fmt.time(catchStart)}–${Fmt.time(catchEnd)}" +
@@ -474,6 +503,12 @@ class PlayerActivity : BaseActivity() {
             cornerRadius = Ui.dp(10).toFloat(); setColor(Ui.archive)
         }
         playerView.findViewById<TextView>(R.id.ctlClock)?.setTextColor(Ui.accent)
+        // style pływające (karta, kapsuła, mika): pasek archiwum odsunięty od krawędzi i przycięty do swojej ramki
+        playerView.findViewById<View>(R.id.ctlBar)?.let { bar ->
+            val m = if (Ui.infoFloating) Ui.dp(24) else 0
+            (bar.layoutParams as? android.widget.FrameLayout.LayoutParams)?.let { it.setMargins(m, 0, m, m / 2); bar.layoutParams = it }
+            bar.clipToOutline = Ui.infoFloating
+        }
     }
 
     /** Godzina oglądanego momentu audycji (np. „20:47”) – czytelniejsza niż sam czas od początku. */
@@ -1146,9 +1181,9 @@ class PlayerActivity : BaseActivity() {
         // OK: krótko = jak dotąd (po puszczeniu), przytrzymanie = mini menu
         val ok = code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER
         val ctl = isCatchup && playerView.isControllerFullyVisible
-        if (ok && !ctl && !okReplay && Prefs.miniMenuEnabled) {
+        if (ok && !ctl && !okReplay && holdOkEnabled) {
             if (event.repeatCount == 0) { okPending = true; okLong = false }
-            else if (!okLong && okPending) { okLong = true; openMini() }
+            else if (!okLong && okPending) { okLong = true; onHoldOk() }
             return true
         }
         if (zapOpen) when (code) {
@@ -1176,13 +1211,13 @@ class PlayerActivity : BaseActivity() {
             // pasek archiwum: na ▶‖ (lub pasku postępu) ◄ ► przewijają, podwójne ► pomija reklamę; ▼ – drugi rząd przycisków
             val f = window.decorView.findFocus()
             val onMain = f == null || f.id in intArrayOf(androidx.media3.ui.R.id.exo_play_pause, androidx.media3.ui.R.id.exo_progress, R.id.ctlBack, R.id.ctlFwd)
-            if (onMain && code == KeyEvent.KEYCODE_DPAD_LEFT) { seekBy(-Prefs.cuBack * 1000L); return true }
-            if (onMain && code == KeyEvent.KEYCODE_DPAD_RIGHT) { rightPressed(); return true }
+            if (onMain && code == KeyEvent.KEYCODE_DPAD_LEFT) { seekBy(-Prefs.cuBack * 1000L * seekAccel(event.repeatCount)); return true }
+            if (onMain && code == KeyEvent.KEYCODE_DPAD_RIGHT) { if (event.repeatCount > 0) seekBy(Prefs.cuFwd * 1000L * seekAccel(event.repeatCount)) else rightPressed(); return true }
             return playerView.dispatchKeyEvent(event) || super.dispatchKeyEvent(event)
         }
         // archiwum: ◄ ► przewijają (ustawienie w karcie Catch-up)
-        if (isCatchup && Prefs.cuArrows == 0 && code == KeyEvent.KEYCODE_DPAD_LEFT) { seekBy(-Prefs.cuBack * 1000L); return true }
-        if (isCatchup && Prefs.cuArrows == 0 && code == KeyEvent.KEYCODE_DPAD_RIGHT) { rightPressed(); return true }
+        if (isCatchup && Prefs.cuArrows == 0 && code == KeyEvent.KEYCODE_DPAD_LEFT) { seekBy(-Prefs.cuBack * 1000L * seekAccel(event.repeatCount)); return true }
+        if (isCatchup && Prefs.cuArrows == 0 && code == KeyEvent.KEYCODE_DPAD_RIGHT) { if (event.repeatCount > 0) seekBy(Prefs.cuFwd * 1000L * seekAccel(event.repeatCount)) else rightPressed(); return true }
         val action = pl.iptv.tv.data.KeyMap.actionFor(code)
         val dpad = code in listOf(KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER)
         // archiwum: strzałki/OK bez przypisanych paneli/menu pokazują pasek przewijania
@@ -1235,7 +1270,7 @@ class PlayerActivity : BaseActivity() {
                 append(status, android.text.style.ForegroundColorSpan(if (live) Ui.live else Ui.accent), 0)
             }
             val single = m.away.isBlank()                       // zapowiedź turnieju (dart)
-            home.text = m.home; away.text = m.away; score.text = m.score
+            home.text = m.home; away.text = m.away; score.text = m.shownScore
             home.gravity = if (single) android.view.Gravity.CENTER else android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL
             score.visibility = if (single) View.GONE else View.VISIBLE
             away.visibility = if (single) View.GONE else View.VISIBLE
@@ -1247,7 +1282,7 @@ class PlayerActivity : BaseActivity() {
             listOf(homeLogo to m.homeLogo, awayLogo to m.awayLogo).forEach { (iv, url) ->
                 if (url.isBlank()) iv.visibility = View.GONE else { iv.visibility = View.VISIBLE; iv.load(url) { crossfade(false) } }
             }
-            val goals = m.events.filter { "⚽" in it }
+            val goals = if (Prefs.scoreHideResults) emptyList() else m.events.filter { "⚽" in it }
             scorers.visibility = if (goals.isEmpty()) View.GONE else View.VISIBLE
             scorers.text = goals.joinToString("  ") { it.substringBefore(" (") }
             root.setOnClickListener { matchDetails(m) }
@@ -1295,11 +1330,11 @@ class PlayerActivity : BaseActivity() {
 
     private fun refreshScores() {
         if (scoresJob?.isActive == true) return
-        val before = pl.iptv.tv.data.Scores.last
         scoresJob = lifecycleScope.launch {
             val r = runCatching { pl.iptv.tv.data.Scores.fetch() }
             r.onSuccess { now ->
-                if (Prefs.scoreGoalAlerts && before.isNotEmpty()) pl.iptv.tv.data.Scores.goalMatches(before, now).firstOrNull()?.let { goalToast(it) }
+                // wszystkie nowe gole (także wykryte przez inny ekran), po kolei
+                showGoals(pl.iptv.tv.data.Scores.takeGoals())
                 if (scoresOpen) showScores(now)
                 // wynik przy kanale z meczem: panel kanałów i lista po OK
                 lpChannelAdapter.notifyItemRangeChanged(0, lpChannelAdapter.itemCount, ChannelAdapter.EPG)
@@ -1320,37 +1355,77 @@ class PlayerActivity : BaseActivity() {
         }
     }
 
-    /** „GOL!” z herbami obu drużyn, w ramce w stylu paska informacji. */
+    /** Gole czekające na pokazanie – kilka bramek naraz wyświetla się po kolei, nie tylko pierwsza. */
+    private val pendingGoals = ArrayDeque<pl.iptv.tv.data.Scores.Match>()
+    private val goalBox by lazy { findViewById<View>(R.id.goalBox) }
+    /** Jeden stały Runnable: kolejny gol przedłuża wyświetlanie (wcześniej ukrycie pierwszego chowało też następny po chwili). */
+    private val goalHide = Runnable { hideGoal() }
+    private val goalShowing get() = goalBox.visibility == View.VISIBLE
+
+    private fun showGoals(ms: List<pl.iptv.tv.data.Scores.Match>) {
+        if (!Prefs.scoreGoalAlerts || !Prefs.scoresEnabled || ms.isEmpty()) return
+        // ten sam mecz w kolejce – zostaje najnowszy stan
+        ms.forEach { m -> pendingGoals.removeAll { it.id == m.id }; pendingGoals.addLast(m) }
+        if (!goalShowing) nextGoal()
+    }
+
+    private fun nextGoal() { pendingGoals.removeFirstOrNull()?.let { goalToast(it) } }
+
+    /** „GOL!” z herbami obu drużyn, w ramce w stylu paska informacji; wjeżdża z góry, znika po 6 s. */
     private fun goalToast(m: pl.iptv.tv.data.Scores.Match) {
-        val box = findViewById<View>(R.id.goalBox)
+        val box = goalBox
         val t = findViewById<TextView>(R.id.goalToast)
         t.text = android.text.SpannableStringBuilder("⚽ GOL!  ").apply {
             setSpan(android.text.style.ForegroundColorSpan(Ui.accent), 0, length, 0)
-            append("${m.home}  ${m.hs}:${m.aws}  ${m.away}")
+            // bez spoilerów: drużyny bez wyniku
+            append(if (Prefs.scoreHideResults) "${m.home}  –  ${m.away}" else "${m.home}  ${m.hs}:${m.aws}  ${m.away}")
         }
-        t.setTextColor(Ui.text)
+        t.setTextColor(Ui.text); t.typeface = Ui.typeface(android.graphics.Typeface.BOLD)
         listOf(findViewById<ImageView>(R.id.goalHome) to m.homeLogo, findViewById<ImageView>(R.id.goalAway) to m.awayLogo).forEach { (iv, url) ->
-            if (url.isBlank()) iv.visibility = View.GONE else { iv.visibility = View.VISIBLE; iv.load(url) { crossfade(false) } }
+            if (url.isBlank()) { iv.setImageDrawable(null); iv.visibility = View.GONE } else { iv.visibility = View.VISIBLE; iv.load(url) { crossfade(false) } }
         }
         box.background = Ui.surfaceBg(0xF0)
+        box.elevation = Ui.dp(12).toFloat()                 // nad panelami i listą kanałów
+        handler.removeCallbacks(goalHide)
+        box.animate().cancel()
         box.visibility = View.VISIBLE
-        handler.postDelayed({ box.visibility = View.GONE }, 6000)
+        if (Ui.anim == 0) { box.alpha = 1f; box.translationY = 0f; box.scaleX = 1f; box.scaleY = 1f }
+        else {
+            box.alpha = 0f; box.translationY = -Ui.dp(48).toFloat(); box.scaleX = 0.9f; box.scaleY = 0.9f
+            box.animate().alpha(1f).translationY(0f).scaleX(1f).scaleY(1f).setDuration(340)
+                .setInterpolator(android.view.animation.OvershootInterpolator(1.1f)).withLayer().start()
+        }
+        handler.postDelayed(goalHide, 6000)
     }
 
-    private fun matchDetails(m: pl.iptv.tv.data.Scores.Match) {
+    private fun hideGoal() {
+        val box = goalBox
+        handler.removeCallbacks(goalHide)
+        if (box.visibility != View.VISIBLE) { nextGoal(); return }
+        box.animate().cancel()
+        if (Ui.anim == 0) { box.visibility = View.GONE; nextGoal(); return }
+        box.animate().alpha(0f).translationY(-Ui.dp(32).toFloat()).setDuration(220).withLayer()
+            .withEndAction { box.visibility = View.GONE; box.alpha = 1f; box.translationY = 0f; nextGoal() }.start()
+    }
+
+    private fun matchDetails(m: pl.iptv.tv.data.Scores.Match, reveal: Boolean = false) {
         val S = pl.iptv.tv.data.Scores
         // kanał z meczem: automatycznie z programu TV (nazwy drużyn w tytule/opisie), do tego kanały przypisane ręcznie
         val found = S.broadcasts(m)
         val assigned = S.assignedFor(m).filter { a -> found.none { it.channel.key == a.key } }
         val options = found.map { b -> "📺 ${b.channel.name}  •  ${Fmt.time(b.programme.start)} ${b.programme.title}" + (if (b.sure) "" else "  (?)") to b.channel } +
             assigned.map { "📌 ${it.name}" to it }
+        val hidden = Prefs.scoreHideResults && !reveal && m.state != MState.PRE
         val msg = m.leagueName + "  •  " + (if (m.state == MState.PRE) "start ${Fmt.shortDay(m.start)} ${Fmt.time(m.start)}" else m.clock) +
-            (if (m.events.isNotEmpty()) "\n\n" + m.events.joinToString("\n") else "") +
+            (if (m.events.isNotEmpty() && !hidden) "\n\n" + m.events.joinToString("\n") else "") +
+            (if (hidden) "\n\nWynik ukryty (bez spoilerów) – „👁 Pokaż wynik”." else "") +
             (if (options.isNotEmpty()) "\n\nGdzie oglądać:\n" + options.joinToString("\n") { it.first }
              else "\n\nNie znaleziono meczu w programie TV. Przypisz kanały („➕ Kanały”) albo poszukaj w programie.")
-        val d = Ui.dialog(this).setTitle("${m.home}  ${m.score}  ${m.away}").setMessage(msg)
-            .setNeutralButton("➕ Kanały") { _, _ -> assignChannels(m) }
+        val d = Ui.dialog(this).setTitle("${m.home}  ${if (hidden) m.shownScore else m.score}  ${m.away}").setMessage(msg)
             .setNegativeButton("Zamknij", null)
+        // ukryty wynik: odsłonięcie tylko dla tego meczu, na życzenie
+        if (hidden) d.setNeutralButton("👁 Pokaż wynik") { _, _ -> matchDetails(m, reveal = true) }
+        else d.setNeutralButton("➕ Kanały") { _, _ -> assignChannels(m) }
         if (options.isNotEmpty()) d.setPositiveButton("📺 Oglądaj") { _, _ ->
             if (options.size == 1) { closePanels(); zapTo(options[0].second, Repository.ALL) }
             else Dialogs.menu(this, "Kanał z meczem", options.map { (label, ch) -> label to { closePanels(); zapTo(ch, Repository.ALL) } })
@@ -1553,6 +1628,7 @@ class PlayerActivity : BaseActivity() {
             "tracks" -> "🎧 Audio i napisy" to { tracksMenu() }
             "aspect" -> "📐 Proporcje obrazu" to { perform(A.ASPECT) }
             "channels" -> "☰ Lista kanałów" to { openLeft() }
+            "engine" -> "⚡ Silnik i akceleracja" to { playbackMenu() }
             else -> if (id.startsWith(pl.iptv.tv.data.MiniMenu.APP)) {
                 val cn = android.content.ComponentName.unflattenFromString(id.removePrefix(pl.iptv.tv.data.MiniMenu.APP))
                 val label = pl.iptv.tv.data.MiniMenu.ITEMS[id] ?: id
@@ -1561,6 +1637,46 @@ class PlayerActivity : BaseActivity() {
                     .onFailure { toast("Nie można uruchomić") } }
             } else null
         } }
+    }
+
+    /** Przytrzymanie OK / ekranu: menu odtwarzania (domyślnie) albo szybkie menu ikon (Ustawienia → Odtwarzanie). */
+    private val holdOkEnabled get() = Prefs.okLongAction == 0 || Prefs.miniMenuEnabled
+    private fun onHoldOk() { if (Prefs.okLongAction == 0) playbackMenu() else openMini() }
+
+    /**
+     * Menu odtwarzania (przytrzymanie OK): silnik odtwarzania i akceleracja sprzętowa przełączane na żywo –
+     * kanał startuje od razu z nowymi ustawieniami (archiwum wraca w to samo miejsce).
+     */
+    private fun playbackMenu() {
+        closePanels(); hideOverlay.run()
+        Dialogs.menuLive(this, "Odtwarzanie") {
+            val eng = Prefs.playerEngine.coerceIn(Playback.ENGINES.indices)
+            listOfNotNull(
+                "▶ Silnik: ${Playback.ENGINES[eng].substringAfter("– ").substringBefore(" (")}" to {
+                    Prefs.playerEngine = (eng + 1) % Playback.ENGINES.size; restartEngine()
+                },
+                (if (Prefs.hwAccel) "⚡ Akceleracja sprzętowa: ✔ włączona" else "⚡ Akceleracja sprzętowa: ✖ wyłączona") to {
+                    Prefs.hwAccel = !Prefs.hwAccel; restartEngine()
+                },
+                "⇄ Kolejka dekodera: " + listOf("automatycznie", "asynchroniczna", "synchroniczna")[Prefs.asyncDecoder.coerceIn(0, 2)] to {
+                    Prefs.asyncDecoder = (Prefs.asyncDecoder.coerceIn(0, 2) + 1) % 3; restartEngine()
+                },
+                "ℹ Bieżący dekoder" to { Dialogs.confirm(this, "Bieżący dekoder", Playback.decoderInfo()) {} },
+                if (Prefs.miniMenuEnabled && Prefs.okLongAction == 0) "▦ Szybkie menu ikon" to {
+                    Ui.dismissOpenDialogs(this); openMini()
+                } else null,
+            )
+        }
+    }
+
+    /** Nowy odtwarzacz z bieżącymi ustawieniami silnika (ten sam kanał; archiwum – ta sama pozycja). */
+    private fun restartEngine() {
+        val at = if (isCatchup) player?.currentPosition ?: 0L else 0L
+        player?.removeListener(listener)
+        Playback.stop(); player = null
+        initPlayer(); playCurrent()
+        if (isCatchup && at > 0) player?.seekTo(at)
+        toast("Silnik: ${Playback.ENGINES[Prefs.playerEngine.coerceIn(Playback.ENGINES.indices)].substringAfter("– ")} • akceleracja ${if (Prefs.hwAccel) "wł." else "wył."}")
     }
 
     private fun openMini() {
@@ -1605,8 +1721,10 @@ class PlayerActivity : BaseActivity() {
         // powiększona (zaznaczona) ikona nie jest ucinana na brzegach
         icons.setPadding(Ui.dp(4), Ui.dp(6), Ui.dp(4), Ui.dp(4)); icons.clipChildren = false; icons.clipToPadding = false
         miniMenu.clipChildren = false; miniMenu.clipToPadding = false
-        miniMenu.background = Ui.glassBg()
+        miniMenu.background = Ui.glassBg(); miniMenu.clipToOutline = true        // kafelki nie wychodzą poza zaokrąglony panel
         Ui.style(miniMenu)
+        // kształt kafelków ikon wg motywu: okrągłe (iOS, MagicOS, PS5), kwadratowe (Windows 11, Xbox), zaokrąglone (pozostałe)
+        miniBoxes.forEach { it.background = Ui.iconBoxBg() }
         miniMenu.visibility = View.VISIBLE
         label.text = e[0].first.substringAfter(' '); miniBoxes[0].requestFocus(); icons.post { if (!miniBoxes[0].isFocused) miniBoxes[0].requestFocus() }
         miniTimer()
@@ -1615,12 +1733,12 @@ class PlayerActivity : BaseActivity() {
     /** Program TV z odtwarzacza: płynne przejście (krótkie zanikanie), obraz kanału zostaje w tle przewodnika. */
     private fun openGuide(key: String) {
         startActivity(Intent(this, GuideActivity::class.java).putExtra(GuideActivity.EXTRA_CHANNEL, key).putExtra(GuideActivity.EXTRA_FROM_PLAYER, true))
-        @Suppress("DEPRECATION") overridePendingTransition(R.anim.fade_in, R.anim.fade_out)
+        @Suppress("DEPRECATION") overridePendingTransition(R.anim.fade_in, R.anim.hold)
     }
 
     private val MINI_ICONS = mapOf("⚙" to R.drawable.ic_n_settings, "🛠" to R.drawable.ic_n_tools, "📅" to R.drawable.ic_n_epg, "ℹ" to R.drawable.ic_n_info,
         "★" to R.drawable.ic_n_star, "☆" to R.drawable.ic_n_star, "⏺" to R.drawable.ic_n_rec, "⏹" to R.drawable.ic_n_rec,
-        "🎧" to R.drawable.ic_n_tracks, "📐" to R.drawable.ic_n_aspect, "☰" to R.drawable.ic_n_list)
+        "🎧" to R.drawable.ic_n_tracks, "📐" to R.drawable.ic_n_aspect, "☰" to R.drawable.ic_n_list, "⚡" to R.drawable.ic_n_engine)
 
     private val miniBoxes = ArrayList<View>()
     private var miniPerRow = 8
@@ -1661,7 +1779,7 @@ class PlayerActivity : BaseActivity() {
 
     private val gestures by lazy { GestureDetector(this@PlayerActivity, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDown(e: MotionEvent) = true
-        override fun onLongPress(e: MotionEvent) { if (Prefs.miniMenuEnabled) openMini() }
+        override fun onLongPress(e: MotionEvent) { if (holdOkEnabled) onHoldOk() }
         override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
             if (overlay.visibility == View.VISIBLE && touchBar.visibility == View.VISIBLE && !isCatchup) hideOverlay.run()
             else { showOverlay(touch = true); openZap() }        // telefon: także lista kanałów (dotknięcie kafelka = przełącz)
