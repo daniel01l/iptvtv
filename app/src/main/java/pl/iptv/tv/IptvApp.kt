@@ -37,7 +37,7 @@ class IptvApp : Application(), coil.ImageLoaderFactory {
             .memoryCache { coil.memory.MemoryCache.Builder(this).maxSizePercent(if (low) 0.12 else 0.2).build() }
             .diskCache { coil.disk.DiskCache.Builder().directory(cacheDir.resolve("picons")).maxSizeBytes(160L * 1024 * 1024).build() }
             .crossfade(false)
-            .allowRgb565(low)
+            .allowRgb565(false)                // pełne kolory logo (RGB565 zmieniał barwy i gradienty) także na słabszych urządzeniach
             .build()
     }
 

@@ -171,7 +171,7 @@ class V38Test {
         c.pause().stop().destroy()
         val look = Robolectric.buildActivity(SettingsActivity::class.java, Intent().putExtra("tab", 1)).setup(); idle()
         fun all0(v: View): List<View> = listOf(v) + ((v as? android.view.ViewGroup)?.let { g -> (0 until g.childCount).flatMap { all0(g.getChildAt(it)) } } ?: emptyList())
-        assertTrue(all0(look.get().window.decorView).filterIsInstance<android.widget.TextView>().any { it.text.contains("uruchom aplikację ponownie") })
+        assertTrue(all0(look.get().window.decorView).filterIsInstance<android.widget.TextView>().any { it.text.contains("bez ponownego uruchamiania") })   // v6.1: motyw działa od razu
         look.pause().stop().destroy()
         val s = Robolectric.buildActivity(SettingsActivity::class.java, Intent().putExtra("tab", 8)).setup(); idle()
         fun all(v: View): List<View> = listOf(v) + ((v as? android.view.ViewGroup)?.let { g -> (0 until g.childCount).flatMap { all(g.getChildAt(it)) } } ?: emptyList())

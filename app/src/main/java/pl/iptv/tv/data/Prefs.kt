@@ -122,6 +122,8 @@ object Prefs {
     var startAction: Int get() = int("start_action", 1); set(v) = putInt("start_action", v)
     var startChannel: String get() = str("start_channel"); set(v) = put("start_channel", v)
     var bootStart: Boolean get() = bool("boot_start", false); set(v) = putBool("boot_start", v)
+    /** Rozruch urządzenia, w którym ekran główny (tryb launchera) wykonał już akcję startową. */
+    var homeBootId: String get() = str("home_boot_id"); set(v) = sp.edit().putString("home_boot_id", v).commit().let { }
 
     var permissionsAsked: Boolean get() = bool("perm_wizard", false); set(v) = putBool("perm_wizard", v)
     var batteryAsked: Boolean get() = bool("battery_asked", false); set(v) = putBool("battery_asked", v)

@@ -49,6 +49,11 @@ object Playback {
         override fun onIsPlayingChanged(playing: Boolean) { isPlayingNow = playing }
         override fun onPlayerError(e: androidx.media3.common.PlaybackException) {
             val p = player ?: return
+            // adres bez rozszerzenia, a serwer podaje listę HLS (np. Xtream „…/123”) – druga próba jako HLS (jak zewnętrzne odtwarzacze)
+            if (e.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED && guessMime(url ?: "") == null && url !in hlsUrls) {
+                val c = lastCtx; val ch = lastChannel; val u = url
+                if (c != null && ch != null && u != null) { hlsUrls += u; main.post { if (url == u) play(c, ch, u, force = true) }; return }
+            }
             // wypadnięcie poza okno transmisji na żywo – powrót do bieżącego miejsca (bez liczenia jako błąd)
             if (e.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) { p.seekToDefaultPosition(); p.prepare(); return }
             hadError = true
@@ -151,14 +156,15 @@ object Playback {
             if (engine == ENGINE_TUNNELING && P.hwAccel) b.setTunnelingEnabled(true)
             setParameters(b)
         }
-        val start = if (P.lowLatency) 500 else 1_000
+        val start = if (P.lowLatency) 800 else START_BUFFER_MS
         val load = if (low) {
             val min = P.lowBufMinS.coerceIn(2, 60) * 1000; val max = (P.lowBufMaxS.coerceIn(2, 120) * 1000).coerceAtLeast(min)
-            DefaultLoadControl.Builder().setBufferDurationsMs(min, max, start, 3_000)
+            DefaultLoadControl.Builder().setBufferDurationsMs(min, max, start, REBUFFER_MS)
                 .setTargetBufferBytes(P.lowBufMb.coerceIn(8, 256) * 1024 * 1024).setPrioritizeTimeOverSizeThresholds(false).build()
         }
-        // szybki start (1 s), większy zapas po przycięciu (3 s) i bufor do 60 s
-        else DefaultLoadControl.Builder().setBufferDurationsMs(20_000, 60_000, start, 3_000).setPrioritizeTimeOverSizeThresholds(true).build()
+        // start po 2 s zapasu (1 s dawał przycięcia zaraz po przełączeniu na niestabilnych strumieniach),
+        // po przycięciu 5 s zapasu (bez serii krótkich zatrzymań), bufor 30–60 s
+        else DefaultLoadControl.Builder().setBufferDurationsMs(30_000, 60_000, start, REBUFFER_MS).setPrioritizeTimeOverSizeThresholds(true).build()
         return ExoPlayer.Builder(c.applicationContext, renderers)
             .setTrackSelector(selector)
             .setLoadControl(load)
@@ -171,10 +177,57 @@ object Playback {
 
     val active get() = player != null && url != null
 
+    /** Zapas przed startem i po przycięciu (ms). */
+    const val START_BUFFER_MS = 2_000
+    const val REBUFFER_MS = 5_000
+
+    /**
+     * Strumienie TS jak w zewnętrznych odtwarzaczach: klatki kluczowe inne niż IDR (częste w IPTV – bez tego obraz
+     * nie startuje), wykrywanie jednostek dostępu bez znaczników AUD, ścieżki DTS z nadajników HDMV.
+     */
+    val TS_FLAGS = androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
+        androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS or
+        androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS
+    val extractors: androidx.media3.extractor.DefaultExtractorsFactory get() =
+        androidx.media3.extractor.DefaultExtractorsFactory().setTsExtractorFlags(TS_FLAGS).setConstantBitrateSeekingEnabled(true)
+
+    /**
+     * Klient HTTP strumieni: krótszy limit odczytu (zawieszone połączenie wykryte po 20 s, nie 60 s), bez limitu całego
+     * żądania (strumień na żywo trwa godzinami), wspólna pula połączeń utrzymywanych 5 min (segmenty HLS bez nowych połączeń).
+     */
+    val streamHttp: okhttp3.OkHttpClient by lazy {
+        Repository.http.newBuilder()
+            .connectTimeout(STREAM_CONNECT_S, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(STREAM_READ_S, java.util.concurrent.TimeUnit.SECONDS)
+            .callTimeout(0, java.util.concurrent.TimeUnit.SECONDS)
+            .connectionPool(okhttp3.ConnectionPool(8, 5, java.util.concurrent.TimeUnit.MINUTES))
+            .retryOnConnectionFailure(true)
+            .build()
+    }
+    const val STREAM_CONNECT_S = 12L
+    const val STREAM_READ_S = 20L
+
+    /** Typ strumienia z adresu (null = rozpoznanie po treści). */
+    fun guessMime(streamUrl: String): String? {
+        val lower = streamUrl.lowercase().substringBefore('?').substringBefore('#')
+        return when {
+            lower.endsWith(".m3u8") || lower.endsWith(".m3u") || lower.contains("/hls/") || lower.contains("output=hls") ||
+                streamUrl.lowercase().contains("output=m3u8") -> MimeTypes.APPLICATION_M3U8
+            lower.endsWith(".mpd") -> MimeTypes.APPLICATION_MPD
+            else -> null
+        }
+    }
+
+    private var lastCtx: Context? = null
+    private var lastChannel: Channel? = null
+    /** Adresy bez rozszerzenia rozpoznane jako HLS (po nierozpoznanym formacie) – kolejne włączenia od razu jako HLS. */
+    val hlsUrls: MutableSet<String> = java.util.Collections.synchronizedSet(HashSet())
+
     /** Odtwarza [streamUrl]; ten sam adres nie jest uruchamiany ponownie. Zwraca true, gdy rozpoczęto nowe odtwarzanie. */
-    fun play(c: Context, ch: Channel, streamUrl: String, force: Boolean = false): Boolean {
+    fun play(c: Context, ch: Channel, streamUrl: String, force: Boolean = false, mime: String? = null): Boolean {
         val p = get(c)
         main.removeCallbacks(retry)
+        lastCtx = c.applicationContext; lastChannel = ch
         if (!force && streamUrl == url && p.playbackState != androidx.media3.common.Player.STATE_IDLE && p.playerError == null) { p.playWhenReady = true; return false }
         // czysty start (zwolnione dekodery + nowa powierzchnia obrazu): po błędzie, po kanale, który nie zdążył ruszyć
         // (np. wadliwy strumień), i zawsze na słabszych urządzeniach – inaczej następny kanał potrafi zaciąć obraz
@@ -182,20 +235,23 @@ object Playback {
         if (clean) { p.stop(); p.clearMediaItems() }
         val headers = HashMap<String, String>()
         if (ch.referrer.isNotBlank()) headers["Referer"] = ch.referrer
-        val http = OkHttpDataSource.Factory(Repository.http)
+        val http = OkHttpDataSource.Factory(streamHttp)
             .setUserAgent(ch.userAgent.ifBlank { Repository.userAgent }).setDefaultRequestProperties(headers)
         val item = MediaItem.Builder().setUri(streamUrl)
             // stała prędkość 1.0 – bez przyspieszania/zwalniania obrazu tuż po starcie kanału na żywo
             .setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setMinPlaybackSpeed(1f).setMaxPlaybackSpeed(1f)
                 // niskie opóźnienie: bliżej krawędzi transmisji na żywo (gdy strumień na to pozwala)
                 .apply { if (pl.iptv.tv.data.Prefs.lowLatency) setTargetOffsetMs(4_000) }.build()).apply {
-            val lower = streamUrl.lowercase().substringBefore('?')
-            when {
-                lower.endsWith(".m3u8") || lower.contains("/hls/") -> setMimeType(MimeTypes.APPLICATION_M3U8)
-                lower.endsWith(".mpd") -> setMimeType(MimeTypes.APPLICATION_MPD)
-            }
+            (mime ?: guessMime(streamUrl) ?: if (streamUrl in hlsUrls) MimeTypes.APPLICATION_M3U8 else null)?.let { setMimeType(it) }
         }.build()
-        p.setMediaSource(DefaultMediaSourceFactory(DefaultDataSource.Factory(c.applicationContext, http)).createMediaSource(item))
+        val ds = DefaultDataSource.Factory(c.applicationContext, http)
+        val source = if (item.localConfiguration?.mimeType == MimeTypes.APPLICATION_M3U8)
+            // HLS: segmenty TS czytane z tymi samymi, tolerancyjnymi ustawieniami co strumienie TS; szybki start bez pobierania segmentu
+            androidx.media3.exoplayer.hls.HlsMediaSource.Factory(ds)
+                .setExtractorFactory(androidx.media3.exoplayer.hls.DefaultHlsExtractorFactory(TS_FLAGS, true))
+                .setAllowChunklessPreparation(true).createMediaSource(item)
+        else DefaultMediaSourceFactory(ds, extractors).createMediaSource(item)
+        p.setMediaSource(source)
         p.playWhenReady = true
         p.prepare()
         url = streamUrl; channelKey = ch.key

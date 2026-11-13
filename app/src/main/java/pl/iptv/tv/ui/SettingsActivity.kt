@@ -223,6 +223,8 @@ class SettingsActivity : BaseActivity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (!hasFocus) return
+        // okno wyboru motywu zamknięte: ekran ustawień budowany od nowa w nowym motywie (karta i wiersz zostają)
+        if (themeChangedSinceCreate()) { rebuildForTheme(); return }
         val f = window.decorView.findFocus()
         if (f == null || !f.isAttachedToWindow || (f in tabs && f !== tabs.getOrNull(tab)) || (f === tabs.getOrNull(tab) && lastKey != null)) {
             val target = lastKey?.let { findByKey(container, it) ?: findByKey(sticky, it) }
@@ -590,10 +592,9 @@ class SettingsActivity : BaseActivity() {
     private fun buildLook() {
         header("Motyw")
         choice("Motyw", Ui.PRESETS.map { it.name }, { Ui.PRESETS.indexOf(Ui.preset) }) {
-            Ui.applyPreset(Ui.PRESETS[it].id); toast("Uruchom aplikację ponownie, aby motyw w pełni się załadował")
+            Ui.applyPreset(Ui.PRESETS[it].id)
         }
-        note("⚠ Po zmianie motywu uruchom aplikację ponownie – dopiero wtedy motyw prawidłowo załaduje się na wszystkich ekranach.")
-        row("🔄 Uruchom aplikację ponownie teraz") { restartApp() }
+        note("Motyw działa od razu na wszystkich ekranach (menu, odtwarzacz, pasek informacji, okna) – bez ponownego uruchamiania.")
         note("Wybór motywu ustawia kolory, czcionkę, animacje, pasek postępu i położenie paska informacji. Każdą z tych opcji możesz potem zmienić osobno.")
         header("Układ menu głównego")
         choice("Układ menu", MAIN_LAYOUTS, { Prefs.mainLayout }, look = false) { Prefs.mainLayout = it }

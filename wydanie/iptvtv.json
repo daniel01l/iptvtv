@@ -1,6 +1,6 @@
 {
-  "versionCode": 53,
-  "versionName": "6.0",
+  "versionCode": 54,
+  "versionName": "6.1",
   "apk": "D-iptv-Player.apk",
-  "notes": "Dopracowane motywy iOS, MagicOS, Windows 11 i Xbox (ksztalty, zaznaczenie), tresc kafelkow przycieta do ramek, pewniejsze wczytywanie logo (dluzsze limity, wiecej prob, inicjaly od razu)"
+  "notes": "Motyw zmienia sie od razu bez restartu, oryginalne kolory logo, zostaly motywy iOS i Xbox (usuniete PS5, Windows 11, MagicOS), lepsze odtwarzanie na zywo (TS/HLS, szybsze wykrywanie zawieszen), przyciski okien zawsze widoczne, pewniejszy tryb launchera"
 }

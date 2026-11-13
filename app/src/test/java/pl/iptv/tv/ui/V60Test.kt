@@ -50,20 +50,13 @@ class V60Test {
         Ui.applyPreset("ios"); Ui.changed()
         assertTrue(Ui.preset.radius in 20..24)                               // duże, zaokrąglone karty
         assertTrue(focused() is LayerDrawable)                               // miękki, świecący pierścień
-        Ui.applyPreset("magic"); Ui.changed()
-        assertEquals(0xFF2EC7FF.toInt(), Ui.accent)                          // neonowy błękit
-        assertEquals(Ui.focus, (focused() as GradientDrawable).color!!.defaultColor)
-        Ui.applyPreset("win11"); Ui.changed()
-        assertEquals(8, Ui.preset.radius)
         Ui.applyPreset("xbox"); Ui.changed()
         assertEquals(0xFF107C10.toInt(), Ui.focus)                           // ramka #107C10
         assertTrue(focused() is LayerDrawable)                               // ramka + jasna linia wewnętrzna
-        Ui.applyPreset("ps5"); Ui.changed()
-        assertTrue(focused() is LayerDrawable)                               // poświata
     }
 
     @Test fun listItemsClipTheirContent() {
-        for (id in listOf("modern", "ios", "magic", "win11", "ps5", "xbox")) {
+        for (id in listOf("modern", "ios", "xbox")) {
             Ui.applyPreset(id); Ui.changed()
             val c = Robolectric.buildActivity(MainActivity::class.java).setup(); idle(400)
             val rv = c.get().findViewById<RecyclerView>(R.id.channels)

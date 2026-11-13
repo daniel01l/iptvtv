@@ -61,12 +61,19 @@ class PiconView @JvmOverloads constructor(c: android.content.Context, a: android
             override fun getOutline(v: View, o: android.graphics.Outline) { o.setRoundRect(0, 0, v.width, v.height, Ui.logoRadius) }
         }
         clipToOutline = true
+        super.setImageTintList(null); super.clearColorFilter()
     }
     override fun setImageDrawable(d: android.graphics.drawable.Drawable?) {
         val lp = layoutParams
         fixedUpdate = lp != null && lp.width > 0 && lp.height > 0 && isLaidOut
+        // oryginalne kolory logo: bez zabarwienia i filtrów z motywu lub stanu (zaznaczenie, wyłączenie)
+        d?.mutate()?.let { it.colorFilter = null; it.setTintList(null) }
         try { super.setImageDrawable(d) } finally { fixedUpdate = false }
     }
+    // logo nigdy nie przyjmuje koloru motywu (oryginalne barwy kanału we wszystkich motywach)
+    override fun setImageTintList(tint: android.content.res.ColorStateList?) {}
+    override fun setColorFilter(cf: android.graphics.ColorFilter?) {}
+    override fun setImageAlpha(alpha: Int) { super.setImageAlpha(255) }
     override fun requestLayout() { if (!fixedUpdate) super.requestLayout() }
 }
 

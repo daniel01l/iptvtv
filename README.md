@@ -1,10 +1,10 @@
-# D-iptv Player – odtwarzacz M3U dla Android TV i telefonów (v6.0)
+# D-iptv Player – odtwarzacz M3U dla Android TV i telefonów (v6.1)
 
 ## Funkcje
 **Źródła:** lista M3U z linku, pliku lub ścieżki • EPG XMLTV (`.xml`/`.xml.gz`, adres `url-tvg` z listy lub ręczny) • picony (`tvg-logo`, własny katalog lub szablon `{id}`/`{name}`/`{name_raw}`, ikony z EPG) • catch-up: `default`, `append`, `shift`, `flussonic`, `xc`.
 
 **Wygląd** (Ustawienia → Wygląd):
-- 12 motywów: Nowoczesny, Klasyczny dekoder, AMOLED czerń, Jasny, Neon retro, Kino, Leśny oraz MagicOS – karty, iOS – szkło, Windows 11 – mika, PlayStation 5 – konsola, Xbox Series X – konsola (zmieniają też geometrię: kształty, ramki okien, ikony, przejścia, układ menu). Motyw ustawia wszystkie poniższe opcje, a potem każdą można zmienić osobno.
+- 9 motywów: Nowoczesny, Klasyczny dekoder, AMOLED czerń, Jasny, Neon retro, Kino, Leśny oraz iOS – szkło i Xbox Series X – konsola (zmieniają też geometrię: kształty, ramki okien, ikony, przejścia, układ menu). Zmiana motywu działa od razu na wszystkich ekranach, bez ponownego uruchamiania. Motyw ustawia wszystkie poniższe opcje, a potem każdą można zmienić osobno.
 - 7 kolorów do zmiany (tło, panele, akcent, zaznaczenie, tekst zaznaczenia, tekst, tekst dodatkowy): paleta lub kod `#RRGGBB`
 - 8 krojów czcionki, 4 wielkości tekstu
 - animacje: brak, zanikanie, przesunięcie, powiększenie; 3 prędkości; powiększanie zaznaczonego elementu
@@ -78,6 +78,14 @@
 | Edytor | OK = opcje, „⇅ Przenieś” + ▲▼, OK = koniec | przeciągnij za ≡ |
 
 Kanał trafia do „ostatnio oglądanych” po co najmniej 1 minucie odtwarzania.
+
+**v6.1**:
+- **Motywy**: zostały motywy podstawowe oraz iOS – szkło i Xbox Series X – konsola; usunięte PlayStation 5, Windows 11 i MagicOS (kto ich używał, dostaje odpowiednio Xbox, Nowoczesny, iOS). Style paska informacji i przejścia z tamtych motywów zostają jako zwykłe opcje (Pływająca karta, Panel z paskiem akcentu, Pasek z poświatą; Unoszenie, Przyciąganie, Wejście w kartę).
+- **Zmiana motywu od razu**: ekran Ustawień przebudowuje się po zamknięciu wyboru motywu, a pozostałe otwarte ekrany (menu, przewodnik, wyszukiwarka…) przy powrocie; odtwarzacz odświeża pasek informacji i pasek archiwum bez przerywania obrazu. Bez ponownego uruchamiania aplikacji.
+- **Oryginalne logo kanałów**: logo nigdy nie dostaje koloru motywu (bez zabarwienia, filtrów i przezroczystości – także w pasku informacji, pasku archiwum i przy wpisywaniu numeru); pełna paleta kolorów także na słabszych urządzeniach (bez RGB565).
+- **Odtwarzanie na żywo**: strumienie TS jak w zewnętrznych odtwarzaczach (klatki kluczowe nie-IDR, wykrywanie jednostek AU, DTS) – kanały, które nie startowały lub pokazywały czarny obraz, ruszają; HLS z tymi samymi ustawieniami i szybkim startem; adres bez rozszerzenia, który okazuje się listą HLS (np. Xtream), jest automatycznie odtwarzany jako HLS i zapamiętany; osobny klient HTTP strumieni (połączenie 12 s, odczyt 20 s – zawieszony strumień wykrywany szybciej, bez limitu całego żądania, pula połączeń na 5 min); start po 2 s zapasu i 5 s po przycięciu (mniej serii krótkich zatrzymań), bufor 30–60 s.
+- **Okna**: pasek przycisków bez paska przewijania i bez przycinania powiększonego przycisku; w przewijanej treści pasek przewijania rysowany obok treści, a zaznaczony element przewijany do widoku z zapasem – przyciski zawsze widoczne i dostępne pilotem.
+- **Launcher i start po włączeniu**: tryb launchera rozpoznaje pierwsze wejście po włączeniu urządzenia po numerze rozruchu (akcja startowa raz na rozruch, także gdy system zamknął aplikację w tle); gdy aplikacja jest domyślnym ekranem głównym, start po włączeniu nie otwiera jej drugi raz; włączony tryb launchera (bez ustawienia jako domyślny) też otwiera aplikację po włączeniu.
 
 **v6.0**:
 - **Motywy systemowe dopracowane**: iOS – karty o promieniu 22 dp i miękki, świecący biały pierścień zaznaczenia; MagicOS – neonowo-błękitny akcent (#2EC7FF) i cienka błękitna krawędź zaznaczonej karty; Windows 11 – zaokrąglenie 8 dp (jak Fluent); Xbox – zaznaczenie w kolorze #107C10: gruba ramka z wewnętrzną jasną linią (wysoki kontrast na ciemnym tle).

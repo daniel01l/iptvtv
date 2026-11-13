@@ -47,7 +47,7 @@ class V59Test {
     @After fun tearDown() { Ui.applyPreset("modern"); Ui.changed(); Prefs.mainLayout = 0 }
 
     @Test fun panelsAndLogosClipToTheirFrames() {
-        for (id in listOf("modern", "ios", "ps5", "xbox")) {
+        for (id in listOf("modern", "ios", "xbox")) {
             Ui.applyPreset(id); Ui.changed()
             val c = Robolectric.buildActivity(MainActivity::class.java).setup(); idle(400)
             val a = c.get()
@@ -63,7 +63,7 @@ class V59Test {
     }
 
     @Test fun infoBarFollowsTheme() {
-        val expect = mapOf("magic" to 5, "ios" to 6, "win11" to 7, "ps5" to 8, "xbox" to 9, "modern" to 0)
+        val expect = mapOf("ios" to 6, "xbox" to 9, "modern" to 0)
         expect.forEach { (id, style) ->
             Ui.applyPreset(id); Ui.changed()
             assertEquals(id, style, Ui.infoStyle)
@@ -81,7 +81,7 @@ class V59Test {
     }
 
     @Test fun catchupTimelineAndAcceleratedSeek() {
-        Ui.applyPreset("ps5"); Ui.changed()
+        Ui.applyPreset("xbox"); Ui.changed()
         val now = System.currentTimeMillis()
         val c = Robolectric.buildActivity(PlayerActivity::class.java, Intent(ctx, PlayerActivity::class.java)
             .putExtra(PlayerActivity.EXTRA_CHANNEL, Repository.channels[0].key).putExtra(PlayerActivity.EXTRA_GROUP, Repository.ALL)

@@ -12,7 +12,7 @@
         android:layout_gravity="bottom" android:orientation="horizontal" android:visibility="gone"
         android:gravity="center_vertical" android:paddingStart="40dp" android:paddingEnd="40dp"
         android:paddingTop="36dp" android:paddingBottom="28dp">
-        <ImageView android:id="@+id/oPicon" android:layout_width="120dp" android:layout_height="72dp"
+        <pl.iptv.tv.ui.PiconView android:id="@+id/oPicon" android:layout_width="120dp" android:layout_height="72dp"
             android:scaleType="fitCenter"/>
         <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
             android:layout_marginStart="20dp" android:orientation="vertical">
@@ -160,7 +160,7 @@
     <LinearLayout android:id="@+id/numberBox" android:layout_width="wrap_content" android:layout_height="wrap_content"
         android:layout_gravity="center" android:orientation="vertical" android:gravity="center_horizontal"
         android:minWidth="220dp" android:padding="20dp" android:visibility="gone">
-        <ImageView android:id="@+id/numberLogo" android:layout_width="120dp" android:layout_height="72dp" android:scaleType="fitCenter"/>
+        <pl.iptv.tv.ui.PiconView android:id="@+id/numberLogo" android:layout_width="120dp" android:layout_height="72dp" android:scaleType="fitCenter"/>
         <TextView android:id="@+id/numberInput" android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:textSize="48sp" android:textStyle="bold" android:tag="accent"/>
         <TextView android:id="@+id/numberName" android:layout_width="wrap_content" android:layout_height="wrap_content"

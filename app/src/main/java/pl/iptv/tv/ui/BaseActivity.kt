@@ -43,6 +43,19 @@ open class BaseActivity : AppCompatActivity() {
         applyOrientation(); super.onCreate(savedInstanceState)
         // tło okna od razu w kolorze motywu: zanim ekran się narysuje, widać tło motywu, nie stały ciemny kolor (mignięcie „czarnego ekranu”)
         if (!isPlayerScreen) window.setBackgroundDrawable(Ui.bgDrawable())
+        createdEpoch = Ui.themeEpoch
+    }
+
+    /** Motyw, z którym zbudowano ekran; inny = ekran budowany od nowa (układ, kafelki, ramki nowego motywu). */
+    private var createdEpoch = 0
+
+    /** Nowy motyw: ekrany menu budowane od nowa (odtwarzacz tylko odświeża styl – obraz gra dalej bez przerwy). */
+    protected fun themeChangedSinceCreate() = createdEpoch != Ui.themeEpoch
+
+    /** Przebudowa ekranu po zmianie motywu – bez animacji przejścia. */
+    protected fun rebuildForTheme() {
+        createdEpoch = Ui.themeEpoch
+        recreate()
     }
 
     override fun onResume() {
@@ -51,6 +64,7 @@ open class BaseActivity : AppCompatActivity() {
         // powrót do aplikacji z okienkiem PiP: okienko się zamyka, obraz przechodzi na ten ekran
         if (this !is PlayerActivity) PlayerActivity.closePip()
         gateActivation()
+        if (!isPlayerScreen && themeChangedSinceCreate()) { rebuildForTheme(); return }
         if (::rootFrame.isInitialized && appliedVersion != Ui.version) applyTheme()
         updateVideo()
     }

@@ -53,14 +53,14 @@ class V58Test {
     @After fun tearDown() { Ui.applyPreset("modern"); Ui.changed(); Prefs.mainLayout = 0; Prefs.remove("anim") }
 
     @Test fun consoleThemesSetGeometryAndLayout() {
-        for (id in listOf("magic", "ios", "win11", "ps5", "xbox")) assertTrue(id, Ui.PRESETS.any { it.id == id })
+        for (id in listOf("ios", "xbox")) assertTrue(id, Ui.PRESETS.any { it.id == id }); for (id in listOf("magic", "win11", "ps5")) assertFalse(id, Ui.PRESETS.any { it.id == id })
         Ui.applyPreset("ps5"); Ui.changed()
-        assertEquals(Ui.S_PS, Ui.surface)
+        assertEquals(Ui.S_XBOX, Ui.surface)                                 // usunięty PS5 → Xbox
         assertEquals(Ui.LAYOUT_CARDS, Prefs.mainLayout)                      // motyw konsolowy = karty poziome
-        assertTrue(Ui.geo.glow); assertTrue(Ui.geo.zoomMax > 0.08f)
+        assertTrue(Ui.geo.topBar)
         assertTrue(Ui.panelBg() is TexturedDrawable)
         val focused = (Ui.itemBg() as android.graphics.drawable.StateListDrawable).apply { state = intArrayOf(android.R.attr.state_focused) }.current
-        assertTrue(focused is android.graphics.drawable.LayerDrawable)        // poświata
+        assertTrue(focused is android.graphics.drawable.LayerDrawable)        // ramka + jasna linia
         Ui.applyPreset("xbox"); Ui.changed()
         assertEquals(Ui.LAYOUT_CARDS, Prefs.mainLayout)
         assertEquals(2, Ui.preset.radius); assertEquals(3, Ui.geo.focusStroke); assertTrue(Ui.geo.topBar)
@@ -68,7 +68,7 @@ class V58Test {
         assertEquals(0, Prefs.mainLayout)                                    // zwykły motyw przywraca układ
         assertTrue(Ui.geo.titleCenter); assertTrue(Ui.geo.headerScale > 1.3f)
         // każdy motyw ma własne przejście ekranów
-        assertEquals(listOf(4, 5, 6, 7, 8), listOf("magic", "ios", "win11", "ps5", "xbox").map { id -> Ui.PRESETS.first { it.id == id }.anim })
+        assertEquals(listOf(5, 8), listOf("ios", "xbox").map { id -> Ui.PRESETS.first { it.id == id }.anim })
         assertEquals(9, Ui.ANIMS.size)
     }
 
@@ -107,7 +107,7 @@ class V58Test {
     }
 
     @Test fun horizontalCardsLayout() {
-        Ui.applyPreset("ps5"); Ui.changed()
+        Ui.applyPreset("xbox"); Ui.changed()
         val c = Robolectric.buildActivity(MainActivity::class.java).setup(); idle(600)
         val a = c.get()
         val rv = a.findViewById<RecyclerView>(R.id.channels)
@@ -151,7 +151,7 @@ class V58Test {
     }
 
     @Test fun roundIconTilesInConsoleTheme() {
-        Ui.applyPreset("ps5"); Ui.changed()
+        Ui.applyPreset("ios"); Ui.changed()
         val bg = (Ui.iconBoxBg() as android.graphics.drawable.StateListDrawable).current as android.graphics.drawable.GradientDrawable
         assertEquals(android.graphics.drawable.GradientDrawable.OVAL, bg.shape)
         Ui.applyPreset("xbox"); Ui.changed()

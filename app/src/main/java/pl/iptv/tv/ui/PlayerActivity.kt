@@ -452,13 +452,13 @@ class PlayerActivity : BaseActivity() {
         listOf(R.id.ctlBack, R.id.ctlFwd, androidx.media3.ui.R.id.exo_play_pause).forEach { playerView.findViewById<View>(it)?.nextFocusUpId = androidx.media3.ui.R.id.exo_progress }
         listOf(R.id.ctlBack, R.id.ctlFwd, androidx.media3.ui.R.id.exo_play_pause, R.id.ctlSkip, R.id.ctlLive).forEach { id ->
             playerView.findViewById<View>(id)?.let { v ->
-                // przyciski w kształcie motywu: kapsuła (iOS, MagicOS, PS5 – z poświatą), łagodny prostokąt (Windows 11), ostry z limonkową ramką (Xbox)
-                val r = Ui.dp(when (Ui.surface) { Ui.S_XBOX -> 2; Ui.S_MICA -> 6; else -> 22 }).toFloat()
+                // przyciski w kształcie motywu: kapsuła (iOS i pozostałe), ostry z limonkową ramką (Xbox)
+                val r = Ui.dp(if (Ui.surface == Ui.S_XBOX) 2 else 22).toFloat()
                 v.background = android.graphics.drawable.StateListDrawable().apply {
                     fun g(c: Int, sw: Int = 0, sc: Int = 0) = android.graphics.drawable.GradientDrawable().apply { setColor(c); cornerRadius = r; if (sw > 0) setStroke(Ui.dp(sw), sc) }
                     val focused = when (Ui.surface) {
-                        Ui.S_PS -> g(Ui.focus, 3, Ui.withAlpha(Ui.accent, 0xC0)); Ui.S_XBOX -> g(Ui.withAlpha(Ui.focus, 0x30), 3, Ui.focus)
-                        Ui.S_MICA -> g(Ui.withAlpha(Ui.focus, 0x30), 2, Ui.focus); else -> g(Ui.focus)
+                        Ui.S_XBOX -> g(Ui.withAlpha(Ui.focus, 0x30), 3, Ui.focus)
+                        else -> g(Ui.focus)
                     }
                     addState(intArrayOf(android.R.attr.state_focused), focused); addState(intArrayOf(android.R.attr.state_pressed), focused)
                     addState(intArrayOf(), g(Ui.withAlpha(Ui.text, 0x26)))
@@ -1723,7 +1723,7 @@ class PlayerActivity : BaseActivity() {
         miniMenu.clipChildren = false; miniMenu.clipToPadding = false
         miniMenu.background = Ui.glassBg(); miniMenu.clipToOutline = true        // kafelki nie wychodzą poza zaokrąglony panel
         Ui.style(miniMenu)
-        // kształt kafelków ikon wg motywu: okrągłe (iOS, MagicOS, PS5), kwadratowe (Windows 11, Xbox), zaokrąglone (pozostałe)
+        // kształt kafelków ikon wg motywu: okrągłe (iOS), kwadratowe (Xbox), zaokrąglone (pozostałe)
         miniBoxes.forEach { it.background = Ui.iconBoxBg() }
         miniMenu.visibility = View.VISIBLE
         label.text = e[0].first.substringAfter(' '); miniBoxes[0].requestFocus(); icons.post { if (!miniBoxes[0].isFocused) miniBoxes[0].requestFocus() }
