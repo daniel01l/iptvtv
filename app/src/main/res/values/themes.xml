@@ -1,0 +1,116 @@
+<resources>
+    <color name="bg">#FF0F1218</color>
+    <color name="panel">#FF171C25</color>
+    <color name="accent">#FF2F80ED</color>
+    <color name="text">#FFEFEFEF</color>
+    <color name="text2">#FF9AA3B2</color>
+    <color name="live">#FFE53935</color>
+    <color name="archive">#FF43A047</color>
+    <style name="AppTheme" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="colorAccent">@color/accent</item>
+        <item name="android:textColor">@color/text</item>
+    </style>
+    <style name="PlayerTheme" parent="AppTheme">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowFullscreen">true</item>
+    </style>
+    <style name="ReminderTheme" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
+    <style name="Btn" parent="Widget.AppCompat.Button">
+        <item name="android:background">@drawable/item_bg</item>
+        <item name="android:textColor">@color/text</item>
+        <item name="android:paddingLeft">20dp</item>
+        <item name="android:paddingRight">20dp</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:focusable">true</item>
+    </style>
+    <style name="Label">
+        <item name="android:textColor">@color/text2</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:layout_marginTop">16dp</item>
+    </style>
+    <style name="Field">
+        <item name="android:textColor">@color/text</item>
+        <item name="android:textColorHint">#66FFFFFF</item>
+        <item name="android:background">@drawable/item_bg</item>
+        <item name="android:padding">10dp</item>
+        <item name="android:singleLine">true</item>
+        <item name="android:inputType">textUri</item>
+        <item name="android:imeOptions">actionDone</item>
+    </style>
+    <style name="TopBtn">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginStart">8dp</item>
+        <item name="android:paddingLeft">16dp</item>
+        <item name="android:paddingRight">16dp</item>
+        <item name="android:paddingTop">9dp</item>
+        <item name="android:paddingBottom">9dp</item>
+        <item name="android:focusable">true</item>
+        <item name="android:clickable">true</item>
+        <item name="android:singleLine">true</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:tag">item</item>
+    </style>
+    <style name="CtlBtn">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">48dp</item>
+        <item name="android:minWidth">64dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:paddingLeft">18dp</item>
+        <item name="android:paddingRight">18dp</item>
+        <item name="android:textColor">#FFFFFF</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:focusable">true</item>
+        <item name="android:clickable">true</item>
+        <item name="android:background">@drawable/ctl_btn_bg</item>
+        <item name="android:layout_marginStart">6dp</item>
+    </style>
+    <style name="CtlIcon">
+        <item name="android:layout_width">56dp</item>
+        <item name="android:layout_height">44dp</item>
+        <item name="android:scaleType">center</item>
+        <item name="android:focusable">true</item>
+        <item name="android:background">@drawable/ctl_btn_bg</item>
+    </style>
+    <style name="CtlSmall">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">26dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:paddingLeft">10dp</item>
+        <item name="android:paddingRight">10dp</item>
+        <item name="android:textColor">#FFFFFF</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:focusable">true</item>
+        <item name="android:clickable">true</item>
+        <item name="android:background">@drawable/ctl_btn_bg</item>
+        <item name="android:layout_marginStart">6dp</item>
+    </style>
+    <style name="TouchBtn" parent="TopBtn">
+        <item name="android:layout_marginStart">4dp</item>
+        <item name="android:paddingLeft">14dp</item>
+        <item name="android:paddingRight">14dp</item>
+        <item name="android:paddingTop">12dp</item>
+        <item name="android:paddingBottom">12dp</item>
+        <item name="android:textSize">17sp</item>
+    </style>
+    <style name="SideBtn" parent="TopBtn">
+        <item name="android:layout_width">78dp</item>
+        <item name="android:layout_marginStart">0dp</item>
+        <item name="android:layout_marginBottom">6dp</item>
+        <item name="android:paddingLeft">2dp</item>
+        <item name="android:paddingRight">2dp</item>
+        <item name="android:paddingTop">8dp</item>
+        <item name="android:paddingBottom">8dp</item>
+        <item name="android:singleLine">false</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+        <item name="android:gravity">center</item>
+        <item name="android:textSize">12sp</item>
+    </style>
+</resources>

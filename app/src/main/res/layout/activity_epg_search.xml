@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:padding="20dp">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:gravity="center_vertical" android:orientation="horizontal">
+        <TextView android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:text="Program TV" android:textSize="22sp" android:textStyle="bold" android:tag="accent"/>
+        <TextView android:id="@+id/tabSearch" style="@style/TopBtn" android:text="🔎 Szukaj"/>
+        <TextView android:id="@+id/tabReminders" style="@style/TopBtn" android:text="🔔 Przypomnienia"/>
+        <TextView android:id="@+id/btnClose" style="@style/TopBtn" android:text="✕"/>
+    </LinearLayout>
+    <LinearLayout android:id="@+id/searchBox" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:layout_marginTop="10dp">
+        <EditText android:id="@+id/query" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:tag="field" android:padding="10dp" android:singleLine="true" android:inputType="text"
+            android:imeOptions="actionSearch" android:hint="Tytuł programu, serialu lub odcinka (min. 2 znaki)"/>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:layout_marginTop="8dp" android:gravity="center_vertical">
+            <TextView android:id="@+id/fAll" style="@style/TopBtn" android:layout_marginStart="0dp" android:text="Wszystkie"/>
+            <TextView android:id="@+id/fArchive" style="@style/TopBtn" android:text="⟲ Archiwum"/>
+            <TextView android:id="@+id/fNow" style="@style/TopBtn" android:text="● Teraz"/>
+            <TextView android:id="@+id/fUpcoming" style="@style/TopBtn" android:text="⏭ Nadchodzące"/>
+            <TextView android:id="@+id/fDesc" style="@style/TopBtn" android:text="☐ Także w opisach"/>
+        </LinearLayout>
+    </LinearLayout>
+    <TextView android:id="@+id/info" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="8dp" android:tag="text2"/>
+    <androidx.recyclerview.widget.RecyclerView android:id="@+id/results" android:tag="panel"
+        android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:layout_marginTop="6dp" android:padding="6dp" android:clipToPadding="false"/>
+</LinearLayout>

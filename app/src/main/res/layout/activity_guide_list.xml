@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Program TV na telefonie w pionie: wybór kanału u góry, program dnia pod spodem -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:padding="10dp">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:gravity="center_vertical" android:orientation="horizontal">
+        <TextView android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:text="📅 Program TV" android:textSize="19sp" android:textStyle="bold" android:tag="accent"/>
+        <TextView android:id="@+id/btnGroup" style="@style/TopBtn" android:maxWidth="160dp" android:ellipsize="end"/>
+        <TextView android:id="@+id/btnSearch" style="@style/TopBtn" android:text="🔎"/>
+    </LinearLayout>
+    <androidx.recyclerview.widget.RecyclerView android:id="@+id/chips" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:layout_marginTop="8dp"/>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp"
+        android:gravity="center_vertical" android:orientation="horizontal">
+        <TextView android:id="@+id/btnDayPrev" style="@style/TopBtn" android:layout_marginStart="0dp" android:text="◄"/>
+        <TextView android:id="@+id/dayLabel" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:gravity="center" android:textSize="15sp" android:textStyle="bold" android:singleLine="true" android:ellipsize="end"/>
+        <TextView android:id="@+id/btnDayNext" style="@style/TopBtn" android:text="►"/>
+        <TextView android:id="@+id/btnNow" style="@style/TopBtn" android:text="Teraz"/>
+    </LinearLayout>
+    <androidx.recyclerview.widget.RecyclerView android:id="@+id/progs" android:tag="panel"
+        android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:layout_marginTop="6dp" android:padding="4dp"/>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp"
+        android:tag="panel" android:orientation="vertical" android:padding="10dp">
+        <TextView android:id="@+id/dTitle" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:textSize="15sp" android:textStyle="bold" android:singleLine="true" android:ellipsize="end"/>
+        <TextView android:id="@+id/dDesc" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:textSize="13sp" android:tag="text2" android:minLines="3" android:maxLines="3" android:ellipsize="end"/>
+    </LinearLayout>
+</LinearLayout>

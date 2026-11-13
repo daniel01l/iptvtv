@@ -1,0 +1,16 @@
+# klucze – nie publikować
+keystore/
+*.keystore
+*.jks
+
+# build i IDE
+.gradle/
+.kotlin/
+build/
+*/build/
+.idea/
+*.iml
+local.properties
+captures/
+*.apk
+*.aab

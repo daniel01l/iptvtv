@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:padding="20dp">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:gravity="center_vertical" android:orientation="horizontal">
+        <TextView android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:text="Edytor listy kanałów" android:textSize="22sp" android:textStyle="bold" android:tag="accent"/>
+        <TextView android:id="@+id/btnGroups" style="@style/TopBtn" android:text="⇅ Kategorie"/>
+        <TextView android:id="@+id/btnReset" style="@style/TopBtn" android:text="↺ Przywróć oryginał"/>
+        <TextView android:id="@+id/btnDone" style="@style/TopBtn" android:text="✓ Gotowe"/>
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:layout_marginTop="12dp" android:orientation="horizontal">
+        <androidx.recyclerview.widget.RecyclerView android:id="@+id/groups" android:tag="panel"
+            android:layout_width="220dp" android:layout_height="match_parent" android:padding="6dp"/>
+        <androidx.recyclerview.widget.RecyclerView android:id="@+id/channels" android:tag="panel"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="match_parent"
+            android:layout_marginStart="10dp" android:padding="6dp" android:clipToPadding="false"/>
+    </LinearLayout>
+    <TextView android:id="@+id/hint" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="10dp" android:tag="text2"/>
+</LinearLayout>

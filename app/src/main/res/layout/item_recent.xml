@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content" android:tag="item noborder"
+    android:focusable="true" android:clickable="true" android:orientation="horizontal" android:gravity="center_vertical"
+    android:layout_marginBottom="2dp" android:paddingStart="6dp" android:paddingEnd="6dp"
+    android:paddingTop="4dp" android:paddingBottom="4dp">
+    <ImageView android:id="@+id/picon" android:layout_width="44dp" android:layout_height="28dp" android:scaleType="fitCenter"/>
+    <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+        android:layout_marginStart="8dp" android:orientation="vertical">
+        <TextView android:id="@+id/name" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:singleLine="true" android:ellipsize="end" android:textStyle="bold" android:textSize="14sp"/>
+        <TextView android:id="@+id/now" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:singleLine="true" android:ellipsize="end" android:textSize="12sp" android:tag="text2"/>
+        <pl.iptv.tv.ui.ProgView android:id="@+id/progress" android:layout_width="match_parent"
+            android:layout_height="3dp" android:layout_marginTop="2dp"/>
+    </LinearLayout>
+</LinearLayout>

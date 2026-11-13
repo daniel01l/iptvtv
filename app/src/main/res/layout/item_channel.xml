@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="66dp" android:tag="item"
+    android:focusable="true" android:clickable="true" android:gravity="center_vertical"
+    android:layout_marginBottom="4dp" android:orientation="horizontal" android:paddingStart="8dp" android:paddingEnd="8dp">
+    <TextView android:id="@+id/num" android:layout_width="38dp" android:layout_height="wrap_content"
+        android:gravity="end" android:layout_marginEnd="8dp" android:tag="text2"/>
+    <ImageView android:id="@+id/picon" android:layout_width="76dp" android:layout_height="46dp"
+        android:scaleType="fitCenter"/>
+    <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+        android:layout_marginStart="10dp" android:orientation="vertical">
+        <TextView android:id="@+id/name" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:singleLine="true" android:ellipsize="end" android:textSize="16sp" android:textStyle="bold"/>
+        <TextView android:id="@+id/now" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:singleLine="true" android:ellipsize="end" android:textSize="13sp" android:tag="text2"/>
+        <pl.iptv.tv.ui.ProgView android:id="@+id/progress" android:layout_width="match_parent"
+            android:layout_height="6dp" android:layout_marginTop="2dp"/>
+    </LinearLayout>
+    <TextView android:id="@+id/fav" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="★" android:textSize="16sp" android:layout_marginStart="6dp" android:tag="accent"/>
+    <TextView android:id="@+id/catchup" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="⟲" android:textSize="18sp" android:layout_marginStart="6dp" android:tag="keepcolor"/>
+</LinearLayout>

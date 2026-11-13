@@ -1,0 +1,8 @@
+<resources>
+    <item name="ui_style" type="id"/>
+    <item name="ui_clip" type="id"/>
+    <item name="ui_size" type="id"/>
+    <item name="guide_cell" type="id"/>
+    <item name="row_key" type="id"/>
+    <item name="zoom_listener" type="id"/>
+</resources>

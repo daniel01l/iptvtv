@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/playerRoot"
+    android:layout_width="match_parent" android:layout_height="match_parent" android:background="@android:color/black">
+    <androidx.media3.ui.PlayerView android:id="@+id/playerView" android:layout_width="match_parent"
+        android:layout_height="match_parent" app:show_buffering="never" app:use_controller="false"
+        app:controller_layout_id="@layout/controller_catchup" app:show_shuffle_button="false"/>
+
+    <!-- pasek informacji -->
+    <LinearLayout android:id="@+id/overlay" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_gravity="bottom" android:orientation="horizontal" android:visibility="gone"
+        android:gravity="center_vertical" android:paddingStart="40dp" android:paddingEnd="40dp"
+        android:paddingTop="36dp" android:paddingBottom="28dp">
+        <ImageView android:id="@+id/oPicon" android:layout_width="120dp" android:layout_height="72dp"
+            android:scaleType="fitCenter"/>
+        <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:layout_marginStart="20dp" android:orientation="vertical">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                <TextView android:id="@+id/oName" android:layout_width="0dp" android:layout_weight="1"
+                    android:layout_height="wrap_content" android:textSize="24sp" android:textStyle="bold"
+                    android:singleLine="true" android:ellipsize="end"/>
+                <TextView android:id="@+id/oClock" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:textSize="22sp" android:tag="accent"/>
+            </LinearLayout>
+            <TextView android:id="@+id/oNow" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:textSize="18sp" android:singleLine="true" android:ellipsize="end"/>
+            <pl.iptv.tv.ui.ProgView android:id="@+id/oProgress" android:layout_width="match_parent"
+                android:layout_height="8dp" android:layout_marginTop="6dp" android:layout_marginBottom="6dp"/>
+            <TextView android:id="@+id/oNext" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:singleLine="true" android:ellipsize="end" android:tag="text2"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- przyciski dotykowe -->
+    <LinearLayout android:id="@+id/touchBar" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_gravity="top|end" android:layout_margin="16dp" android:orientation="horizontal"
+        android:padding="6dp" android:tag="panel" android:visibility="gone">
+        <TextView android:id="@+id/tMenu" style="@style/TouchBtn" android:text="☰ Menu"/>
+        <TextView android:id="@+id/tChannels" style="@style/TouchBtn" android:text="📺 Kanały"/>
+        <TextView android:id="@+id/tRecent" style="@style/TouchBtn" android:text="🕘 Ostatnie"/>
+        <TextView android:id="@+id/tFav" style="@style/TouchBtn" android:text="☆"/>
+        <TextView android:id="@+id/tPrev" style="@style/TouchBtn" android:text="▲"/>
+        <TextView android:id="@+id/tNext" style="@style/TouchBtn" android:text="▼"/>
+        <TextView android:id="@+id/tClose" style="@style/TouchBtn" android:text="✕"/>
+    </LinearLayout>
+
+    <View android:id="@+id/scrim" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:background="#66000000" android:visibility="gone" android:clickable="true"/>
+
+    <!-- panel z lewej: kanały + program -->
+    <LinearLayout android:id="@+id/leftPanel" android:layout_width="wrap_content" android:layout_height="match_parent"
+        android:layout_gravity="start" android:orientation="horizontal" android:tag="panel" android:padding="10dp"
+        android:visibility="gone" android:clickable="true">
+        <LinearLayout android:id="@+id/quickBar" android:layout_width="190dp" android:layout_height="match_parent"
+            android:layout_marginEnd="8dp" android:orientation="vertical" android:tag="glass" android:padding="8dp"
+            android:visibility="gone">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="☰ Menu"
+                android:textSize="16sp" android:textStyle="bold" android:tag="accent" android:padding="4dp"/>
+            <androidx.recyclerview.widget.RecyclerView android:id="@+id/quickList" android:layout_width="match_parent"
+                android:layout_height="match_parent" android:layout_marginTop="4dp"/>
+        </LinearLayout>
+        <LinearLayout android:id="@+id/lpCol1" android:layout_width="340dp" android:layout_height="match_parent" android:orientation="vertical">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical">
+                <TextView android:id="@+id/lpMenu" style="@style/TouchBtn" android:text="☰"/>
+                <TextView android:id="@+id/lpPrev" style="@style/TouchBtn" android:text="◄"/>
+                <TextView android:id="@+id/lpGroup" android:layout_width="0dp" android:layout_weight="1" android:focusable="true"
+                    android:clickable="true" android:paddingTop="10dp" android:paddingBottom="10dp"
+                    android:layout_height="wrap_content" android:gravity="center" android:textStyle="bold"
+                    android:textSize="17sp" android:singleLine="true" android:ellipsize="end" android:tag="accent"/>
+                <TextView android:id="@+id/lpNext" style="@style/TouchBtn" android:text="►"/>
+            </LinearLayout>
+            <androidx.recyclerview.widget.RecyclerView android:id="@+id/lpChannels" android:layout_width="match_parent"
+                android:layout_height="0dp" android:layout_weight="1" android:layout_marginTop="6dp"/>
+        </LinearLayout>
+        <LinearLayout android:id="@+id/lpCol2" android:layout_width="360dp" android:layout_height="match_parent" android:orientation="vertical"
+            android:layout_marginStart="10dp">
+            <TextView android:id="@+id/lpEpgTitle" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:textStyle="bold" android:textSize="17sp" android:padding="8dp" android:singleLine="true"
+                android:ellipsize="end"/>
+            <androidx.recyclerview.widget.RecyclerView android:id="@+id/lpProgrammes" android:layout_width="match_parent"
+                android:layout_height="0dp" android:layout_weight="1"/>
+            <TextView android:id="@+id/lpDesc" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:maxLines="3" android:ellipsize="end" android:padding="6dp" android:tag="text2"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- panel z prawej (1/4 ekranu): ostatnio oglądane + opis i program kanału; 2. strzałka ► = pasek menu -->
+    <LinearLayout android:id="@+id/rightPanel" android:layout_width="wrap_content" android:layout_height="match_parent"
+        android:layout_gravity="end" android:orientation="horizontal" android:padding="10dp"
+        android:visibility="gone" android:clickable="true">
+        <LinearLayout android:id="@+id/rightColumn" android:layout_width="320dp" android:layout_height="match_parent"
+            android:orientation="vertical">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="0.42"
+                android:orientation="vertical" android:tag="glass" android:padding="8dp">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical">
+                    <TextView android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+                        android:text="🕘 Ostatnio oglądane" android:textSize="15sp" android:textStyle="bold" android:tag="accent"/>
+                    <TextView android:id="@+id/rpScores" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="⚽ Wyniki ►" android:textSize="13sp" android:tag="item" android:clickable="true" android:focusable="true"
+                        android:paddingStart="10dp" android:paddingEnd="10dp" android:paddingTop="4dp" android:paddingBottom="4dp"/>
+                </LinearLayout>
+                <TextView android:id="@+id/rpEmpty" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp" android:tag="text2" android:visibility="gone" android:textSize="13sp"
+                    android:text="Brak historii. Kanał trafia tutaj po co najmniej 1 minucie oglądania."/>
+                <androidx.recyclerview.widget.RecyclerView android:id="@+id/rpList" android:layout_width="match_parent"
+                    android:layout_height="match_parent" android:layout_marginTop="4dp"/>
+            </LinearLayout>
+            <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="0.58"
+                android:layout_marginTop="8dp" android:orientation="vertical" android:tag="glass" android:padding="10dp">
+                <TextView android:id="@+id/infoTitle" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:textSize="16sp" android:textStyle="bold" android:maxLines="2" android:ellipsize="end"/>
+                <TextView android:id="@+id/infoTime" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:textSize="13sp" android:tag="accent"/>
+                <pl.iptv.tv.ui.ProgView android:id="@+id/infoProgress" android:layout_width="match_parent"
+                    android:layout_height="5dp" android:layout_marginTop="4dp"/>
+                <TextView android:id="@+id/infoDesc" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp" android:textSize="13sp" android:maxLines="6" android:ellipsize="end" android:tag="text2"/>
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp"
+                    android:text="Program kanału  •  ⟲ = odtwórz z archiwum" android:textSize="12sp" android:tag="text2"/>
+                <androidx.recyclerview.widget.RecyclerView android:id="@+id/infoProgrammes" android:layout_width="match_parent"
+                    android:layout_height="0dp" android:layout_weight="1"/>
+            </LinearLayout>
+        </LinearLayout>
+        <LinearLayout android:id="@+id/scoresColumn" android:layout_width="320dp" android:layout_height="match_parent"
+            android:layout_marginStart="8dp" android:orientation="vertical" android:tag="glass" android:padding="8dp" android:visibility="gone">
+            <TextView android:id="@+id/scoresTitle" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="⚽ Wyniki" android:textSize="15sp" android:textStyle="bold" android:tag="accent"/>
+            <TextView android:id="@+id/scoresEmpty" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="8dp" android:tag="text2" android:textSize="13sp" android:visibility="gone"/>
+            <androidx.recyclerview.widget.RecyclerView android:id="@+id/scoresList" android:layout_width="match_parent"
+                android:layout_height="0dp" android:layout_weight="1" android:layout_marginTop="4dp"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <TextView android:id="@+id/error" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_gravity="center" android:background="#CC000000" android:padding="16dp" android:textColor="#FFFFFF"
+        android:textSize="18sp" android:visibility="gone" android:gravity="center"/>
+    <!-- OK: lista kanałów nad paskiem informacji -->
+    <LinearLayout android:id="@+id/zapPanel" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start" android:orientation="vertical" android:padding="6dp" android:visibility="gone">
+        <androidx.recyclerview.widget.RecyclerView android:id="@+id/zapList" android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+    </LinearLayout>
+    <LinearLayout android:id="@+id/goalBox" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal" android:layout_marginTop="24dp" android:orientation="horizontal"
+        android:gravity="center_vertical" android:paddingStart="18dp" android:paddingEnd="18dp" android:paddingTop="10dp"
+        android:paddingBottom="10dp" android:visibility="gone">
+        <ImageView android:id="@+id/goalHome" android:layout_width="36dp" android:layout_height="36dp" android:scaleType="fitCenter"/>
+        <TextView android:id="@+id/goalToast" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginStart="12dp" android:layout_marginEnd="12dp" android:textSize="20sp" android:textStyle="bold"/>
+        <ImageView android:id="@+id/goalAway" android:layout_width="36dp" android:layout_height="36dp" android:scaleType="fitCenter"/>
+    </LinearLayout>
+    <LinearLayout android:id="@+id/numberBox" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_gravity="center" android:orientation="vertical" android:gravity="center_horizontal"
+        android:minWidth="220dp" android:padding="20dp" android:visibility="gone">
+        <ImageView android:id="@+id/numberLogo" android:layout_width="120dp" android:layout_height="72dp" android:scaleType="fitCenter"/>
+        <TextView android:id="@+id/numberInput" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:textSize="48sp" android:textStyle="bold" android:tag="accent"/>
+        <TextView android:id="@+id/numberName" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:textSize="18sp" android:singleLine="true" android:ellipsize="end" android:maxWidth="360dp"/>
+    </LinearLayout>
+    <LinearLayout android:id="@+id/miniMenu" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_gravity="center" android:orientation="vertical" android:gravity="center_horizontal"
+        android:padding="14dp" android:visibility="gone">
+        <LinearLayout android:id="@+id/miniIcons" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:orientation="horizontal"/>
+        <TextView android:id="@+id/miniLabel" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="10dp" android:textSize="16sp" android:textStyle="bold"/>
+    </LinearLayout>
+</FrameLayout>

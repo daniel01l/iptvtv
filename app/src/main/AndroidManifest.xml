@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <queries>
+        <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent>
+        <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LEANBACK_LAUNCHER" /></intent>
+        <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.HOME" /></intent>
+    </queries>
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.wifi" android:required="false" />
+    <uses-feature android:name="android.hardware.screen.landscape" android:required="false" />
+    <uses-feature android:name="android.hardware.screen.portrait" android:required="false" />
+
+    <application
+        android:name=".IptvApp"
+        android:allowBackup="false" android:fullBackupContent="false" android:largeHeap="true"
+        android:banner="@drawable/banner"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:theme="@style/AppTheme"
+        android:requestLegacyExternalStorage="true"
+        android:usesCleartextTraffic="true">
+        <receiver android:name=".BootReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="pl.iptv.tv.BOOT_RETRY" />
+            </intent-filter>
+        </receiver>
+        <!-- Tryb launchera: domyślnie wyłączony, włączany w Ustawienia → Funkcje -->
+        <activity android:name=".HomeActivity" android:enabled="false" android:exported="true"
+            android:launchMode="singleTask" android:taskAffinity="" android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" android:noHistory="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".ui.MainActivity" android:exported="true" android:windowSoftInputMode="stateHidden"
+            android:screenOrientation="sensorLandscape">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".ui.SettingsActivity" android:screenOrientation="sensorLandscape"
+            android:windowSoftInputMode="adjustResize|stateHidden" />
+        <receiver android:name=".update.InstallReceiver" android:exported="false" />
+        <receiver android:name=".update.UpdatedReceiver" android:exported="true">
+            <intent-filter><action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter>
+        </receiver>
+        <service android:name=".rec.RecordingService" android:exported="false" android:foregroundServiceType="dataSync" />
+        <activity android:name=".ui.RecordingPlayerActivity" android:theme="@style/PlayerTheme" android:screenOrientation="sensorLandscape" />
+        <receiver android:name=".reminders.ReminderReceiver" android:exported="false" />
+        <activity android:name=".reminders.ReminderActivity" android:exported="false"
+            android:theme="@style/ReminderTheme" android:excludeFromRecents="true" android:taskAffinity="pl.iptv.tv.reminder"
+            android:launchMode="singleInstance" />
+        <activity android:name=".ui.GuideActivity" android:screenOrientation="sensorLandscape" />
+        <activity android:name=".ui.GuideListActivity" />
+        <activity android:name=".ui.LockActivity" android:exported="false" android:launchMode="singleTask" />
+        <activity android:name=".ui.SetupActivity" android:screenOrientation="sensorLandscape"
+            android:windowSoftInputMode="adjustResize|stateHidden" />
+        <activity android:name=".ui.EpgSearchActivity" android:screenOrientation="sensorLandscape"
+            android:windowSoftInputMode="adjustResize|stateHidden" />
+        <activity android:name=".ui.EditorActivity" android:screenOrientation="sensorLandscape" />
+        <activity android:name=".ui.PlayerActivity" android:supportsPictureInPicture="true" android:resizeableActivity="true" android:screenOrientation="sensorLandscape"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize"
+            android:theme="@style/PlayerTheme" />
+    </application>
+</manifest>

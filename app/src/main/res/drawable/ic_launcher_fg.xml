@@ -1,0 +1,7 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <!-- litera „D” z przyciskiem odtwarzania (D-iptv Player) -->
+    <path android:fillColor="#FFFFFFFF" android:pathData="M35,30h16a24,24 0 0 1 0,48h-16z"/>
+    <path android:fillColor="#FF2F80ED" android:pathData="M46,43.5l17,10.5l-17,10.5z"/>
+    <path android:fillColor="#B3FFFFFF" android:pathData="M29,30h3v48h-3z"/>
+</vector>

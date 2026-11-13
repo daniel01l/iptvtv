@@ -1,0 +1,221 @@
+package pl.iptv.tv.data
+
+import android.content.Context
+import android.content.SharedPreferences
+import org.json.JSONArray
+
+object Prefs {
+    private lateinit var sp: SharedPreferences
+    private var weakDevice = false
+    fun init(ctx: Context) {
+        sp = ctx.getSharedPreferences("iptv", Context.MODE_PRIVATE)
+        weakDevice = runCatching {
+            val am = ctx.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            val mi = android.app.ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }
+            am.isLowRamDevice || (mi.totalMem in 1 until 2_200_000_000L)
+        }.getOrDefault(false)
+    }
+
+    /** Tryb dla słabszych urządzeń (domyślnie: mało pamięci RAM). */
+    var lowPerf: Boolean get() = if (sp.contains("low_perf")) bool("low_perf", false) else weakDevice; set(v) = putBool("low_perf", v)
+
+    private fun str(k: String, d: String = "") = sp.getString(k, d) ?: d
+    private fun put(k: String, v: String) = sp.edit().putString(k, v).apply()
+    private fun bool(k: String, d: Boolean) = sp.getBoolean(k, d)
+    private fun putBool(k: String, v: Boolean) = sp.edit().putBoolean(k, v).apply()
+    private fun int(k: String, d: Int) = sp.getInt(k, d)
+    private fun putInt(k: String, v: Int) = sp.edit().putInt(k, v).apply()
+
+    /** Wartość opcjonalna – null oznacza „domyślna z motywu”. */
+    fun optInt(k: String): Int? = if (sp.contains(k)) sp.getInt(k, 0) else null
+    fun setOptInt(k: String, v: Int?) = sp.edit().apply { if (v == null) remove(k) else putInt(k, v) }.apply()
+    fun remove(vararg keys: String) = sp.edit().apply { keys.forEach { remove(it) } }.apply()
+
+    // ---- źródła ----
+    var playlistSource: String get() = str("playlist"); set(v) = put("playlist", v)
+    var epgUrl: String get() = str("epg"); set(v) = put("epg", v)
+    var playlistEpgUrl: String get() = str("playlist_epg"); set(v) = put("playlist_epg", v)
+    var piconUrl: String get() = str("picon"); set(v) = put("picon", v)
+    var userAgent: String get() = str("ua"); set(v) = put("ua", v)
+    /** Co ile dni pobierać EPG z sieci (w międzyczasie z pamięci podręcznej). */
+    var epgRefreshDays: Int get() = int("epg_days", 3); set(v) = putInt("epg_days", v)
+    /** Ochrona przed pętlą awarii przy wczytywaniu zbyt dużego EPG na słabym urządzeniu. */
+    var epgParsing: Boolean get() = bool("epg_parsing", false); set(v) { sp.edit().putBoolean("epg_parsing", v).commit() }
+    var epgCrashes: Int get() = int("epg_crashes", 0); set(v) = putInt("epg_crashes", v)
+    var lastEpgUpdate: Long
+        get() = sp.getLong("epg_time", 0)
+        set(v) = sp.edit().putLong("epg_time", v).apply()
+    var lastChannel: String get() = str("last_key"); set(v) = put("last_key", v)
+    val effectiveEpgUrl: String get() = epgUrl.ifBlank { playlistEpgUrl }
+
+    // ---- wygląd ----
+    var theme: String get() = str("theme", "modern"); set(v) = put("theme", v)
+    var bgImageOn: Boolean get() = bool("bg_on", false); set(v) = putBool("bg_on", v)
+
+    // ---- funkcje (można wyłączać) ----
+    var showFavGroup: Boolean get() = bool("f_fav", true); set(v) = putBool("f_fav", v)
+    var showRecentGroup: Boolean get() = bool("f_recent_group", false); set(v) = putBool("f_recent_group", v)
+    var searchEnabled: Boolean get() = bool("f_search", true); set(v) = putBool("f_search", v)
+    var recentPanel: Boolean get() = bool("f_recent_panel", true); set(v) = putBool("f_recent_panel", v)
+    var channelPanel: Boolean get() = bool("f_ch_panel", true); set(v) = putBool("f_ch_panel", v)
+    var recentLimit: Int get() = int("recent_limit", 5); set(v) = putInt("recent_limit", v)
+    var panelHours: Int get() = int("panel_hours2", 72); set(v) = putInt("panel_hours2", v)
+    /** Układ menu głównego: 0 klasyczny, 1 podgląd na środku, 2 duży podgląd, 3 szeroka lista. */
+    var mainLayout: Int get() = int("main_layout", 0); set(v) = putInt("main_layout", v)
+    // ---- wyniki ----
+    var scoresEnabled: Boolean get() = bool("scores_on", true); set(v) = putBool("scores_on", v)
+    var scoreGoalAlerts: Boolean get() = bool("scores_goal", true); set(v) = putBool("scores_goal", v)
+    var scoreRefresh: Int get() = int("scores_refresh", 60); set(v) = putInt("scores_refresh", v)
+    var scoreFollowJson: String get() = str("scores_follow", "[]"); set(v) = put("scores_follow", v)
+    var scoreChannelsJson: String get() = str("scores_channels", "{}"); set(v) = put("scores_channels", v)
+    var apiFootballKey: String get() = str("af_key"); set(v) = put("af_key", v.trim())
+    // ---- pogoda ----
+    var weatherEnabled: Boolean get() = bool("weather_on", false); set(v) = putBool("weather_on", v)
+    var weatherCity: String get() = str("weather_city"); set(v) = put("weather_city", v)
+    var weatherLat: String get() = str("weather_lat"); set(v) = put("weather_lat", v)
+    var weatherLon: String get() = str("weather_lon"); set(v) = put("weather_lon", v)
+    var weatherText: String get() = str("weather_text"); set(v) = put("weather_text", v)
+    var weatherAt: Long get() = sp.getLong("weather_at", 0); set(v) = sp.edit().putLong("weather_at", v).apply()
+    var mainPreview: Boolean get() = bool("main_preview", true); set(v) = putBool("main_preview", v)
+    var showNumbers: Boolean get() = bool("f_numbers", true); set(v) = putBool("f_numbers", v)
+
+    // ---- uruchamianie ----
+    /** Indeks w [StartActions.LABELS]; domyślnie: ostatnio oglądany kanał. */
+    var startAction: Int get() = int("start_action", 1); set(v) = putInt("start_action", v)
+    var startChannel: String get() = str("start_channel"); set(v) = put("start_channel", v)
+    var bootStart: Boolean get() = bool("boot_start", false); set(v) = putBool("boot_start", v)
+
+    var permissionsAsked: Boolean get() = bool("perm_wizard", false); set(v) = putBool("perm_wizard", v)
+    var batteryAsked: Boolean get() = bool("battery_asked", false); set(v) = putBool("battery_asked", v)
+
+    // ---- catch-up dla kanałów bez informacji w liście ----
+    /** "" = wyłączone; inaczej typ: default, append, shift, flussonic, xc */
+    var catchupDefaultType: String get() = str("cu_type"); set(v) = put("cu_type", v)
+    var catchupDefaultSource: String get() = str("cu_source"); set(v) = put("cu_source", v)
+    var catchupDefaultDays: Int get() = int("cu_days", 7); set(v) = putInt("cu_days", v)
+    /** Nadpisz także kanały, które mają catch-up w liście. */
+    var catchupForce: Boolean get() = bool("cu_force", false); set(v) = putBool("cu_force", v)
+
+    var setupDone: Boolean get() = bool("setup_done", false); set(v) = putBool("setup_done", v)
+
+    // ---- odtwarzanie archiwum ----
+    var cuBack: Int get() = int("cu_back", 10); set(v) = putInt("cu_back", v)
+    var cuFwd: Int get() = int("cu_fwd", 30); set(v) = putInt("cu_fwd", v)
+    /** 0 = strzałki ◄ ► przewijają archiwum, 1 = otwierają panele */
+    var cuArrows: Int get() = int("cu_arrows", 0); set(v) = putInt("cu_arrows", v)
+    var cuPadBefore: Int get() = int("cu_pad_before", 0); set(v) = putInt("cu_pad_before", v)
+    var cuPadAfter: Int get() = int("cu_pad_after", 0); set(v) = putInt("cu_pad_after", v)
+    var cuAutoNext: Boolean get() = bool("cu_next", false); set(v) = putBool("cu_next", v)
+    /** Pytaj przed końcem programu z archiwum, co dalej. */
+    var cuAsk: Boolean get() = bool("cu_ask", true); set(v) = putBool("cu_ask", v)
+    var adSkip: Int get() = int("ad_skip", 120); set(v) = putInt("ad_skip", v)
+
+    // ---- program TV / przypomnienia ----
+    var epgSearchEnabled: Boolean get() = bool("f_epg_search", true); set(v) = putBool("f_epg_search", v)
+    var epgSearchInDesc: Boolean get() = bool("epg_search_desc", false); set(v) = putBool("epg_search_desc", v)
+    var remindersEnabled: Boolean get() = bool("f_reminders", true); set(v) = putBool("f_reminders", v)
+    /** Wyprzedzenie przypomnienia w minutach. */
+    var reminderLead: Int get() = int("reminder_lead", 2); set(v) = putInt("reminder_lead", v)
+    var notificationsAsked: Boolean get() = bool("notif_asked", false); set(v) = putBool("notif_asked", v)
+
+    /** Aplikacje dodane do menu odtwarzacza (►►): "pakiet/klasa". */
+    var quickApps: List<String> get() = list("quick_apps"); set(v) = putList("quick_apps", v)
+
+    // ---- wiele list ----
+    var playlistsJson: String get() = str("playlists", "[]"); set(v) = put("playlists", v)
+    var activePlaylist: String get() = str("active_playlist", "main"); set(v) = put("active_playlist", v)
+
+    // ---- kontrola rodzicielska ----
+    var parentalOn: Boolean get() = bool("parental_on", false); set(v) = putBool("parental_on", v)
+    var parentalPin: String get() = str("parental_pin"); set(v) = put("parental_pin", v)
+    var parentalHide: Boolean get() = bool("parental_hide", false); set(v) = putBool("parental_hide", v)
+    var parentalSettings: Boolean get() = bool("parental_settings", false); set(v) = putBool("parental_settings", v)
+    var lockedGroups: List<String> get() = list("locked_groups"); set(v) = putList("locked_groups", v)
+    var lockedChannels: List<String> get() = list("locked_channels"); set(v) = putList("locked_channels", v)
+
+    // ---- nagrywanie ----
+    var recEnabled: Boolean get() = bool("rec_on", true); set(v) = putBool("rec_on", v)
+    /** "" = folder aplikacji; inaczej ścieżka katalogu. */
+    var recFolder: String get() = str("rec_folder"); set(v) = put("rec_folder", v)
+    var recBefore: Int get() = int("rec_before", 2); set(v) = putInt("rec_before", v)
+    var recAfter: Int get() = int("rec_after", 5); set(v) = putInt("rec_after", v)
+
+    // ---- obraz w obrazie ----
+    var pipAuto: Boolean get() = bool("pip_auto", true); set(v) = putBool("pip_auto", v)
+
+    // ---- odbieranie list ----
+    var remoteOn: Boolean get() = bool("remote_on", false); set(v) = putBool("remote_on", v)
+    var remotePin: String get() = str("remote_pin"); set(v) = put("remote_pin", v)
+    var remoteAutoActivate: Boolean get() = bool("remote_activate", false); set(v) = putBool("remote_activate", v)
+
+    // ---- odbiór przez Internet (przekaźnik ntfy) ----
+    var relayOn: Boolean get() = bool("relay_on", false); set(v) = putBool("relay_on", v)
+    var relayCode: String get() = str("relay_code"); set(v) = put("relay_code", v)
+    var relayServer: String get() = str("relay_server"); set(v) = put("relay_server", v)
+    var relaySince: String get() = str("relay_since"); set(v) = put("relay_since", v)
+
+    // ---- zdalne zarządzanie (administrator) ----
+    var adminCode: String get() = str("admin_code"); set(v) = put("admin_code", v)
+    var deviceLabel: String get() = str("device_label"); set(v) = put("device_label", v)
+    var deviceId: String get() = str("device_id"); set(v) = put("device_id", v)
+    var adminLastReport: Long
+        get() = sp.getLong("admin_report", 0)
+        set(v) = sp.edit().putLong("admin_report", v).apply()
+
+    // ---- ustawienia: rozwinięte sekcje ----
+    var settingsOpen: List<String> get() = list("settings_open"); set(v) = putList("settings_open", v)
+    var settingsClosed: List<String> get() = list("settings_closed"); set(v) = putList("settings_closed", v)
+
+    // ---- aktualizacja ----
+    val DEFAULT_UPDATE_URL: String = pl.iptv.tv.BuildConfig.UPDATE_URL
+    /** Adres aktualizacji: domyślnie wydania na GitHubie (można zmienić zdalnie z aplikacji Admin). */
+    var updateUrl: String get() = if (pl.iptv.tv.BuildConfig.SECURE) DEFAULT_UPDATE_URL else str("update_url").ifBlank { DEFAULT_UPDATE_URL }
+        set(v) = put("update_url", v)
+    var updateAuto: Boolean get() = bool("update_auto", true); set(v) = putBool("update_auto", v)
+    var updateLastCheck: Long
+        get() = sp.getLong("update_check", 0)
+        set(v) = sp.edit().putLong("update_check", v).apply()
+
+    // ---- obraz ----
+    var aspectMode: Int get() = int("aspect", 0); set(v) = putInt("aspect", v)
+
+    // ---- menu funkcji (◄◄) ----
+    var quickOrder: List<String> get() = list("quick_order"); set(v) = putList("quick_order", v)
+    /** OK podczas oglądania: lista kanałów nad paskiem informacji i liczba widocznych wierszy. */
+    var zapListEnabled: Boolean get() = bool("zap_list", true); set(v) = putBool("zap_list", v)
+    var zapRows: Int get() = int("zap_rows", 8); set(v) = putInt("zap_rows", v)
+    /** Przesunięcie dźwięku względem obrazu (ms): ujemne = dźwięk wcześniej, dodatnie = później. */
+    var audioDelayMs: Int get() = int("audio_delay", 0); set(v) = putInt("audio_delay", v)
+    var tutorialShown: Boolean get() = bool("tutorial_shown", false); set(v) = putBool("tutorial_shown", v)
+    var miniMenuEnabled: Boolean get() = bool("mini_on", true); set(v) = putBool("mini_on", v)
+    /** 0 poziomo, 1 automatycznie (obrót), 2 pionowo (menu), odtwarzacz zawsze z obrotem. */
+    var orientation: Int get() = int("orientation", 0); set(v) = putInt("orientation", v)
+    /** Kategorie w menu: kolejność i ukryte (kanały zostają w „Wszystkie”). */
+    var groupOrder: List<String> get() = list("group_order"); set(v) = putList("group_order", v)
+    var groupHidden: List<String> get() = list("group_hidden"); set(v) = putList("group_hidden", v)
+    var miniApps: List<String> get() = list("mini_apps"); set(v) = putList("mini_apps", v)
+    var miniOrder: List<String> get() = list("mini_order"); set(v) = putList("mini_order", v)
+    var miniHidden: List<String> get() = list("mini_hidden"); set(v) = putList("mini_hidden", v)
+    var quickHidden: List<String> get() = list("quick_hidden"); set(v) = putList("quick_hidden", v)
+
+    // ---- pilot ----
+    var keyMapJson: String get() = str("keymap"); set(v) = put("keymap", v)
+
+    // ---- wygląd przewodnika ----
+    var guideRows: Int get() = int("g_rows", 6); set(v) = putInt("g_rows", v)
+    var guideWindow: Int get() = int("g_window", 120); set(v) = putInt("g_window", v)
+    var guideStyle: Int get() = int("g_style", 0); set(v) = putInt("g_style", v)
+    var guideChannelCol: Int get() = int("g_chcol", 0); set(v) = putInt("g_chcol", v)
+    var guideShowTime: Boolean get() = bool("g_time", true); set(v) = putBool("g_time", v)
+    var guideDesc: Int get() = int("g_desc", 1); set(v) = putInt("g_desc", v)
+    var guideNowLine: Boolean get() = bool("g_now", true); set(v) = putBool("g_now", v)
+
+    // ---- ulubione / ostatnie (lista kluczy kanałów) ----
+    var favorites: List<String> get() = list("favs"); set(v) = putList("favs", v)
+    var recent: List<String> get() = list("recent"); set(v) = putList("recent", v)
+
+    private fun list(k: String): List<String> = runCatching {
+        val a = JSONArray(str(k, "[]")); List(a.length()) { a.getString(it) }
+    }.getOrDefault(emptyList())
+    private fun putList(k: String, v: List<String>) = put(k, JSONArray(v).toString())
+}
