@@ -67,7 +67,7 @@ object YtKeyless {
         return "PT" + (if (h > 0) "${h}H" else "") + (if (m > 0) "${m}M" else "") + (if (s > 0) "${s}S" else "")
     }
 
-    private fun video(i: StreamInfoItem): YtVideo? {
+    fun video(i: StreamInfoItem): YtVideo? {
         val id = idOf(i.url) ?: return null
         val live = i.streamType == StreamType.LIVE_STREAM || i.streamType == StreamType.AUDIO_LIVE_STREAM
         // miniatura: największa z listy (YouTube podaje kilka rozmiarów)

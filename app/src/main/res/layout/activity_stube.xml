@@ -7,12 +7,14 @@
         android:gravity="center_vertical" android:orientation="horizontal">
         <TextView android:id="@+id/stTitle" android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:layout_marginEnd="16dp" android:text="STube" android:textSize="24sp" android:textStyle="bold" android:tag="accent"/>
-        <EditText android:id="@+id/stQuery" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+        <!-- podpowiedzi z historii wyszukiwania (StubeHistory, Room) – lista pod polem, ▼ w liście, OK = szukaj -->
+        <AutoCompleteTextView android:id="@+id/stQuery" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
             android:tag="field" android:paddingStart="16dp" android:paddingEnd="16dp" android:paddingTop="10dp" android:paddingBottom="10dp"
             android:textSize="17sp" android:singleLine="true" android:inputType="text" android:imeOptions="actionSearch"
-            android:hint="Szukaj w YouTube…"/>
+            android:hint="Szukaj w YouTube…" android:completionThreshold="1000" android:dropDownWidth="match_parent"/>
         <TextView android:id="@+id/stSearch" style="@style/TopBtn" android:text="🔎 Szukaj"/>
         <TextView android:id="@+id/stAccount" style="@style/TopBtn" android:text="Konto"/>
+        <TextView android:id="@+id/stPhone" style="@style/TopBtn" android:text="📱"/>
         <TextView android:id="@+id/stSmartTube" style="@style/TopBtn" android:text="▶ SmartTube"/>
         <TextView android:id="@+id/stRefresh" style="@style/TopBtn" android:text="⟳"/>
         <TextView android:id="@+id/stClose" style="@style/TopBtn" android:text="✕"/>

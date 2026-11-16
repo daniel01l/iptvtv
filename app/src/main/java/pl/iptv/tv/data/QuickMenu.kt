@@ -31,14 +31,15 @@ object QuickMenu : OrderedMenu(linkedMapOf(
     "channel" to "☰ Opcje kanału", "fav" to "★ Ulubione", "guide" to "📅 Program TV (przewodnik)",
     "search" to "🔎 Szukaj w programie TV", "reminders" to "🔔 Przypomnienia", "audio" to "🔊 Ścieżka audio",
     "subs" to "💬 Napisy", "aspect" to "📐 Proporcje obrazu", "skip_ad" to "⏭ Pomiń reklamę (archiwum)", "record" to "⏺ Nagrywanie",
-    "refresh" to "🔄 Odśwież listę i EPG", "apps_all" to "▦ Wszystkie aplikacje", "apps" to "📱 Moje aplikacje (skróty)",
+    "queue" to "📋 Kolejka i propozycje", "refresh" to "🔄 Odśwież listę i EPG", "apps_all" to "▦ Wszystkie aplikacje", "apps" to "📱 Moje aplikacje (skróty)",
 ), { Prefs.quickOrder }, { Prefs.quickOrder = it }, { Prefs.quickHidden }, { Prefs.quickHidden = it })
 
 /** Mini menu ikon (długie OK / przytrzymanie ekranu w odtwarzaczu). */
 object MiniMenu : OrderedMenu(linkedMapOf(
     "settings" to "⚙ Ustawienia", "sys_settings" to "🛠 Ustawienia urządzenia", "guide" to "📅 Program TV", "desc" to "ℹ Opis programu", "fav" to "★ Dodaj do ulubionych",
     "record" to "⏺ Nagrywanie", "tracks" to "🎧 Audio i napisy", "engine" to "⚡ Silnik i akceleracja", "aspect" to "📐 Proporcje obrazu", "channels" to "☰ Lista kanałów",
-), { Prefs.miniOrder }, { Prefs.miniOrder = it }, { Prefs.miniHidden }, { Prefs.miniHidden = it }, defaultHidden = listOf("aspect", "channels", "sys_settings")) {
+    "queue" to "📋 Kolejka i propozycje",
+), { Prefs.miniOrder }, { Prefs.miniOrder = it }, { Prefs.miniHidden }, { Prefs.miniHidden = it }, defaultHidden = listOf("aspect", "channels", "sys_settings", "queue")) {
     const val APP = "app:"
     /** Skróty aplikacji: "app:pakiet/klasa" -> nazwa (Prefs.miniApps: "komponent|nazwa"). */
     private fun apps() = Prefs.miniApps.mapNotNull { e -> e.split('|', limit = 2).takeIf { it.size == 2 }?.let { APP + it[0] to "📱 " + it[1] } }

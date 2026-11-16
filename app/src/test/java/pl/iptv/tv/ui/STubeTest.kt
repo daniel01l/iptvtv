@@ -71,6 +71,9 @@ class STubeTest {
                     p.startsWith("/yt/videos") && "pageToken=P2" in p -> videos("trend2", 3)
                     p.startsWith("/yt/videos") -> videos("trend", 8, next = "P2")
                     p.startsWith("/yt/subscriptions") -> """{"items":[{"snippet":{"title":"Subskrypcja A","resourceId":{"channelId":"UC1"},"thumbnails":{"default":{"url":"http://127.0.0.1:1/a.jpg"}}}}]}"""
+                    p.startsWith("/yt/playlistItems") && "playlistId=UU1" in p -> """{"items":[{"snippet":{"title":"Nowy 1","videoOwnerChannelTitle":"Subskrypcja A","thumbnails":{}},"contentDetails":{"videoId":"sub-1","videoPublishedAt":"2026-11-15T10:00:00Z"}},{"snippet":{"title":"Private video"},"contentDetails":{"videoId":"priv"}}]}"""
+                    p.startsWith("/yt/playlistItems") && "playlistId=PL1" in p -> """{"items":[{"snippet":{"title":"Z playlisty","videoOwnerChannelTitle":"K"},"contentDetails":{"videoId":"pl-1"}}]}"""
+                    p.startsWith("/yt/playlists") -> """{"items":[{"id":"PL1","snippet":{"title":"Moja lista","thumbnails":{}},"contentDetails":{"itemCount":1}}]}"""
                     p.startsWith("/yt/search") -> """{"items":[{"id":{"videoId":"srch0000001"},"snippet":{"title":"Wynik 1","channelTitle":"K"}}]}"""
                     else -> return MockResponse().setResponseCode(404)
                 }
@@ -130,10 +133,10 @@ class STubeTest {
     }
 
     @Test fun rowOrderAndDuration() {
-        assertEquals(listOf("login", "trending", "music", "live"), STubeScreen.rowIds(loggedIn = false, personal = true, query = null))
-        assertEquals(listOf("for_you", "trending", "music", "live", "subs"), STubeScreen.rowIds(loggedIn = true, personal = true, query = null))
-        assertEquals(listOf("trending", "music", "live", "subs"), STubeScreen.rowIds(loggedIn = true, personal = false, query = null))
-        assertEquals(listOf("search", "login", "trending", "music", "live"), STubeScreen.rowIds(false, true, "kot"))
+        assertEquals(listOf("login", "trending", "music", "live", "library"), STubeScreen.rowIds(loggedIn = false, personal = true, query = null))
+        assertEquals(listOf("for_you", "subs", "trending", "music", "live", "library", "channels"), STubeScreen.rowIds(loggedIn = true, personal = true, query = null))
+        assertEquals(listOf("subs", "trending", "music", "live", "library", "channels"), STubeScreen.rowIds(loggedIn = true, personal = false, query = null))
+        assertEquals(listOf("search", "login", "trending", "music", "live", "library"), STubeScreen.rowIds(false, true, "kot"))
         assertEquals("4:05", STubeScreen.duration("PT4M5S"))
         assertEquals("1:02:03", STubeScreen.duration("PT1H2M3S"))
         assertEquals("", STubeScreen.duration("P0D"))
@@ -141,7 +144,7 @@ class STubeTest {
 
     @Test fun guestSeesTrendingMusicAndLoginTile() {
         val a = open().get()
-        assertEquals(listOf("Dla Ciebie", "Na czasie", "Muzyka", "Na żywo"), a.rows.map { it.title })
+        assertEquals(listOf("Dla Ciebie", "Na czasie", "Muzyka", "Na żywo", "Biblioteka / Playlisty"), a.rows.map { it.title })
         val login = a.rows[0].tiles.single() as STubeTile.Action
         assertEquals(STubeScreen.ACT_LOGIN, login.id)
         assertEquals(8, a.rows[1].tiles.size); assertEquals(5, a.rows[2].tiles.size)
@@ -159,9 +162,11 @@ class STubeTest {
     @Test fun loggedInRowsUseAccount() {
         YouTubeTokens.save("AT1", "RT1", 3600)
         val a = open().get()
-        assertEquals(listOf("Dla Ciebie", "Na czasie", "Muzyka", "Na żywo", "Subskrypcje"), a.rows.map { it.title })
+        assertEquals(listOf("Dla Ciebie", "Subskrypcje", "Na czasie", "Muzyka", "Na żywo", "Biblioteka / Playlisty", "Kanały"), a.rows.map { it.title })
         assertEquals("liked film 1", (a.rows[0].tiles[0] as STubeTile.Video).v.title)
-        assertEquals("Subskrypcja A", (a.rows[4].tiles[0] as STubeTile.Channel).c.title)
+        assertEquals("Subskrypcja A", (a.rows[6].tiles[0] as STubeTile.Channel).c.title)
+        // Subskrypcje: najnowsze filmy kanałów (playlista „przesłane” UC1 → UU1), bez prywatnych
+        assertEquals(listOf("sub-1"), a.rows[1].tiles.map { (it as STubeTile.Video).v.id })
         val liked = requests.first { "myRating=like" in it.path!! }
         assertEquals("Bearer AT1", liked.getHeader("Authorization"))
     }
@@ -180,13 +185,13 @@ class STubeTest {
         // ◄ na pierwszym kafelku: fokus zostaje w rzędzie
         key(a, KeyEvent.KEYCODE_DPAD_LEFT); key(a, KeyEvent.KEYCODE_DPAD_LEFT); key(a, KeyEvent.KEYCODE_DPAD_LEFT)
         assertEquals(1 to 0, focusedRow(a))
-        // ostatni rząd: ▼ nie wychodzi poza ekran, ► na ostatnim kafelku zostaje
+        // ostatni rząd (Biblioteka: Do obejrzenia później, Historia): ▼ nie wychodzi poza ekran, ► na ostatnim kafelku zostaje
         key(a, KeyEvent.KEYCODE_DPAD_DOWN); key(a, KeyEvent.KEYCODE_DPAD_DOWN); key(a, KeyEvent.KEYCODE_DPAD_DOWN)
-        assertEquals(3, focusedRow(a).first)
+        assertEquals(4, focusedRow(a).first)
         repeat(7) { key(a, KeyEvent.KEYCODE_DPAD_RIGHT) }
-        assertEquals(3 to 3, focusedRow(a))
+        assertEquals(4 to 1, focusedRow(a))
         // ▲ z pierwszego rzędu → wyszukiwarka; ▼ z wyszukiwarki → pierwszy rząd
-        repeat(4) { key(a, KeyEvent.KEYCODE_DPAD_UP) }
+        repeat(5) { key(a, KeyEvent.KEYCODE_DPAD_UP) }
         assertEquals(R.id.stQuery, a.window.decorView.findFocus()?.id)
         key(a, KeyEvent.KEYCODE_DPAD_DOWN); assertEquals(0, focusedRow(a).first)
     }

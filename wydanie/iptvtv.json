@@ -1,6 +1,6 @@
 {
-  "versionCode": 55,
-  "versionName": "6.2",
+  "versionCode": 56,
+  "versionName": "6.3",
   "apk": "D-iptv-Player.apk",
-  "notes": "Nowa zakladka STube: YouTube na TV bez reklam we wbudowanym odtwarzaczu, SponsorBlock (pomijanie sponsorow), wyszukiwarka i listy bez konta, logowanie do YouTube kodem, okno awaryjne (SmartTube / YouTube), stabilniejsze odtwarzanie kanalow (odwieszanie, dekoder programowy przy zamrozonym obrazie, szybsza zmiana kanalu)"
+  "notes": "STube: historia wyszukiwania i paski obejrzenia, Kontynuuj ogladanie, Subskrypcje, Biblioteka i Do obejrzenia pozniej; rozdzialy, predkosc i korektor dzwieku w odtwarzaczu; odtwarzanie w tle i wygaszacz; kolejka Nastepne wspolna z TV na zywo (panel boczny); sterowanie z telefonu kodem; motywy STube"
 }

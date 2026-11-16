@@ -1,4 +1,4 @@
-# D-iptv Player – odtwarzacz M3U dla Android TV i telefonów (v6.2)
+# D-iptv Player – odtwarzacz M3U dla Android TV i telefonów (v6.3)
 
 ## Funkcje
 **Źródła:** lista M3U z linku, pliku lub ścieżki • EPG XMLTV (`.xml`/`.xml.gz`, adres `url-tvg` z listy lub ręczny) • picony (`tvg-logo`, własny katalog lub szablon `{id}`/`{name}`/`{name_raw}`, ikony z EPG) • catch-up: `default`, `append`, `shift`, `flussonic`, `xc`.
@@ -60,16 +60,25 @@
 
 **STube** (przycisk „STube” w kolumnie menu głównego): przeglądanie YouTube na TV.
 - U góry wyszukiwarka (OK / „🔎 Szukaj” – rząd „Wyniki” na początku, z kafelkiem „Szukaj w SmartTube”), przyciski konta, SmartTube i odświeżania.
-- Rzędy: *Dla Ciebie* (polubione z konta; bez logowania – kafelek „Zaloguj się”), *Na czasie*, *Muzyka*, *Na żywo*, *Subskrypcje* (po zalogowaniu). Z kontem lub kluczem API – YouTube Data API v3 (trendy regionu), bez nich albo przy błędzie API – listy publiczne bez klucza (odcinki na czasie, muzyka, transmisje). Dane pamiętane 10 minut; kolejne strony dociągane przy końcu rzędu.
-- Pilot: ▲▼ między rzędami (powrót na ostatnio zaznaczony kafelek rzędu), ◄► w rzędzie (na końcach fokus zostaje), ▲ z pierwszego rzędu – wyszukiwarka. OK = wbudowany odtwarzacz (bez reklam, SponsorBlock), długie OK = menu (w aplikacji, w SmartTube, w YouTube, więcej z kanału). Rząd z błędem ma kafelek „Ponów”.
+- Rzędy: [*Wyniki*], [*Kontynuuj oglądanie*], *Dla Ciebie* (polubione z konta; bez logowania – kafelek „Zaloguj się”), *Subskrypcje* (po zalogowaniu), *Na czasie*, *Muzyka*, *Na żywo*, *Biblioteka / Playlisty*, *Kanały* (po zalogowaniu). Z kontem lub kluczem API – YouTube Data API v3 (trendy regionu), bez nich albo przy błędzie API – listy publiczne bez klucza (odcinki na czasie, muzyka, transmisje). Dane pamiętane 10 minut; kolejne strony dociągane przy końcu rzędu.
+- **Subskrypcje**: najnowsze filmy z subskrybowanych kanałów, jak karta Subskrypcje w YouTube. Bierze do 30 kanałów (kolejność trafności Google), z każdego 5 ostatnich filmów z playlisty „przesłane” (1 jednostka limitu API na kanał zamiast 100 za wyszukiwanie). Filmy są scalone od najnowszego (do 50), czas trwania pobiera jedno zapytanie. Podpis kafelka: „Kanał · 3 godz. temu”. Kanał bez filmów lub z błędem jest pomijany.
+- **Biblioteka / Playlisty**: *Do obejrzenia później* (licznik filmów), *Historia oglądania* (także ukończone), a po zalogowaniu *Polubione filmy* i playlisty konta (miniatura, liczba filmów, kolejne strony). OK na playliście otwiera jej filmy w rzędzie wstawionym tuż pod spodem i przenosi na pierwszy film. Otwarty jest jeden taki rząd naraz; WSTECZ zamyka go i wraca na kafelek playlisty, kolejne WSTECZ zamyka STube.
+- **Do obejrzenia później**: lista lokalna (do 200 filmów). Długie OK na filmie → „🕘 Do obejrzenia później” / „Usuń z…”. Google nie udostępnia listy „Do obejrzenia później” konta (WL) w YouTube Data API, dlatego lista jest prowadzona na urządzeniu. Długie OK na kafelku listy → „Wyczyść listę”.
+- **Kanały** (po zalogowaniu): subskrybowane kanały. OK otwiera najnowsze filmy kanału w rzędzie poniżej, długie OK otwiera kanał w SmartTube lub YouTube.
+- Pilot: ▲▼ między rzędami (powrót na ostatnio zaznaczony kafelek rzędu), ◄► w rzędzie (na końcach fokus zostaje), ▲ z pierwszego rzędu – wyszukiwarka. OK = wbudowany odtwarzacz (bez reklam, SponsorBlock), długie OK = menu (w aplikacji, od początku, do obejrzenia później, w SmartTube, w YouTube, więcej z kanału). Rząd z błędem ma kafelek „Ponów”.
 - Duże kafelki 16:9 z czasem filmu; zaznaczenie wg motywu (kolor, ramka, powiększenie).
 - Wyszukiwanie działa bez klucza API (nie zużywa limitu), API – zapasowo; na końcu wyników kafelek „Szukaj w SmartTube”.
+- **Historia wyszukiwania**: wyszukane frazy zapisywane lokalnie (do 50, bez duplikatów – ta sama fraza inną wielkością liter to jedna pozycja). Pole wyszukiwania podpowiada je: po wejściu w pole (▲ z pierwszego rzędu) – ostatnie frazy, w trakcie pisania – pasujące od początku frazy lub słowa. ▼ wchodzi w listę podpowiedzi, OK od razu wyszukuje.
+- **Postęp oglądania**: wbudowany odtwarzacz zapisuje pozycję filmu co 10 s i przy wyjściu (WSTECZ, HOME, okno awaryjne). Kafelki mają pasek obejrzenia na dole miniatury (jak w YouTube, w kolorze akcentu motywu); film obejrzany do końca (≥ 95 % lub < 20 s do końca, także pominięty końcowy segment SponsorBlock) – pełny pasek. Rząd *Kontynuuj oglądanie* (na początku, po wynikach) pokazuje rozpoczęte filmy, ostatnio oglądany pierwszy. Ponowne otwarcie wznawia od miejsca przerwania (od 10 s; długie OK → „Odtwórz od początku”, „Usuń z historii oglądania”). Transmisje na żywo i oglądanie krótsze niż 5 s nie są zapisywane.
+- **Odtwarzacz – rozdziały**: z danych YouTube, a gdy ich brak – ze znaczników czasu w opisie (np. „0:00 Wstęp”, reguły YouTube: od 0:00, co najmniej 3 rozdziały, każdy ≥ 10 s). Na osi czasu są znaczniki w kolorze akcentu, w lewym górnym rogu – „☰ 2/7 · Tytuł”. Przy ukrytym pasku ▼ = następny rozdział, ▲ = początek bieżącego (w pierwszych 3 s – poprzedni). Pełną listę z czasami otwiera przycisk „☰ Rozdziały”.
+- **Odtwarzacz – prędkość i dźwięk**: przyciski w prawym górnym rogu są widoczne razem z paskiem odtwarzania (▲ z paska do przycisków); MENU na pilocie otwiera opcje odtwarzania. *Prędkość*: 0.5×, 1.0×, 1.25×, 1.5×, 2.0× – zapamiętana, transmisje na żywo zawsze 1.0×. *Dźwięk*: korektor systemowy (android.media.audiofx.Equalizer na sesji audio odtwarzacza). Presety: Płaski (efekt wyłączony), Film / Dialogi, Bass Boost, Muzyka, Tryb nocny, Własny. W panelu ▲▼ przechodzi między presetami i suwakami pasm, ◄► zmienia pasmo o 1 dB (zmiana pasma = preset „Własny”, zapamiętany). Dźwięk zmienia się od razu. Urządzenie bez korektora pokazuje komunikat, film gra normalnie. W opcjach odtwarzania można też włączyć lub wyłączyć SponsorBlock.
 
 **Konto YouTube i SmartTube** (Ustawienia → Konto YouTube):
 - *Zaloguj* – logowanie bez klawiatury (OAuth 2.0 Device Flow): na ekranie pojawia się duży kod i adres `google.com/device`. Kod wpisujesz na telefonie lub komputerze; aplikacja sama czeka na potwierdzenie (wygasły kod zastępuje nowym, „Anuluj” / WSTECZ przerywa). Dostęp tylko do odczytu (`youtube.readonly`).
 - Tokeny są szyfrowane (EncryptedSharedPreferences, klucz w Android Keystore), w osobnym pliku – nie trafiają do kopii zapasowej ustawień. Gdy urządzenie nie ma działającego magazynu kluczy, logowanie obowiązuje do zamknięcia aplikacji. *Wyloguj* odwołuje dostęp także w Google.
 - *Źródło filmów*: „Moje” (polubione z konta) lub „Na czasie” (trendy regionu). Bez logowania zawsze listy publiczne.
-- *Odtwarzacz STube i SponsorBlock*: wbudowany odtwarzacz (wyłączony = filmy od razu w SmartTube), maksymalna jakość, SponsorBlock i pomijane kategorie.
+- *Odtwarzacz STube i SponsorBlock*: wbudowany odtwarzacz (wyłączony = filmy od razu w SmartTube), maksymalna jakość, prędkość odtwarzania, korektor dźwięku (preset), SponsorBlock i pomijane kategorie.
+- *Historia STube*: zapisywanie historii wyszukiwania i oglądania (wyłączone – nic nowego nie jest zapisywane), wznawianie filmów, *Wyczyść historię wyszukiwania*, *Wyczyść historię oglądania*. Dane tylko w lokalnej bazie (Room, `stube.db`) – nie trafiają do Google ani do kopii zapasowej.
 - *SmartTube*: stan aplikacji; zapasowy odtwarzacz (okno awaryjne, menu kafelka) – wersja stabilna lub beta, a gdy jej brak – okno z linkiem do strony SmartTube lub otwarciem w innej aplikacji.
 - *Zaawansowane*: własny identyfikator klienta OAuth (typ „Telewizory i urządzenia z ograniczonym wejściem”), client secret i klucz API YouTube Data v3. Wartości wbudowane: plik `keystore/youtube_oauth.properties` (`client_id`, `client_secret`, `api_key`) przy budowaniu.
 
@@ -93,6 +102,15 @@
 | Edytor | OK = opcje, „⇅ Przenieś” + ▲▼, OK = koniec | przeciągnij za ≡ |
 
 Kanał trafia do „ostatnio oglądanych” po co najmniej 1 minucie odtwarzania.
+
+**v6.3**:
+- **STube – historia i biblioteka**: podpowiedzi z historii wyszukiwania w polu szukania, pasek obejrzenia na kafelkach (jak w YouTube), rząd *Kontynuuj oglądanie* z wznawianiem od miejsca przerwania, *Subskrypcje* z najnowszymi filmami kanałów, *Biblioteka / Playlisty* (Do obejrzenia później, Historia oglądania, Polubione, playlisty konta), *Kanały*. Lokalna baza Room (`stube.db`) – dane tylko na urządzeniu.
+- **Odtwarzacz STube**: rozdziały na osi czasu (z YouTube lub z opisu; ▲▼ przy ukrytym pasku – poprzedni / następny), prędkość 0.5×–2.0× (zapamiętana), korektor dźwięku (Płaski, Film / Dialogi, Bass Boost, Muzyka, Tryb nocny, Własny – pasma ◄►), przyciski u góry i MENU na pilocie.
+- **Odtwarzanie w tle**: film gra dalej po HOME (Ustawienia → Konto YouTube → *Odtwarzanie w tle*), powiadomienie multimediów z przyciskami; powrót do odtwarzacza bez przerwy w dźwięku; telewizja na żywo zatrzymuje film w tle.
+- **Wygaszacz**: po kilku minutach pauzy bez pilota – czarny ekran z zegarem i tytułem (przesuwany co minutę), ekran może się wyłączyć; dowolny klawisz wraca.
+- **Kolejka „Następne” i panel boczny**: wspólna kolejka filmów STube i kanałów TV (Room). W odtwarzaczu STube panel *Propozycje / Kolejka* („📋 Następne”), w telewizji panel *Teraz w TV / Kolejka* (menu ► lub mini menu). Po końcu filmu – następna pozycja kolejki albo propozycje. W panelu: ◄► zakładki, ▲▼ lista, OK – odtwórz, długie OK / MENU – opcje, WSTECZ – zamknij.
+- **Połącz z telefonem**: przycisk 📱 w STube (lub Ustawienia) – duży 4-cyfrowy kod i adres `http://IP:8765/stube`. Na telefonie: odtwarzanie / pauza, przewijanie, rozdziały, następny, kolejka, wyszukiwanie i otwieranie linków YouTube na TV. 5 błędnych kodów – blokada na minutę; „Nowy kod” odcina sparowane telefony.
+- **Motywy STube**: własne kolory ekranu STube i odtwarzacza (YouTube ciemny / jasny, Kino, Ocean, Neon, Las) oraz układ kafelków (Standardowy, Kompaktowy, Duże kafelki, Minimalny) – niezależnie od motywu telewizji.
 
 **v6.2**:
 - **STube** – nowy przycisk w menu głównym: YouTube na TV z wyszukiwarką i rzędami (Dla Ciebie, Na czasie, Muzyka, Na żywo, Subskrypcje). Działa od razu, bez klucza API i konta (listy publiczne); z kontem lub kluczem – dane z YouTube Data API v3 (przy błędzie API, np. wyczerpanym limicie, zapasowo listy publiczne).
@@ -221,10 +239,14 @@ ui/PermissionWizard – kreator uprawnień
 ui/SystemTools – oszczędzanie energii, launcher, lista aplikacji
 ui/SmartTubeIntegrationHelper – wykrywanie SmartTube, wyszukiwanie, odtwarzanie linków, fallbacki
 ui/YouTubeAccountUi – okno logowania YouTube (kod, odpytywanie), wylogowanie
-ui/STubeActivity, STubeScreen – ekran STube (wyszukiwarka, rzędy kafelków, nawigacja pilotem)
-ui/YtPlayerActivity, YtMedia – wbudowany odtwarzacz YouTube (Media3, zapytania do serwerów wideo), okno awaryjne
+ui/STubeActivity, STubeScreen – ekran STube (wyszukiwarka z podpowiedziami, rzędy kafelków, Biblioteka i rząd otwartej playlisty, nawigacja pilotem)
+ui/YtPlayerActivity, YtMedia – wbudowany odtwarzacz YouTube (Media3, zapytania do serwerów wideo), rozdziały, prędkość, okno awaryjne
+ui/YtPlaybackService (YtBackground) – odtwarzanie w tle; ui/SidePanel (QueueUi) – panel Propozycje / Kolejka; data/StubeQueue – kolejka (Room)
+remote/StubeRemote, ui/StubeRemoteUi – sterowanie z telefonu; ui/StubeTheme – motywy i układy STube
+ui/YtEq – korektor dźwięku (presety, pasma, YtEqSession na sesji audio); data/YtChapters – rozdziały (segmenty YouTube, opis)
 data/YtStreams, YtKeyless, SponsorBlock – strumienie bez reklam i listy bez klucza (NewPipeExtractor), pomijanie segmentów
 data/YouTubeAuth, YouTubeTokens, YouTubeRepository – OAuth Device Flow, szyfrowane tokeny, YouTube Data API v3
+data/StubeDb – baza Room STube (historia wyszukiwania, postęp oglądania), StubeHistory (podpowiedzi, paski, wznawianie); schemat: app/schemas
 data/  StartActions, Models, M3uParser, XmltvParser, CatchupUrlBuilder, ChannelEdits (edycje + JSON), Repository, Prefs
 ui/    Ui (motywy, styl, animacje), ProgView (pasek postępu), BaseActivity (tło, przejścia),
        MainActivity, PlayerActivity (panele, gesty), EditorActivity, SettingsActivity (3 zakładki),

@@ -1066,6 +1066,13 @@ class SettingsActivity : BaseActivity() {
             Prefs.ytMaxHeight = qualities[it]
         }
         if (Prefs.lowPerf && Prefs.lowMaxHeight > 0) note("Tryb słabszych urządzeń: najwyżej ${Prefs.lowMaxHeight}p.")
+        val speeds = listOf(50, 100, 125, 150, 200)
+        choice("Prędkość odtwarzania", speeds.map { "%s×".format((it / 100f).toString()) }, { speeds.indexOf(Prefs.ytSpeedPct).let { i -> if (i < 0) 1 else i } }, look = false) {
+            Prefs.ytSpeedPct = speeds[it]
+        }
+        choice("Korektor dźwięku", YtEq.PRESETS, { Prefs.ytEqPreset.coerceIn(YtEq.PRESETS.indices) }, look = false) { Prefs.ytEqPreset = it }
+        note("W odtwarzaczu: przyciski u góry (▲ z paska odtwarzania) lub MENU na pilocie – prędkość, korektor z regulacją pasm, rozdziały. " +
+            "▲▼ przy ukrytym pasku – poprzedni / następny rozdział.")
         toggle("SponsorBlock – pomijaj segmenty", { Prefs.sbEnabled }) { Prefs.sbEnabled = it }
         if (Prefs.sbEnabled) {
             val ids = pl.iptv.tv.data.SponsorBlock.CATEGORIES.keys.toList()
@@ -1077,6 +1084,40 @@ class SettingsActivity : BaseActivity() {
             }
             note("Segmenty zgłaszane przez społeczność SponsorBlock (sponsor.ajay.app). Zapytanie bez ID filmu – tylko fragment skrótu.")
         }
+
+        header("Odtwarzanie w tle, wygaszacz, kolejka")
+        toggle("Odtwarzanie w tle (po HOME)", { Prefs.ytBackground }) { Prefs.ytBackground = it }
+        note("Film STube gra dalej po wyjściu do ekranu głównego lub innej aplikacji (powiadomienie z przyciskami). Powrót do odtwarzacza – bez przerwy.")
+        val ambient = listOf(0, 2, 5, 10, 15, 30)
+        choice("Wygaszacz w pauzie", ambient.map { if (it == 0) "Wyłączony" else "po $it min" },
+            { ambient.indexOf(Prefs.ytAmbientMin).let { i -> if (i < 0) 2 else i } }, look = false) { Prefs.ytAmbientMin = ambient[it] }
+        toggle("Po końcu filmu – następny z kolejki", { Prefs.queueAutoplay }) { Prefs.queueAutoplay = it }
+        note("Kolejka „Następne” jest wspólna dla filmów STube i kanałów TV (panel w odtwarzaczu: „📋 Następne”, w TV – menu ►).")
+
+        header("Połącz z telefonem")
+        row("📱 Sterowanie z telefonu", StubeRemoteUi.state(), key = "yt|phone") { StubeRemoteUi.show(this) { build(keepFocus = true) } }
+        note("Kod parowania i adres strony pilota (ta sama sieć Wi-Fi). Z telefonu: odtwarzanie, pauza, przewijanie, kolejka, wyszukiwanie, linki YouTube.")
+
+        header("Wygląd STube")
+        choice("Motyw STube", StubeTheme.THEME_NAMES, { Prefs.stubeTheme.coerceIn(StubeTheme.THEMES.indices) }, look = false) { Prefs.stubeTheme = it }
+        choice("Układ kafelków", StubeTheme.LAYOUTS.map { it.name }, { Prefs.stubeLayout.coerceIn(StubeTheme.LAYOUTS.indices) }, look = false) { Prefs.stubeLayout = it }
+        note("Kolory ekranu STube i odtwarzacza filmów – niezależne od motywu telewizji („Jak aplikacja” – bez zmian).")
+
+        header("Historia STube (na tym urządzeniu)")
+        val H = pl.iptv.tv.data.StubeHistory
+        toggle("Zapisuj historię wyszukiwania i oglądania", { Prefs.stubeHistory }) { Prefs.stubeHistory = it }
+        toggle("Wznawiaj filmy od miejsca przerwania", { Prefs.stubeResume }) { Prefs.stubeResume = it }
+        row("Wyczyść historię wyszukiwania", key = "yt|clrsearch") {
+            Dialogs.confirm(this, "Wyczyścić?", "Usunąć zapisane frazy wyszukiwania (podpowiedzi w STube)?") {
+                lifecycleScope.launch { H.clearSearches(); toast("Wyczyszczono historię wyszukiwania") }
+            }
+        }
+        row("Wyczyść historię oglądania", key = "yt|clrwatch") {
+            Dialogs.confirm(this, "Wyczyścić?", "Usunąć postęp oglądania filmów (paski na kafelkach, „Kontynuuj oglądanie”)?") {
+                lifecycleScope.launch { H.clearProgress(); toast("Wyczyszczono historię oglądania") }
+            }
+        }
+        note("Dane tylko lokalnie (baza na urządzeniu) – nie są wysyłane do Google ani do kopii zapasowej.")
 
         header("SmartTube")
         val st = SmartTubeIntegrationHelper.installedVersion(this)

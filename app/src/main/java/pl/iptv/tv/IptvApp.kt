@@ -77,12 +77,14 @@ class IptvApp : Application(), coil.ImageLoaderFactory {
         started = 0
         Repository.init(this)
         pl.iptv.tv.data.YouTubeTokens.init(this)
+        pl.iptv.tv.data.StubeHistory.init(this)
+        pl.iptv.tv.remote.RemoteServer.init(this)
         if (Repository.epgCrashed()) android.util.Log.w("IptvApp", "Poprzednie wczytywanie EPG przerwane – tryb dla słabszych urządzeń")
         pl.iptv.tv.data.Activation.init(this)
         if (pl.iptv.tv.data.Activation.enabled) activationLoop()
         pl.iptv.tv.ui.Ui.init(this)
         ReminderScheduler.schedule(this)
-        if (pl.iptv.tv.data.Prefs.remoteOn) pl.iptv.tv.remote.RemoteServer.start(this)
+        if (pl.iptv.tv.data.Prefs.remoteOn || pl.iptv.tv.data.Prefs.stubeRemote) pl.iptv.tv.remote.RemoteServer.start(this)
         if (pl.iptv.tv.data.Prefs.relayOn) pl.iptv.tv.remote.RemoteRelay.start(this)
         if (pl.iptv.tv.BuildConfig.SECURE) pl.iptv.tv.data.Prefs.adminCode = ""          // bez raportów do administratora
         pl.iptv.tv.update.Updater.autoCheck(this)

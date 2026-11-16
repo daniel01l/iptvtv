@@ -59,7 +59,7 @@ object RemoteServer {
     val appContext: Context get() = app
 
     /** Kontekst bez uruchamiania serwera (dla przekaźnika internetowego). */
-    fun init(c: Context) { if (!::app.isInitialized) app = c.applicationContext }
+    fun init(c: Context) { app = c.applicationContext }
 
     @Synchronized fun start(c: Context) {
         app = c.applicationContext
@@ -128,6 +128,8 @@ object RemoteServer {
 
     private fun handle(sock: Socket) {
         val r = read(sock) ?: return respond(sock, 400, "text/plain", "Błędne żądanie")
+        // sterowanie STube z telefonu (strona /stube, API /api/stube/… z kodem parowania)
+        StubeRemote.handle(r.method, r.path, r.headers, r.body)?.let { (code, type, body) -> return respond(sock, code, type, body) }
         when {
             r.method == "GET" && r.path.startsWith("/api/info") ->
                 respond(sock, 200, "application/json", JSONObject().put("name", deviceName).put("app", "IptvTv").toString())

@@ -242,7 +242,7 @@ object Ui {
     fun resetColors() = Prefs.remove(*(COLOR_KEYS.map { "c_${it.first}" } + GRADIENT_KEYS.map { "c2_$it" }).toTypedArray())
 
     /** Drugi kolor gradientu albo null (kolor jednolity). */
-    fun color2(key: String): Int? = if (key in GRADIENT_KEYS) Prefs.optInt("c2_$key") else null
+    fun color2(key: String): Int? = if (scoped != null) null else if (key in GRADIENT_KEYS) Prefs.optInt("c2_$key") else null
     fun setGradient(key: String, c1: Int, c2: Int?) { setColor(key, c1); Prefs.setOptInt("c2_$key", c2) }
     var gradDir: Int get() = Prefs.optInt("grad_dir") ?: 0; set(v) = Prefs.setOptInt("grad_dir", v)
     private val orientation get() = when (gradDir) {
@@ -297,7 +297,10 @@ object Ui {
         return color2(key)?.let { "$a → " + String.format("#%06X", it and 0xFFFFFF) } ?: a
     }
 
-    fun color(key: String): Int = Prefs.optInt("c_$key") ?: when (key) {
+    /** Kolory narzucone przez ekran (motyw STube – [StubeTheme]); null – kolory motywu aplikacji. */
+    @Volatile var scoped: Map<String, Int>? = null
+
+    fun color(key: String): Int = scoped?.get(key) ?: Prefs.optInt("c_$key") ?: when (key) {
         "bg" -> preset.bg; "panel" -> preset.panel; "accent" -> preset.accent; "focus" -> preset.focus
         "focusText" -> preset.focusText; "text" -> preset.text; else -> preset.text2
     }

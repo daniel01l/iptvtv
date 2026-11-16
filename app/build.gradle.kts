@@ -3,6 +3,7 @@ import java.util.Properties
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("com.google.devtools.ksp")
 }
 
 android {
@@ -12,8 +13,8 @@ android {
         applicationId = "pl.iptv.tv"
         minSdk = 21
         targetSdk = 34
-        versionCode = 55
-        versionName = "6.2"
+        versionCode = 56
+        versionName = "6.3"
         // konto YouTube (OAuth 2.0 Device Flow): klient typu „TV i urządzenia z ograniczonym wejściem” z Google Cloud Console.
         // Plik keystore/youtube_oauth.properties (poza repozytorium): client_id=…, client_secret=…, api_key=… (klucz – trendy bez logowania).
         val yt = Properties().apply { rootProject.file("keystore/youtube_oauth.properties").takeIf { it.exists() }?.reader()?.use { load(it) } }
@@ -79,8 +80,7 @@ android {
     kotlinOptions { jvmTarget = "17" }
     testOptions { unitTests.isIncludeAndroidResources = true
         unitTests.all { it.systemProperty("shots", System.getProperty("shots") ?: "0") } }
-    sourceSets["main"].java.srcDir("../shared")
-    // wersja full (release) zawsze jako D-iptv-Player.apk
+    sourceSets["main"].java.srcDir("../shared")    // wersja full (release) zawsze jako D-iptv-Player.apk
     applicationVariants.all {
         if (flavorName == "full" && buildType.name == "release") {
             outputs.all {
@@ -89,6 +89,9 @@ android {
         }
     }
 }
+
+// schemat bazy STube w repozytorium (podstawa przyszłych migracji)
+ksp { arg("room.schemaLocation", "$projectDir/schemas") }
 
 dependencies {
     val media3 = "1.4.1"
@@ -100,6 +103,8 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-hls:$media3")
     implementation("androidx.media3:media3-exoplayer-dash:$media3")
     implementation("androidx.media3:media3-ui:$media3")
+    // STube: odtwarzanie w tle (MediaSessionService, powiadomienie multimediów)
+    implementation("androidx.media3:media3-session:$media3")
     implementation("androidx.media3:media3-datasource-okhttp:$media3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.coil-kt:coil:2.7.0")
@@ -107,6 +112,11 @@ dependencies {
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     // STube: wbudowany odtwarzacz – adresy strumieni YouTube bez reklam (licencja GPLv3)
     implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.27.1")
+    // STube: lokalna baza (historia wyszukiwania, postęp oglądania) – Room 2.6.1 (minSdk 21)
+    val room = "2.6.1"
+    implementation("androidx.room:room-runtime:$room")
+    implementation("androidx.room:room-ktx:$room")
+    ksp("androidx.room:room-compiler:$room")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.5")
 
     testImplementation("junit:junit:4.13.2")

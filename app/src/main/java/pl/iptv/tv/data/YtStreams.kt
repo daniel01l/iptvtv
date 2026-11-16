@@ -40,9 +40,17 @@ data class YtCandidate(
 sealed class YtPlayable {
     abstract val title: String
     abstract val durationS: Long
-    data class Split(override val title: String, override val durationS: Long, val video: YtCandidate, val audio: YtCandidate) : YtPlayable()
-    data class Muxed(override val title: String, override val durationS: Long, val stream: YtCandidate) : YtPlayable()
-    data class Live(override val title: String, val hlsUrl: String?, val dashUrl: String?) : YtPlayable() { override val durationS = 0L }
+    /** Rozdziały filmu ([YtChapters]); puste – brak. */
+    abstract val chapters: List<YtChapter>
+    /** Propozycje (podobne filmy) – panel boczny odtwarzacza. */
+    open val related: List<YtVideo> get() = emptyList()
+    data class Split(override val title: String, override val durationS: Long, val video: YtCandidate, val audio: YtCandidate,
+                     override val chapters: List<YtChapter> = emptyList(), override val related: List<YtVideo> = emptyList()) : YtPlayable()
+    data class Muxed(override val title: String, override val durationS: Long, val stream: YtCandidate,
+                     override val chapters: List<YtChapter> = emptyList(), override val related: List<YtVideo> = emptyList()) : YtPlayable()
+    data class Live(override val title: String, val hlsUrl: String?, val dashUrl: String?) : YtPlayable() {
+        override val durationS = 0L; override val chapters = emptyList<YtChapter>()
+    }
 }
 
 /** Film niedostępny do odtworzenia w aplikacji – [message] gotowy do pokazania na ekranie. */
@@ -133,12 +141,21 @@ object YtStreams {
         val url = { s: org.schabi.newpipe.extractor.stream.Stream -> s.isUrl && s.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && s.itagItem != null }
         val video = pickVideo(info.videoOnlyStreams.filter(url).map { it.candidate() }, maxHeight)
         val audio = pickAudio(info.audioStreams.filter(url).map { it.candidate() })
-        if (video != null && audio != null) return YtPlayable.Split(info.name, info.duration, video, audio)
+        val chapters = chaptersOf(info)
+        val related = runCatching { info.relatedItems.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>().mapNotNull(YtKeyless::video).take(30) }.getOrDefault(emptyList())
+        if (video != null && audio != null) return YtPlayable.Split(info.name, info.duration, video, audio, chapters, related)
         // zapas: strumień z obrazem i dźwiękiem (najwyżej 360p/720p)
         val muxed = pickVideo(info.videoStreams.filter { it.isUrl && it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }.map { it.candidate() }, maxHeight)
             ?: throw YtStreamException("Brak strumienia do odtworzenia")
-        return YtPlayable.Muxed(info.name, info.duration, muxed)
+        return YtPlayable.Muxed(info.name, info.duration, muxed, chapters, related)
     }
+
+    /** Rozdziały: segmenty YouTube, a bez nich – znaczniki czasu z opisu. Błąd danych nie blokuje odtwarzania. */
+    private fun chaptersOf(info: StreamInfo): List<YtChapter> = runCatching {
+        val dur = info.duration * 1000L
+        YtChapters.fromSegments(info.streamSegments.orEmpty().map { it.startTimeSeconds to it.title.orEmpty() }, dur)
+            .ifEmpty { YtChapters.fromDescription(info.description?.content().orEmpty(), dur) }
+    }.getOrDefault(emptyList())
 
     /** Czytelny komunikat dla błędu ekstrakcji. */
     fun message(e: Throwable): String = when (e) {

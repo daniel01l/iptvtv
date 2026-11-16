@@ -133,6 +133,8 @@ class PlayerActivity : BaseActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // film STube grający w tle kończy się przy przejściu do telewizji
+        YtBackground.stop(this)
         setContentView(R.layout.activity_player)
         playerView = findViewById(R.id.playerView)
         overlay = findViewById(R.id.overlay)
@@ -768,6 +770,53 @@ class PlayerActivity : BaseActivity() {
         resetPanelTimer()
     }
 
+    // ----- panel „Teraz w TV / Kolejka” (wspólna kolejka z STube) -----
+
+    private var sidePanel: SidePanel? = null
+
+    /**
+     * Panel boczny: „Teraz w TV” – kanały bieżącej kategorii od oglądanego, z aktualnym programem i postępem (OK = przełącz,
+     * długie OK = do kolejki); „Kolejka” – filmy STube i kanały (OK = odtwórz, długie OK = kolejność / usuń).
+     */
+    fun openQueuePanel(tab: Int = 0) {
+        hideOverlay.run()
+        val scope = lifecycleScope
+        fun channelMenu(ch: Channel): () -> Unit = {
+            Dialogs.menu(this, ch.name, listOf(
+                "▶ Przełącz teraz" to { sidePanel?.close(); zapTo(ch, if (ch in list) group else Repository.ALL) },
+                "＋ Dodaj do kolejki" to { scope.launch { pl.iptv.tv.data.StubeQueue.add(pl.iptv.tv.data.QueueItem.of(ch)); toast("Dodano do kolejki: ${ch.name}"); sidePanel?.reload() }; Unit },
+                "⏭ Odtwórz jako następny" to { scope.launch { pl.iptv.tv.data.StubeQueue.add(pl.iptv.tv.data.QueueItem.of(ch), next = true); toast("Następny w kolejce: ${ch.name}") }; Unit },
+            ))
+        }
+        val p = sidePanel ?: SidePanel(this, listOf(
+            SidePanel.Tab("📺 Teraz w TV", "Brak kanałów w tej kategorii") {
+                // kanały od oglądanego (najbliższe w kolejności listy), bez przeliczania całej listy
+                val from = pos.coerceIn(0, (list.size - 1).coerceAtLeast(0))
+                (list.drop(from) + list.take(from)).take(60).map { ch -> QueueUi.channelEntry(ch, channelMenu(ch)) { sidePanel?.close(); zapTo(it, group) } }
+            },
+            SidePanel.Tab("☰ Kolejka", "Kolejka jest pusta – dodaj kanał (długie OK w „Teraz w TV”) lub film w STube") {
+                val cur = list.getOrNull(pos)
+                listOfNotNull(cur?.let { ch ->
+                    SidePanel.Entry("add", "＋ Dodaj bieżący kanał do kolejki", ch.name, icon = "＋") {
+                        scope.launch { pl.iptv.tv.data.StubeQueue.add(pl.iptv.tv.data.QueueItem.of(ch)); toast("Dodano do kolejki: ${ch.name}"); sidePanel?.reload() }
+                    }
+                }) + QueueUi.entries(this, { sidePanel?.reload() }) { q ->
+                    scope.launch {
+                        pl.iptv.tv.data.StubeQueue.remove(q.id)
+                        val ch = if (q.isVideo) null else Repository.byKey(q.ref)
+                        sidePanel?.close()
+                        when {
+                            ch != null -> zapTo(ch, if (ch in list) group else Repository.ALL)
+                            q.isVideo -> { QueueUi.play(this@PlayerActivity, q); finish() }
+                            else -> toast("Kanału nie ma na bieżącej liście")
+                        }
+                    }
+                }
+            },
+        )).also { sidePanel = it }
+        p.open(tab)
+    }
+
     // ----- opis oglądanego programu + program kanału (pod ostatnio oglądanymi) -----
 
     private fun showInfo(ch: Channel) {
@@ -834,6 +883,7 @@ class PlayerActivity : BaseActivity() {
                 }
             }
             "skip_ad" -> if (isCatchup) add("⏭ Pomiń reklamę (+${Prefs.adSkip} s)") { closePanels(); skipAd() }
+            "queue" -> add("📋 Kolejka i propozycje") { closePanels(); openQueuePanel() }
             "refresh" -> add("🔄 Odśwież listę i EPG") { refreshSources() }
             "apps_all" -> add("▦ Wszystkie aplikacje") { SystemTools.showApps(this) }
             "apps" -> {
@@ -1123,6 +1173,8 @@ class PlayerActivity : BaseActivity() {
     private var groupBrowsing = false
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // panel „Teraz w TV / Kolejka” prowadzi nawigację sam (fokus nie wychodzi do paneli i kontrolek pod spodem)
+        sidePanel?.let { if (it.onKey(event)) return true; if (it.isOpen) return super.dispatchKeyEvent(event) }
         if (event.action == KeyEvent.ACTION_UP && okPending && (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)) {
             okPending = false
             if (!okLong) { okReplay = true; try { dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, event.keyCode)) } finally { okReplay = false } }
@@ -1630,6 +1682,7 @@ class PlayerActivity : BaseActivity() {
             "tracks" -> "🎧 Audio i napisy" to { tracksMenu() }
             "aspect" -> "📐 Proporcje obrazu" to { perform(A.ASPECT) }
             "channels" -> "☰ Lista kanałów" to { openLeft() }
+            "queue" -> "📋 Kolejka i propozycje" to { openQueuePanel() }
             "engine" -> "⚡ Silnik i akceleracja" to { playbackMenu() }
             else -> if (id.startsWith(pl.iptv.tv.data.MiniMenu.APP)) {
                 val cn = android.content.ComponentName.unflattenFromString(id.removePrefix(pl.iptv.tv.data.MiniMenu.APP))

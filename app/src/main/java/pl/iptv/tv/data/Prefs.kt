@@ -80,6 +80,28 @@ object Prefs {
     var ytApiKey: String get() = str("yt_api_key"); set(v) = put("yt_api_key", v)
     /** STube: odtwarzanie we wbudowanym odtwarzaczu (wyłączone = od razu SmartTube). */
     var stubeInternal: Boolean get() = bool("stube_internal", true); set(v) = putBool("stube_internal", v)
+    /** STube: zapisywanie historii wyszukiwania i postępu oglądania w lokalnej bazie ([StubeHistory]). */
+    var stubeHistory: Boolean get() = bool("stube_history", true); set(v) = putBool("stube_history", v)
+    /** STube: wznawianie filmu od zapisanej pozycji. */
+    var stubeResume: Boolean get() = bool("stube_resume", true); set(v) = putBool("stube_resume", v)
+    /** Odtwarzacz STube: gra dalej w tle po HOME / przejściu do innej aplikacji (usługa z powiadomieniem). */
+    var ytBackground: Boolean get() = bool("yt_bg", false); set(v) = putBool("yt_bg", v)
+    /** Wygaszacz odtwarzacza: po tylu minutach pauzy bez pilota (0 = wyłączony). */
+    var ytAmbientMin: Int get() = int("yt_ambient", 5); set(v) = putInt("yt_ambient", v)
+    /** Po końcu filmu – następna pozycja z kolejki (inaczej propozycje). */
+    var queueAutoplay: Boolean get() = bool("queue_auto", true); set(v) = putBool("queue_auto", v)
+    /** STube: kod parowania telefonu (4 cyfry) i zgoda na sterowanie z telefonu. */
+    var stubePin: String get() = str("stube_pin"); set(v) = put("stube_pin", v)
+    var stubeRemote: Boolean get() = bool("stube_remote", false); set(v) = putBool("stube_remote", v)
+    /** STube: motyw kolorów ([pl.iptv.tv.ui.StubeTheme], 0 = jak aplikacja) i układ kafelków. */
+    var stubeTheme: Int get() = int("stube_theme", 0); set(v) = putInt("stube_theme", v)
+    var stubeLayout: Int get() = int("stube_layout", 0); set(v) = putInt("stube_layout", v)
+    /** Odtwarzacz STube: prędkość (procent, 100 = 1.0×) – zapamiętana jak w SmartTube. */
+    var ytSpeedPct: Int get() = int("yt_speed", 100); set(v) = putInt("yt_speed", v)
+    /** Korektor dźwięku: preset ([pl.iptv.tv.ui.YtEq]) i poziomy pasm presetu „Własny” (millibele, po przecinku). */
+    var ytEqPreset: Int get() = int("yt_eq", 0); set(v) = putInt("yt_eq", v)
+    var ytEqCustom: List<Int> get() = str("yt_eq_custom").split(',').mapNotNull { it.trim().toIntOrNull() }
+        set(v) = put("yt_eq_custom", v.joinToString(","))
     /** Maks. jakość wbudowanego odtwarzacza (wysokość obrazu; 0 = 1080p). */
     var ytMaxHeight: Int get() = int("yt_max_h", 1080); set(v) = putInt("yt_max_h", v)
     /** SponsorBlock: pomijanie segmentów sponsorowanych i wybrane kategorie (id API). */
