@@ -228,6 +228,7 @@ class MainActivity : BaseActivity() {
             startActivity(Intent(this, GuideActivity::class.java).putExtra(GuideActivity.EXTRA_CHANNEL, focusedChannel?.key))
         }
         findViewById<View>(R.id.btnApps).setOnClickListener { SystemTools.showApps(this) }
+        findViewById<View>(R.id.btnSTube).setOnClickListener { startActivity(Intent(this, STubeActivity::class.java)) }
         findViewById<View>(R.id.searchClose).setOnClickListener { closeSearch() }
         searchField.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
@@ -455,7 +456,7 @@ class MainActivity : BaseActivity() {
 
     private fun styleSideNav() {
         mapOf(R.id.btnEpgSearch to R.drawable.ic_n_epg, R.id.btnSearch to R.drawable.ic_n_search, R.id.btnEditor to R.drawable.ic_n_edit,
-            R.id.btnSettings to R.drawable.ic_n_settings, R.id.btnApps to R.drawable.ic_n_apps)
+            R.id.btnSettings to R.drawable.ic_n_settings, R.id.btnApps to R.drawable.ic_n_apps, R.id.btnSTube to R.drawable.ic_n_stube)
             .forEach { (id, ic) -> findViewById<TextView>(id)?.let { Ui.iconOnTop(it, ic) } }
     }
 
@@ -549,6 +550,8 @@ class MainActivity : BaseActivity() {
         btnSearch.visibility = if (Prefs.searchEnabled) View.VISIBLE else View.GONE
         findViewById<View>(R.id.btnEpgSearch).visibility = View.VISIBLE
         findViewById<View>(R.id.btnApps).visibility = if (SystemTools.isLauncherEnabled(this)) View.VISIBLE else View.GONE
+        // STube tylko w wersji pełnej (wersja testowa dla testerów – bez YouTube)
+        findViewById<View>(R.id.btnSTube).visibility = if (pl.iptv.tv.BuildConfig.FULL_EDITION) View.VISIBLE else View.GONE
         appShortcuts()
         if (!Prefs.searchEnabled && searching) closeSearch()
         val chs = Repository.channels

@@ -1,6 +1,6 @@
 {
-  "versionCode": 54,
-  "versionName": "6.1",
+  "versionCode": 55,
+  "versionName": "6.2",
   "apk": "D-iptv-Player.apk",
-  "notes": "Motyw zmienia sie od razu bez restartu, oryginalne kolory logo, zostaly motywy iOS i Xbox (usuniete PS5, Windows 11, MagicOS), lepsze odtwarzanie na zywo (TS/HLS, szybsze wykrywanie zawieszen), przyciski okien zawsze widoczne, pewniejszy tryb launchera"
+  "notes": "Nowa zakladka STube: YouTube na TV bez reklam we wbudowanym odtwarzaczu, SponsorBlock (pomijanie sponsorow), wyszukiwarka i listy bez konta, logowanie do YouTube kodem, okno awaryjne (SmartTube / YouTube), stabilniejsze odtwarzanie kanalow (odwieszanie, dekoder programowy przy zamrozonym obrazie, szybsza zmiana kanalu)"
 }

@@ -242,8 +242,8 @@ class PlayerActivity : BaseActivity() {
         handler.removeCallbacksAndMessages(null)
         recentScheduled = false
         // odtwarzacz zostaje (kanał gra dalej w menu/ustawieniach); odłączamy tylko obraz i słuchacza
-        player?.removeListener(listener)
-        Playback.onFatal = null
+        Playback.removeListener(listener)
+        Playback.onFatal = null; Playback.onPlayerChanged = null; Playback.onDecoderFallback = null
         Playback.detach(playerView)
         player = null
     }
@@ -525,8 +525,10 @@ class PlayerActivity : BaseActivity() {
 
     private fun initPlayer() {
         val p = Playback.get(this)
-        p.addListener(listener)
+        Playback.addListener(listener)           // słuchacz przechodzi też na odtwarzacz odbudowany po zawieszeniu
         player = p
+        Playback.onPlayerChanged = { np -> player = np; Playback.attach(playerView) }
+        Playback.onDecoderFallback = { toast("Obraz zamarzał – przełączono na dekoder programowy (do zmiany silnika lub zamknięcia aplikacji)") }
         playerView.setKeepContentOnPlayerReset(true)      // ostatnia klatka zamiast czarnego ekranu przy zmianie kanału
         Playback.attach(playerView)
         if (p.playbackState == Player.STATE_READY) { errorTv.visibility = View.GONE }
@@ -1672,8 +1674,8 @@ class PlayerActivity : BaseActivity() {
     /** Nowy odtwarzacz z bieżącymi ustawieniami silnika (ten sam kanał; archiwum – ta sama pozycja). */
     private fun restartEngine() {
         val at = if (isCatchup) player?.currentPosition ?: 0L else 0L
-        player?.removeListener(listener)
-        Playback.stop(); player = null
+        Playback.removeListener(listener)
+        Playback.stop(); player = null           // stary odtwarzacz, dekodery i połączenia całkowicie zwolnione
         initPlayer(); playCurrent()
         if (isCatchup && at > 0) player?.seekTo(at)
         toast("Silnik: ${Playback.ENGINES[Prefs.playerEngine.coerceIn(Playback.ENGINES.indices)].substringAfter("– ")} • akceleracja ${if (Prefs.hwAccel) "wł." else "wył."}")

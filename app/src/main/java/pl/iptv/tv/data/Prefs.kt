@@ -47,6 +47,8 @@ object Prefs {
     var lowLatency: Boolean get() = bool("low_latency", false); set(v) = putBool("low_latency", v)
     /** Zapasowy dekoder, gdy sprzętowy się nie uruchomi. */
     var decoderFallback: Boolean get() = bool("dec_fallback", true); set(v) = putBool("dec_fallback", v)
+    /** Zamrożony obraz na dekoderze sprzętowym (dźwięk gra) – automatycznie dekoder programowy do końca sesji. */
+    var freezeFallback: Boolean get() = bool("freeze_fallback", true); set(v) = putBool("freeze_fallback", v)
     /** Akceleracja sprzętowa obrazu: wyłączona = dekoder programowy (zgodność), niezależnie od silnika. */
     var hwAccel: Boolean get() = bool("hw_accel", true); set(v) = putBool("hw_accel", v)
     /** Przytrzymanie OK w odtwarzaczu: 0 = od razu menu odtwarzania (silnik, akceleracja), 1 = szybkie menu ikon z kafelkiem „Silnik i akceleracja” (domyślnie). */
@@ -66,6 +68,24 @@ object Prefs {
     fun optInt(k: String): Int? = if (sp.contains(k)) sp.getInt(k, 0) else null
     fun setOptInt(k: String, v: Int?) = sp.edit().apply { if (v == null) remove(k) else putInt(k, v) }.apply()
     fun remove(vararg keys: String) = sp.edit().apply { keys.forEach { remove(it) } }.apply()
+
+    // ---- YouTube (tokeny konta: YouTubeTokens – szyfrowane, poza kopią zapasową) ----
+    /** Źródło filmów: 0 = spersonalizowane (konto), 1 = trendy publiczne. */
+    var ytSource: Int get() = int("yt_source", 0); set(v) = putInt("yt_source", v)
+    /** Region trendów (ISO 3166-1, np. PL). */
+    var ytRegion: String get() = str("yt_region", "PL"); set(v) = put("yt_region", v)
+    /** Własny klient OAuth / klucz API (puste = wbudowane w BuildConfig). */
+    var ytClientId: String get() = str("yt_client_id"); set(v) = put("yt_client_id", v)
+    var ytClientSecret: String get() = str("yt_client_secret"); set(v) = put("yt_client_secret", v)
+    var ytApiKey: String get() = str("yt_api_key"); set(v) = put("yt_api_key", v)
+    /** STube: odtwarzanie we wbudowanym odtwarzaczu (wyłączone = od razu SmartTube). */
+    var stubeInternal: Boolean get() = bool("stube_internal", true); set(v) = putBool("stube_internal", v)
+    /** Maks. jakość wbudowanego odtwarzacza (wysokość obrazu; 0 = 1080p). */
+    var ytMaxHeight: Int get() = int("yt_max_h", 1080); set(v) = putInt("yt_max_h", v)
+    /** SponsorBlock: pomijanie segmentów sponsorowanych i wybrane kategorie (id API). */
+    var sbEnabled: Boolean get() = bool("sb_on", true); set(v) = putBool("sb_on", v)
+    var sbCategories: List<String> get() = str("sb_cats", "sponsor,selfpromo,interaction,music_offtopic").split(',').filter { it.isNotBlank() }
+        set(v) = put("sb_cats", v.joinToString(","))
 
     // ---- źródła ----
     var playlistSource: String get() = str("playlist"); set(v) = put("playlist", v)

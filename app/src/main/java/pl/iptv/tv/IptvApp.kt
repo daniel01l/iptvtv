@@ -76,6 +76,7 @@ class IptvApp : Application(), coil.ImageLoaderFactory {
         super.onCreate()
         started = 0
         Repository.init(this)
+        pl.iptv.tv.data.YouTubeTokens.init(this)
         if (Repository.epgCrashed()) android.util.Log.w("IptvApp", "Poprzednie wczytywanie EPG przerwane – tryb dla słabszych urządzeń")
         pl.iptv.tv.data.Activation.init(this)
         if (pl.iptv.tv.data.Activation.enabled) activationLoop()

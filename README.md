@@ -1,4 +1,4 @@
-# D-iptv Player – odtwarzacz M3U dla Android TV i telefonów (v6.1)
+# D-iptv Player – odtwarzacz M3U dla Android TV i telefonów (v6.2)
 
 ## Funkcje
 **Źródła:** lista M3U z linku, pliku lub ścieżki • EPG XMLTV (`.xml`/`.xml.gz`, adres `url-tvg` z listy lub ręczny) • picony (`tvg-logo`, własny katalog lub szablon `{id}`/`{name}`/`{name_raw}`, ikony z EPG) • catch-up: `default`, `append`, `shift`, `flussonic`, `xc`.
@@ -58,6 +58,21 @@
   `adb shell pm disable-user --user 0 <pakiet>`, przywrócenie: `adb shell pm enable <pakiet>`.
   **Przed wyłączeniem trybu launchera w aplikacji przywróć systemowy launcher.**
 
+**STube** (przycisk „STube” w kolumnie menu głównego): przeglądanie YouTube na TV.
+- U góry wyszukiwarka (OK / „🔎 Szukaj” – rząd „Wyniki” na początku, z kafelkiem „Szukaj w SmartTube”), przyciski konta, SmartTube i odświeżania.
+- Rzędy: *Dla Ciebie* (polubione z konta; bez logowania – kafelek „Zaloguj się”), *Na czasie*, *Muzyka*, *Na żywo*, *Subskrypcje* (po zalogowaniu). Z kontem lub kluczem API – YouTube Data API v3 (trendy regionu), bez nich albo przy błędzie API – listy publiczne bez klucza (odcinki na czasie, muzyka, transmisje). Dane pamiętane 10 minut; kolejne strony dociągane przy końcu rzędu.
+- Pilot: ▲▼ między rzędami (powrót na ostatnio zaznaczony kafelek rzędu), ◄► w rzędzie (na końcach fokus zostaje), ▲ z pierwszego rzędu – wyszukiwarka. OK = wbudowany odtwarzacz (bez reklam, SponsorBlock), długie OK = menu (w aplikacji, w SmartTube, w YouTube, więcej z kanału). Rząd z błędem ma kafelek „Ponów”.
+- Duże kafelki 16:9 z czasem filmu; zaznaczenie wg motywu (kolor, ramka, powiększenie).
+- Wyszukiwanie działa bez klucza API (nie zużywa limitu), API – zapasowo; na końcu wyników kafelek „Szukaj w SmartTube”.
+
+**Konto YouTube i SmartTube** (Ustawienia → Konto YouTube):
+- *Zaloguj* – logowanie bez klawiatury (OAuth 2.0 Device Flow): na ekranie pojawia się duży kod i adres `google.com/device`. Kod wpisujesz na telefonie lub komputerze; aplikacja sama czeka na potwierdzenie (wygasły kod zastępuje nowym, „Anuluj” / WSTECZ przerywa). Dostęp tylko do odczytu (`youtube.readonly`).
+- Tokeny są szyfrowane (EncryptedSharedPreferences, klucz w Android Keystore), w osobnym pliku – nie trafiają do kopii zapasowej ustawień. Gdy urządzenie nie ma działającego magazynu kluczy, logowanie obowiązuje do zamknięcia aplikacji. *Wyloguj* odwołuje dostęp także w Google.
+- *Źródło filmów*: „Moje” (polubione z konta) lub „Na czasie” (trendy regionu). Bez logowania zawsze listy publiczne.
+- *Odtwarzacz STube i SponsorBlock*: wbudowany odtwarzacz (wyłączony = filmy od razu w SmartTube), maksymalna jakość, SponsorBlock i pomijane kategorie.
+- *SmartTube*: stan aplikacji; zapasowy odtwarzacz (okno awaryjne, menu kafelka) – wersja stabilna lub beta, a gdy jej brak – okno z linkiem do strony SmartTube lub otwarciem w innej aplikacji.
+- *Zaawansowane*: własny identyfikator klienta OAuth (typ „Telewizory i urządzenia z ograniczonym wejściem”), client secret i klucz API YouTube Data v3. Wartości wbudowane: plik `keystore/youtube_oauth.properties` (`client_id`, `client_secret`, `api_key`) przy budowaniu.
+
 **Edytor listy** (przycisk ✎ Edytor): zmiana nazwy, ukrywanie i pokazywanie, kolejność, przenoszenie do grupy (także nowej), mapowanie EPG z wyszukiwarką i podpowiedziami, numer na liście, przywracanie oryginału (jednego kanału lub wszystkich). Dla grup: zmiana nazwy, ukrycie lub pokazanie całej grupy. Zmiany zapisują się od razu i przetrwają odświeżenie listy z linku.
 
 ## Sterowanie
@@ -78,6 +93,16 @@
 | Edytor | OK = opcje, „⇅ Przenieś” + ▲▼, OK = koniec | przeciągnij za ≡ |
 
 Kanał trafia do „ostatnio oglądanych” po co najmniej 1 minucie odtwarzania.
+
+**v6.2**:
+- **STube** – nowy przycisk w menu głównym: YouTube na TV z wyszukiwarką i rzędami (Dla Ciebie, Na czasie, Muzyka, Na żywo, Subskrypcje). Działa od razu, bez klucza API i konta (listy publiczne); z kontem lub kluczem – dane z YouTube Data API v3 (przy błędzie API, np. wyczerpanym limicie, zapasowo listy publiczne).
+- **Wbudowany odtwarzacz YouTube**: film gra w aplikacji (Media3), bez reklam – strumienie pobierane bezpośrednio (NewPipeExtractor), do 1080p (Ustawienia → Konto YouTube → Maksymalna jakość; tryb słabszych urządzeń – jego limit), H.264 przed VP9, dźwięk oryginalny AAC. Pilot: OK = pauza, ◄► = 10 s, WSTECZ = koniec; HOME zatrzymuje film i zwalnia dekodery (powrót – ta sama chwila). Kanał IPTV jest zatrzymywany na czas filmu.
+- **SponsorBlock**: automatyczne pomijanie segmentów sponsorowanych, autopromocji, próśb o subskrypcję itp. (kategorie w Ustawieniach), komunikat „Pominięto: …”. Zapytanie bez ID filmu (4 znaki skrótu SHA-256).
+- **Okno awaryjne**: gdy film nie da się odtworzyć (blokada, ograniczenie wiekowe/regionalne, błąd strumienia, brak odpowiedzi 25 s) – od razu okno z przyciskami *Odtwórz w SmartTube*, *Odtwórz w YouTube* (aplikacja TV/mobilna lub przeglądarka), *Zamknij*. Wygasły adres strumienia (403/410) – najpierw jedna automatyczna ponowna ekstrakcja od tej samej chwili.
+- **Konto YouTube**: logowanie kodem (OAuth Device Flow), szyfrowane tokeny; **SmartTube**: wykrywanie, wyszukiwanie, odtwarzanie linków – szczegóły w sekcji *Konto YouTube i SmartTube*.
+- **Silnik odtwarzania kanałów**: zawieszony strumień najpierw otwierany ponownie, a po 3 próbach w 90 s – nowy odtwarzacz (to samo, co dawała ręczna zmiana silnika); zamrożony obraz przy grającym dźwięku (ok. 8 s) → dekoder programowy do końca sesji (Ustawienia → Odtwarzanie → *Dekoder programowy, gdy obraz zamarza*); połączenia poprzedniego kanału przerywane od razu przy zmianie (limit połączeń u dostawcy); łączenie z adresem serwera 4 s (martwy adres z rotacji DNS nie zatrzymuje obrazu); ten sam kanał wybrany ponownie, gdy buforuje > 6 s – start od nowa; więcej prób przy błędach dostawcy (2, 4, 6, 8 s).
+- Wersja testowa (secure) – bez przycisku STube.
+- Licencja: ekstraktor YouTube (NewPipeExtractor) jest na licencji GPLv3.
 
 **v6.1**:
 - **Motywy**: zostały motywy podstawowe oraz iOS – szkło i Xbox Series X – konsola; usunięte PlayStation 5, Windows 11 i MagicOS (kto ich używał, dostaje odpowiednio Xbox, Nowoczesny, iOS). Style paska informacji i przejścia z tamtych motywów zostają jako zwykłe opcje (Pływająca karta, Panel z paskiem akcentu, Pasek z poświatą; Unoszenie, Przyciąganie, Wejście w kartę).
@@ -194,6 +219,12 @@ data/Series, data/Reminders – rozpoznawanie odcinków, przypomnienia i reguły
 ui/EpgSearchActivity, ui/ProgrammeActions – wyszukiwarka programu, menu programu
 ui/PermissionWizard – kreator uprawnień
 ui/SystemTools – oszczędzanie energii, launcher, lista aplikacji
+ui/SmartTubeIntegrationHelper – wykrywanie SmartTube, wyszukiwanie, odtwarzanie linków, fallbacki
+ui/YouTubeAccountUi – okno logowania YouTube (kod, odpytywanie), wylogowanie
+ui/STubeActivity, STubeScreen – ekran STube (wyszukiwarka, rzędy kafelków, nawigacja pilotem)
+ui/YtPlayerActivity, YtMedia – wbudowany odtwarzacz YouTube (Media3, zapytania do serwerów wideo), okno awaryjne
+data/YtStreams, YtKeyless, SponsorBlock – strumienie bez reklam i listy bez klucza (NewPipeExtractor), pomijanie segmentów
+data/YouTubeAuth, YouTubeTokens, YouTubeRepository – OAuth Device Flow, szyfrowane tokeny, YouTube Data API v3
 data/  StartActions, Models, M3uParser, XmltvParser, CatchupUrlBuilder, ChannelEdits (edycje + JSON), Repository, Prefs
 ui/    Ui (motywy, styl, animacje), ProgView (pasek postępu), BaseActivity (tło, przejścia),
        MainActivity, PlayerActivity (panele, gesty), EditorActivity, SettingsActivity (3 zakładki),

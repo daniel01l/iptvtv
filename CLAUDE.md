@@ -5,7 +5,8 @@
 - Kod: `IptvTv-source.tar.gz` (Gradle 8.14.3, AGP 8.7.3, Kotlin 2.0.21, Media3 1.4.1, OkHttp, Coil 2.7, Robolectric 4.13).
 - Moduły: `:app` (pl.iptv.tv), `:admin` (pl.iptv.admin); wspólny kod `shared/pl/iptv/shared/` (RelayCrypto.kt, ActivationFormat.kt).
 - Flavory app: `full` (pl.iptv.tv, plik D-iptv-Player.apk, iptvtv.json, repo github daniel01l/iptvtv) i `secure` (pl.iptv.dplayer, wersja TEST, DPlayer.apk, dplayer.json, repo daniel01l/dplayer). Zmiany robimy tylko w `full`.
-- Aktualna wersja: Player 6.1 (versionCode 54), Admin 2.4 (versionCode 10), TEST 1.2 (versionCode 3).
+- Aktualna wersja: Player 6.2 (versionCode 55), Admin 2.4 (versionCode 10), TEST 1.2 (versionCode 3).
+- Zależności YouTube (6.2): NewPipeExtractor v0.27.1 z JitPack (repo ograniczone do grupy com.github.TeamNewPipe w `settings.gradle.kts`, licencja GPLv3; YouTube często psuje ekstrakcję – przy problemach podbić wersję), desugaring `desugar_jdk_libs_nio`, `security-crypto` 1.1.0-alpha06. Klient OAuth/klucz API: `keystore/youtube_oauth.properties` (client_id, client_secret, api_key) – opcjonalnie, poza repo.
 
 ## Podpis i aktywacja
 - Klucz podpisu: `iptvtv.keystore` (hasło android, alias androiddebugkey) – umieścić w `keystore/` projektu. Nie publikować.
@@ -26,7 +27,10 @@ Na Windows: `JAVA_HOME=C:\Users\dkier\.jdks\jbr-21.0.11`.
 3. Zbudować, sprawdzić podpis (`apksigner verify --print-certs`, SHA-256 041b543f…).
 4. Zaktualizować `iptvtv.json` (versionCode, versionName, apk, notes) i wgrać wydanie na GitHub (daniel01l/iptvtv).
 
-## Ostatnie zmiany (6.1)
+## Ostatnie zmiany (6.2)
+STube i YouTube: `SmartTubeIntegrationHelper` (wykrywanie, SEARCH, VIEW, `playInYouTube`, `<queries>` w manifeście); konto: `YouTubeAuth` (Device Flow, odpytywanie, odświeżanie), `YouTubeTokens` (EncryptedSharedPreferences, zapas w pamięci), `YouTubeRepository` (API v3, `YtSource`, cache 10 min), `YouTubeAccountUi`, karta Ustawień `YOUTUBE_TAB` = 11; ekran `STubeActivity` + `STubeScreen` (rzędy, `rowIds`, `apiOr` → `YtKeyless` bez klucza), przycisk `btnSTube` (tylko FULL_EDITION); odtwarzacz `YtPlayerActivity` (Media3, `YtMedia.VideoPlaybackInterceptor`: POST „x\0”, `range`/`rn`, nagłówki web/visionOS, 200→206; manifest DASH z itag), `YtStreams` (NewPipe, `pickVideo`/`pickAudio`, komunikaty), `SponsorBlock` (prefiks SHA-256), okno awaryjne `showFallback` (SmartTube / YouTube / Zamknij). Silnik kanałów (krok 1): `Playback.StreamCalls`, `recover`/`rebuild`, `onFrozen` → `sessionSoftware`, `STREAM_CONNECT_S` = 4, `Prefs.freezeFallback`. Testy: `SmartTubeTest`, `YouTubeAccountTest`, `STubeTest`, `YtPlayerTest`, `PlaybackLifecycleTest`. Test na emulatorze TV: nieeksportowanych aktywności nie da się uruchomić `am start` – przejść pilotem z menu (◄◄ ▼▼ OK = STube).
+
+## Zmiany 6.1
 Usunięte motywy ps5/win11/magic (`Ui.REMOVED_THEMES` mapuje stare id, stałe S_CARD/S_MICA/S_PS usunięte); `Ui.themeEpoch` + `BaseActivity.rebuildForTheme` (ekrany menu przebudowywane po zmianie motywu, Ustawienia w `onWindowFocusChanged`); `PiconView` ignoruje tint/filtr/alpha, `allowRgb565(false)`; `Playback`: `TS_FLAGS`, `extractors`, HLS przez `HlsMediaSource` z `DefaultHlsExtractorFactory`, `streamHttp` (12/20 s, bez callTimeout), `guessMime` + `hlsUrls` (fallback na HLS), bufor `START_BUFFER_MS`/`REBUFFER_MS`; okna: `Ui.fixDialogScrollers`; launcher: `HomeActivity.firstSinceBoot` (BOOT_COUNT), `BootReceiver.shouldLaunch`. Testy: `V61Test`.
 
 ## Zmiany 6.0

@@ -160,7 +160,7 @@ class V18Test {
     }
 
     @Test fun settingsHasAllTabsAndTheyBuild() {
-        assertEquals(11, SettingsActivity.TAB_NAMES.size)
+        assertEquals(12, SettingsActivity.TAB_NAMES.size)
         val c = Robolectric.buildActivity(SettingsActivity::class.java, Intent().putExtra("tab", 0)).setup(); idle()
         val a = c.get()
         for (name in SettingsActivity.TAB_NAMES) {

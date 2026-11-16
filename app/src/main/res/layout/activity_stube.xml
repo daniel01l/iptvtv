@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- STube: wyszukiwarka u góry (w pasku nagłówka), poniżej poziome rzędy kafelków (pilot: ▲▼ między rzędami, ◄► w rzędzie) -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:paddingStart="32dp" android:paddingEnd="32dp" android:paddingTop="16dp" android:paddingBottom="0dp">
+    <LinearLayout android:id="@+id/stSearchRow" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:gravity="center_vertical" android:orientation="horizontal">
+        <TextView android:id="@+id/stTitle" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginEnd="16dp" android:text="STube" android:textSize="24sp" android:textStyle="bold" android:tag="accent"/>
+        <EditText android:id="@+id/stQuery" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:tag="field" android:paddingStart="16dp" android:paddingEnd="16dp" android:paddingTop="10dp" android:paddingBottom="10dp"
+            android:textSize="17sp" android:singleLine="true" android:inputType="text" android:imeOptions="actionSearch"
+            android:hint="Szukaj w YouTube…"/>
+        <TextView android:id="@+id/stSearch" style="@style/TopBtn" android:text="🔎 Szukaj"/>
+        <TextView android:id="@+id/stAccount" style="@style/TopBtn" android:text="Konto"/>
+        <TextView android:id="@+id/stSmartTube" style="@style/TopBtn" android:text="▶ SmartTube"/>
+        <TextView android:id="@+id/stRefresh" style="@style/TopBtn" android:text="⟳"/>
+        <TextView android:id="@+id/stClose" style="@style/TopBtn" android:text="✕"/>
+    </LinearLayout>
+    <TextView android:id="@+id/stInfo" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="6dp" android:tag="text2" android:textSize="14sp" android:visibility="gone"/>
+    <ScrollView android:id="@+id/stScroll" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:layout_marginTop="4dp" android:focusable="false" android:fillViewport="true" android:scrollbars="none">
+        <LinearLayout android:id="@+id/stRows" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical" android:paddingBottom="120dp"/>
+    </ScrollView>
+</LinearLayout>

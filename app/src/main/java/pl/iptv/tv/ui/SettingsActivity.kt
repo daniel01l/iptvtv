@@ -161,7 +161,7 @@ class SettingsActivity : BaseActivity() {
         tabStrip?.let { hs -> tabs.getOrNull(tab)?.let { t -> hs.post { hs.smoothScrollTo((t.left - Ui.dp(24)).coerceAtLeast(0), 0) } } }
         when (tab) {
             0 -> buildLists(); 1 -> buildLook(); 2 -> buildMenuChannels(); 3 -> buildPlayback(); 4 -> buildProgramTv(); 5 -> buildCatchup()
-            6 -> buildParental(); 7 -> buildRecording(); 8 -> buildScores(); 9 -> buildRemoteKeys(); else -> buildSystem()
+            6 -> buildParental(); 7 -> buildRecording(); 8 -> buildScores(); 9 -> buildRemoteKeys(); YOUTUBE_TAB -> buildYouTube(); else -> buildSystem()
         }
         section = null
         saveButton()
@@ -843,6 +843,8 @@ class SettingsActivity : BaseActivity() {
         toggle("Akceleracja sprzętowa obrazu", { Prefs.hwAccel }) { Prefs.hwAccel = it; Playback.stop() }
         note("Wyłączona akceleracja = dekoder programowy (gdy obraz ma artefakty lub jest zielony). Silnik i akceleracja zmienisz też podczas oglądania: przytrzymaj OK.")
         toggle("Zapasowy dekoder przy błędzie", { Prefs.decoderFallback }) { Prefs.decoderFallback = it; Playback.stop() }
+        toggle("Dekoder programowy, gdy obraz zamarza", { Prefs.freezeFallback }) { Prefs.freezeFallback = it; Playback.stop() }
+        note("Gdy obraz stoi, a dźwięk gra (ok. ${Playback.FREEZE_SWITCH_MS / 1000} s), odtwarzacz sam przechodzi na dekoder programowy – do zamknięcia aplikacji albo ręcznej zmiany silnika.")
         toggle("Niskie opóźnienie na żywo", { Prefs.lowLatency }) { Prefs.lowLatency = it; Playback.stop() }
         note("Niskie opóźnienie: start po 0,5 s buforu i odtwarzanie bliżej bieżącej chwili transmisji (mniejsze opóźnienie, przy słabym łączu częstsze buforowanie).")
         row("Bieżący dekoder", Playback.decoderInfo().take(60)) { Dialogs.confirm(this, "Bieżący dekoder", Playback.decoderInfo()) {} }
@@ -1019,6 +1021,83 @@ class SettingsActivity : BaseActivity() {
             lifecycleScope.launch { runCatching { W.refresh(force = true) }.onSuccess { toast(it) }.onFailure { toast("Błąd: ${it.message}") }; build(keepFocus = true) }
         }
         note("Dane: Open-Meteo (bez konta). Odświeżanie co 30 minut.")
+    }
+
+    // ================= Konto YouTube =================
+    private fun buildYouTube() {
+        val T = pl.iptv.tv.data.YouTubeTokens
+        val A = pl.iptv.tv.data.YouTubeAuth
+        val R = pl.iptv.tv.data.YouTubeRepository
+        header("Konto / Logowanie YouTube")
+        if (T.loggedIn) {
+            row("Konto", "✔ " + T.accountName.ifBlank { "zalogowano" }, key = "yt|account") { toast("Zalogowano" + T.accountName.takeIf { it.isNotBlank() }?.let { ": $it" }.orEmpty()) }
+            row("Wyloguj", key = "yt|logout") { YouTubeAccountUi.logout(this) { build(key = "yt|login") } }
+        } else {
+            row("Zaloguj (kod na telefonie lub komputerze)", if (A.configured) "✖ Niezalogowano" else "⚠ Brak klienta OAuth", key = "yt|login") {
+                YouTubeAccountUi.login(this) { ok -> if (ok) build(key = "yt|account") }
+            }
+        }
+        note("Logowanie bez klawiatury: na ekranie pojawi się kod do wpisania na google.com/device. " +
+            "Aplikacja ma dostęp tylko do odczytu (polubione, subskrypcje).")
+        if (!T.persistent) note("⚠ Brak bezpiecznego magazynu kluczy – logowanie obowiązuje do zamknięcia aplikacji.")
+
+        header("Treści YouTube")
+        choice("Źródło filmów", pl.iptv.tv.data.YtSource.entries.map { it.label }, { R.source.ordinal }, look = false) {
+            R.source = pl.iptv.tv.data.YtSource.of(it)
+        }
+        if (R.source == pl.iptv.tv.data.YtSource.PERSONAL && !T.loggedIn) note("Bez logowania wyświetlane są trendy publiczne.")
+        choice("Region trendów", YT_REGIONS, { YT_REGIONS.indexOf(Prefs.ytRegion).coerceAtLeast(0) }, look = false) {
+            Prefs.ytRegion = YT_REGIONS[it]; R.clearCache()
+        }
+        row("Sprawdź połączenie", key = "yt|test") {
+            toast("Pobieranie…")
+            lifecycleScope.launch {
+                runCatching { R.feed(force = true) }
+                    .onSuccess { f -> toast("✔ ${f.source.label}: ${f.videos.size} filmów" + if (f.fellBack) " (bez konta – trendy)" else "") }
+                    .onFailure { toast("Błąd: ${it.message}") }
+            }
+        }
+
+        header("Odtwarzacz STube i SponsorBlock")
+        toggle("Wbudowany odtwarzacz (bez reklam)", { Prefs.stubeInternal }) { Prefs.stubeInternal = it }
+        note("Wyłączony – filmy od razu w SmartTube. Gdy film nie da się odtworzyć w aplikacji, pojawi się wybór: SmartTube, YouTube lub zamknięcie.")
+        val qualities = listOf(2160, 1440, 1080, 720, 480, 360)
+        choice("Maksymalna jakość", qualities.map { "${it}p" }, { qualities.indexOf(Prefs.ytMaxHeight).let { i -> if (i < 0) 2 else i } }, look = false) {
+            Prefs.ytMaxHeight = qualities[it]
+        }
+        if (Prefs.lowPerf && Prefs.lowMaxHeight > 0) note("Tryb słabszych urządzeń: najwyżej ${Prefs.lowMaxHeight}p.")
+        toggle("SponsorBlock – pomijaj segmenty", { Prefs.sbEnabled }) { Prefs.sbEnabled = it }
+        if (Prefs.sbEnabled) {
+            val ids = pl.iptv.tv.data.SponsorBlock.CATEGORIES.keys.toList()
+            row("Pomijane kategorie", "${Prefs.sbCategories.size} z ${ids.size}", key = "yt|sbcats") {
+                val checked = BooleanArray(ids.size) { ids[it] in Prefs.sbCategories }
+                Dialogs.multi(this, "Pomijane kategorie", ids.map { pl.iptv.tv.data.SponsorBlock.label(it) }, checked) { res ->
+                    Prefs.sbCategories = ids.filterIndexed { i, _ -> res[i] }; build(keepFocus = true)
+                }
+            }
+            note("Segmenty zgłaszane przez społeczność SponsorBlock (sponsor.ajay.app). Zapytanie bez ID filmu – tylko fragment skrótu.")
+        }
+
+        header("SmartTube")
+        val st = SmartTubeIntegrationHelper.installedVersion(this)
+        row("Aplikacja SmartTube", if (SmartTubeIntegrationHelper.isInstalled(this)) "✔ " + (st ?: "zainstalowana") else "✖ Brak", key = "yt|smarttube") {
+            SmartTubeIntegrationHelper.launch(this)
+        }
+        note("SmartTube – zapasowy odtwarzacz (okno awaryjne, długie OK na kafelku w STube).")
+
+        header("Zaawansowane (własny klient Google)")
+        fun mask(s: String) = if (s.isBlank()) "wbudowany / brak" else s.take(6) + "…" + s.takeLast(4)
+        row("Identyfikator klienta OAuth", mask(Prefs.ytClientId), key = "yt|cid") {
+            Dialogs.input(this, "Identyfikator klienta OAuth", Prefs.ytClientId, "….apps.googleusercontent.com") { Prefs.ytClientId = it; build(keepFocus = true) }
+        }
+        row("Klucz klienta (client secret)", mask(Prefs.ytClientSecret), key = "yt|secret") {
+            Dialogs.input(this, "Klucz klienta (client secret)", Prefs.ytClientSecret, "GOCSPX-…") { Prefs.ytClientSecret = it; build(keepFocus = true) }
+        }
+        row("Klucz API (trendy bez logowania)", mask(Prefs.ytApiKey), key = "yt|key") {
+            Dialogs.input(this, "Klucz API YouTube Data v3", Prefs.ytApiKey, "AIza…") { Prefs.ytApiKey = it; R.clearCache(); build(keepFocus = true) }
+        }
+        note("Google Cloud Console → włącz YouTube Data API v3 → Dane logowania → Identyfikator klienta OAuth typu " +
+            "„Telewizory i urządzenia z ograniczonym wejściem”. Puste pola = wartości wbudowane w aplikację.")
     }
 
     // ================= Wyniki =================
@@ -1526,7 +1605,10 @@ class SettingsActivity : BaseActivity() {
         private const val REQ_BACKUP_EXPORT = 13; private const val REQ_BACKUP_IMPORT = 14; private const val REQ_SEND_FILE = 15
         private const val REQ_APK_INSTALL = 16; private const val REQ_APK_SEND = 17
         val TAB_NAMES = listOf("Listy", "Wygląd", "Menu i kanały", "Odtwarzanie", "Program TV", "Archiwum (catch-up)", "Kontrola rodzicielska",
-            "Nagrywanie", "Wyniki i pogoda", "Pilot", "System")
+            "Nagrywanie", "Wyniki i pogoda", "Pilot", "System", "Konto YouTube")
+        /** Karta „Konto / Logowanie YouTube” (ostatnia – numery wcześniejszych kart bez zmian). */
+        val YOUTUBE_TAB = 11
+        val YT_REGIONS = listOf("PL", "DE", "GB", "US", "UA", "CZ", "SK", "LT")
         val PARENTAL_TAB = 6
         val MAIN_LAYOUTS = listOf("Klasyczny (kanały | podgląd i program)", "Podgląd na środku (kanały | podgląd | program)", "Duży podgląd", "Szeroka lista kanałów", "Karty poziome (konsola)")
     }

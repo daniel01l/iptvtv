@@ -28,8 +28,8 @@ class V52Test {
         // przełączenie kanału anuluje ponowienie poprzedniego (nie „wskoczy” w nowy kanał)
         Playback.play(ctx, ch(2), ch(2).url)
         assertFalse(Playback.retryPending)
-        // błąd dostawcy: 2 próby, potem komunikat i zwolnienie dekoderów
-        repeat(3) { Playback.simulateError(PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS) }
+        // błąd dostawcy: SOURCE_RETRIES prób (dostawca zwalnia miejsce z opóźnieniem), potem komunikat i zwolnienie dekoderów
+        repeat(Playback.SOURCE_RETRIES + 1) { Playback.simulateError(PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS) }
         assertEquals(1, fatal)
         assertEquals(androidx.media3.common.Player.STATE_IDLE, Playback.player!!.playbackState)
         // ten sam adres po błędzie uruchamia się od nowa (nie zostaje „martwy”)

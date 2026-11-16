@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -10,8 +12,14 @@ android {
         applicationId = "pl.iptv.tv"
         minSdk = 21
         targetSdk = 34
-        versionCode = 54
-        versionName = "6.1"
+        versionCode = 55
+        versionName = "6.2"
+        // konto YouTube (OAuth 2.0 Device Flow): klient typu „TV i urządzenia z ograniczonym wejściem” z Google Cloud Console.
+        // Plik keystore/youtube_oauth.properties (poza repozytorium): client_id=…, client_secret=…, api_key=… (klucz – trendy bez logowania).
+        val yt = Properties().apply { rootProject.file("keystore/youtube_oauth.properties").takeIf { it.exists() }?.reader()?.use { load(it) } }
+        buildConfigField("String", "YT_CLIENT_ID", "\"${yt.getProperty("client_id", "").trim()}\"")
+        buildConfigField("String", "YT_CLIENT_SECRET", "\"${yt.getProperty("client_secret", "").trim()}\"")
+        buildConfigField("String", "YT_API_KEY", "\"${yt.getProperty("api_key", "").trim()}\"")
     }
     signingConfigs {
         create("iptvtv") {
@@ -65,6 +73,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // ekstraktor YouTube używa java.time / java.nio z nowszych Androidów – desugaring dla minSdk 21
+        isCoreLibraryDesugaringEnabled = true
     }
     kotlinOptions { jvmTarget = "17" }
     testOptions { unitTests.isIncludeAndroidResources = true
@@ -93,6 +103,11 @@ dependencies {
     implementation("androidx.media3:media3-datasource-okhttp:$media3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.coil-kt:coil:2.7.0")
+    // tokeny konta YouTube szyfrowane kluczem z Android Keystore (1.1.0-alpha06: minSdk 21)
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    // STube: wbudowany odtwarzacz – adresy strumieni YouTube bez reklam (licencja GPLv3)
+    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.27.1")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.5")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("net.sf.kxml:kxml2:2.3.0")

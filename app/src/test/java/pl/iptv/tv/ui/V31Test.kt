@@ -41,7 +41,7 @@ class V31Test {
     }
 
     @Test fun settingsNewOrderAndContent() {
-        assertEquals(listOf("Listy", "Wygląd", "Menu i kanały", "Odtwarzanie", "Program TV", "Archiwum (catch-up)", "Kontrola rodzicielska", "Nagrywanie", "Wyniki i pogoda", "Pilot", "System"), SettingsActivity.TAB_NAMES)
+        assertEquals(listOf("Listy", "Wygląd", "Menu i kanały", "Odtwarzanie", "Program TV", "Archiwum (catch-up)", "Kontrola rodzicielska", "Nagrywanie", "Wyniki i pogoda", "Pilot", "System", "Konto YouTube"), SettingsActivity.TAB_NAMES)
         val c = Robolectric.buildActivity(SettingsActivity::class.java).setup(); idle()
         val a = c.get()
         texts(a).let { t ->

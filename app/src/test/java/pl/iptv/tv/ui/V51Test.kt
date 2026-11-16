@@ -50,7 +50,7 @@ class V51Test {
 
     @Test fun settingsStructure() {
         assertEquals(listOf("Listy", "Wygląd", "Menu i kanały", "Odtwarzanie", "Program TV", "Archiwum (catch-up)", "Kontrola rodzicielska",
-            "Nagrywanie", "Wyniki i pogoda", "Pilot", "System"), SettingsActivity.TAB_NAMES)
+            "Nagrywanie", "Wyniki i pogoda", "Pilot", "System", "Konto YouTube"), SettingsActivity.TAB_NAMES)
         fun headers(tab: Int): List<String> {
             val c = Robolectric.buildActivity(SettingsActivity::class.java, Intent().putExtra("tab", tab)).setup(); idle()
             val h = all(c.get().window.decorView).filterIsInstance<TextView>().map { it.text.toString() }.filter { it.startsWith("▸") || it.startsWith("▾") }.map { it.drop(3) }

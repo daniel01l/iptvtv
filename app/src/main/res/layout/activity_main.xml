@@ -40,6 +40,7 @@
                 android:orientation="vertical" android:layout_marginEnd="10dp" android:tag="panel" android:padding="6dp">
                 <TextView android:id="@+id/btnEpgSearch" style="@style/SideBtn" android:text="Program"/>
                 <TextView android:id="@+id/btnSearch" style="@style/SideBtn" android:text="Kanały"/>
+                <TextView android:id="@+id/btnSTube" style="@style/SideBtn" android:text="STube"/>
                 <TextView android:id="@+id/btnEditor" style="@style/SideBtn" android:text="Edytor"/>
                 <TextView android:id="@+id/btnSettings" style="@style/SideBtn" android:text="Ustawienia"/>
                 <TextView android:id="@+id/btnApps" style="@style/SideBtn" android:text="Aplikacje" android:visibility="gone"/>
