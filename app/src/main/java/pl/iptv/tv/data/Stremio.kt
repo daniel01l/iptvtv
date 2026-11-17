@@ -174,8 +174,8 @@ data class StremioSourceGroup(val addon: StremioAddon, val streams: List<Stremio
 
 /** Czyste funkcje: jakość, HDR, języki i rozmiar z opisu źródła, limit na wtyczkę, wybór źródła następnego odcinka. */
 object StremioStreams {
-    /** Najwięcej źródeł z jednej wtyczki. */
-    const val PER_ADDON = 5
+    /** Najwięcej źródeł jednej wtyczki w każdej rozdzielczości. */
+    const val PER_ADDON = 5   // na każdą rozdzielczość (6.6)
 
     fun quality(t: String): String {
         val s = t.lowercase()
@@ -226,8 +226,28 @@ object StremioStreams {
 
     fun formatSize(b: Long): String = if (b >= 1e9) String.format(java.util.Locale.US, "%.1f GB", b / 1e9) else String.format(java.util.Locale.US, "%d MB", (b / 1e6).toLong())
 
-    /** Najwyżej [n] źródeł wtyczki (w kolejności wtyczki – sama sortuje wg jakości / popularności). */
-    fun limit(l: List<StremioStream>, n: Int = PER_ADDON) = l.take(n)
+    /** Kolejność rozdzielczości na liście źródeł (od najwyższej; nieokreślona i CAM na końcu). */
+    val QUALITY_ORDER = listOf("4K", "1440p", "1080p", "720p", "480p", "", "CAM")
+
+    /** Polska wersja: 0 – dubbing / lektor, 1 – napisy PL / flaga / „PL”, 2 – brak. */
+    fun polishRank(s: StremioStream): Int {
+        val l = s.languages
+        return when {
+            "Dubbing PL" in l || "Lektor PL" in l -> 0
+            "Napisy PL" in l || "🇵🇱" in l || "PL" in l || s.subtitles.any { it.lang.lowercase().let { x -> x == "pl" || x == "pol" } } -> 1
+            else -> 2
+        }
+    }
+
+    /**
+     * Źródła wtyczki: najwyżej [n] z KAŻDEJ rozdzielczości (4K, 1440p, 1080p, 720p, 480p, nieokreślona, CAM), w każdej najpierw
+     * polska wersja (dubbing / lektor, potem napisy PL), dalej kolejność wtyczki (sama sortuje wg jakości / popularności).
+     */
+    fun limit(l: List<StremioStream>, n: Int = PER_ADDON): List<StremioStream> {
+        val byQ = l.groupBy { it.quality }
+        return QUALITY_ORDER.flatMap { q -> byQ[q].orEmpty().sortedBy { polishRank(it) }.take(n) } +
+            byQ.filterKeys { it !in QUALITY_ORDER }.values.flatMap { g -> g.sortedBy { polishRank(it) }.take(n) }
+    }
 
     /**
      * Źródło następnego odcinka z tej samej wtyczki: ta sama grupa (bingeGroup, jak w Stremio), potem ta sama jakość,

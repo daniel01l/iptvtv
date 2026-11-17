@@ -83,7 +83,27 @@ object StremioDecoders {
     }
 
     fun player(c: Context, stage: Stage, sources: MediaSource.Factory): ExoPlayer =
-        ExoPlayer.Builder(c, renderersFactory(c, stage)).setTrackSelector(trackSelector(c)).setMediaSourceFactory(sources).build()
+        ExoPlayer.Builder(c, renderersFactory(c, stage)).setTrackSelector(trackSelector(c)).setMediaSourceFactory(sources)
+            .setLoadControl(loadControl()).build()
+
+    /** Bufor filmów Stremio (pliki z serwerów / debrid o zmiennej przepustowości). */
+    const val MIN_BUFFER_MS = 30_000
+    const val MAX_BUFFER_MS = 120_000
+    const val START_MS = 2_500
+    const val REBUFFER_MS = 8_000
+    const val BUFFER_BYTES = 160 * 1024 * 1024
+
+    /**
+     * Większy zapas niż domyślny (ok. 50 s): do 2 min lub 160 MB (limit pamięci na TV przy 4K), start po 2,5 s, a po przerwie
+     * wznowienie dopiero przy 8 s zapasu – chwilowe spadki przepustowości źródła nie zatrzymują obrazu co chwilę
+     * („czasem się zacina i za chwilę działa”). Ostatnie 10 s zostaje w pamięci (szybkie cofnięcie bez ponownego pobierania).
+     */
+    fun loadControl(): androidx.media3.exoplayer.DefaultLoadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
+        .setBufferDurationsMs(MIN_BUFFER_MS, MAX_BUFFER_MS, START_MS, REBUFFER_MS)
+        .setTargetBufferBytes(BUFFER_BYTES)
+        .setPrioritizeTimeOverSizeThresholds(false)
+        .setBackBuffer(10_000, true)
+        .build()
 
     /** Czytelny opis przyczyny dla okna na TV (kodek, którego nie udało się zdekodować). */
     fun describe(e: PlaybackException): String {
@@ -127,5 +147,28 @@ object StremioDecoders {
             .putExtra("return_result", false)
         if (headers.isNotEmpty()) view.putExtra("headers", headers.flatMap { listOf(it.key, it.value) }.toTypedArray())
         return view
+    }
+
+    // ---------------- język: polski dźwięk albo polskie napisy ----------------
+
+    /** Polska ścieżka: kod języka pl / pol / pl-PL albo opis („polski”, „lektor”, „dubbing PL”). */
+    fun isPolish(language: String?, label: String?): Boolean {
+        val l = language.orEmpty().lowercase()
+        if (l == "pl" || l == "pol" || l.startsWith("pl-") || l.startsWith("pl_")) return true
+        val t = " " + label.orEmpty().lowercase() + " "
+        return listOf("polsk", "polish", "lektor", " pl ", "[pl]", "(pl)", "dubbing pl").any { it in t }
+    }
+
+    /**
+     * Plan języka dla źródła ([audio] / [text] – (język, etykieta) ścieżek): jest polski dźwięk → ta ścieżka i napisy wyłączone;
+     * brak → napisy polskie: wbudowana polska ścieżka napisów ([LangPlan.embeddedText]) albo napisy z wtyczek ([LangPlan.addonSubs]).
+     */
+    data class LangPlan(val audio: Int?, val subsOff: Boolean, val embeddedText: Int?, val addonSubs: Boolean)
+
+    fun languagePlan(audio: List<Pair<String?, String?>>, text: List<Pair<String?, String?>>): LangPlan {
+        val pl = audio.indexOfFirst { (lang, label) -> isPolish(lang, label) }
+        if (pl >= 0) return LangPlan(pl, subsOff = true, embeddedText = null, addonSubs = false)
+        val t = text.indexOfFirst { (lang, label) -> isPolish(lang, label) }
+        return LangPlan(null, subsOff = false, embeddedText = t.takeIf { it >= 0 }, addonSubs = t < 0)
     }
 }

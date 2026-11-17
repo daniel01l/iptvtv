@@ -44,7 +44,16 @@ class StremioActivity : BaseActivity() {
     override val miniPlayer = true
 
     lateinit var rowsBox: LinearLayout; private set
-    private lateinit var scroll: ScrollView
+    private lateinit var scroll: RowsScroll
+
+    /**
+     * Przewijanie rzędów: na tablicy ([auto] = false) rząd zaznaczonego plakatu ustawiany jest zawsze u góry (onFocus),
+     * bez własnego przewijania ScrollView do zaznaczonego elementu (oba naraz – ucięty rząd i przeskakiwanie).
+     */
+    class RowsScroll(c: android.content.Context) : ScrollView(c) {
+        var auto = true
+        override fun computeScrollDeltaToGetChildRectOnScreen(rect: android.graphics.Rect): Int = if (auto) super.computeScrollDeltaToGetChildRectOnScreen(rect) else 0
+    }
     private lateinit var query: EditText
     private lateinit var searchBar: LinearLayout
     private lateinit var account: TextView
@@ -101,12 +110,13 @@ class StremioActivity : BaseActivity() {
         root.addView(header)
         // opis zaznaczonego tytułu (jak podgląd po najechaniu w Stremio)
         infoBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(Ui.dp(4), Ui.dp(10), Ui.dp(4), Ui.dp(4)); minimumHeight = Ui.dp(96) }
-        infoTitle = StremioUi.text(this, "", 22f, bold = true, lines = 1)
-        infoMeta = StremioUi.text(this, "", 14f, "accent", lines = 1)
-        infoDesc = StremioUi.text(this, "", 14f, "text2", lines = 3)
+        // stała wysokość opisu (dokładnie 1 + 1 + 3 linie): rzędy plakatów nie przeskakują przy krótszych / dłuższych opisach
+        infoTitle = StremioUi.text(this, "", 22f, bold = true, lines = 1).apply { setLines(1) }
+        infoMeta = StremioUi.text(this, "", 14f, "accent", lines = 1).apply { setLines(1) }
+        infoDesc = StremioUi.text(this, "", 14f, "text2", lines = 3).apply { setLines(3) }
         infoBox.addView(infoTitle); infoBox.addView(infoMeta); infoBox.addView(infoDesc)
         root.addView(infoBox)
-        scroll = ScrollView(this).apply { isFillViewport = true; isVerticalScrollBarEnabled = false }
+        scroll = RowsScroll(this).apply { isFillViewport = true; isVerticalScrollBarEnabled = false }
         rowsBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         scroll.addView(rowsBox)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -121,7 +131,7 @@ class StremioActivity : BaseActivity() {
     // ---------------- logowanie ----------------
 
     private fun showLogin() {
-        loginShown = true
+        loginShown = true; scroll.auto = true
         searchBar.visibility = View.GONE; infoBox.visibility = View.GONE
         account.text = "👤"
         rowsBox.removeAllViews(); rowTitles.clear()
@@ -258,7 +268,7 @@ class StremioActivity : BaseActivity() {
     // ---------------- tablica i wyszukiwanie ----------------
 
     private fun showBoard() {
-        loginShown = false; linkJob?.cancel(); linkJob = null; linkCode = null
+        loginShown = false; linkJob?.cancel(); linkJob = null; linkCode = null; scroll.auto = false
         searchBar.visibility = View.VISIBLE; infoBox.visibility = View.VISIBLE
         account.text = if (StremioAccount.loggedIn) "👤 " + StremioAccount.email.substringBefore('@') else "👤 Zaloguj"
         build(searchQuery)

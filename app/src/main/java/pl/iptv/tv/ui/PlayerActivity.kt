@@ -1548,7 +1548,8 @@ class PlayerActivity : BaseActivity() {
             name.text = (if (playing) "▶ " else "") + ch.name; logo.loadPicon(ch)
             val live = pl.iptv.tv.data.Scores.liveFor(ch)
             now.text = live ?: Repository.current(ch)?.let { "${Fmt.time(it.start)}  ${it.title}" } ?: ""
-            now.setTextColor(if (live != null) Ui.live else Ui.text2)
+            // kolor zależny od stanu: na zaznaczonym kafelku – kolor tekstu zaznaczenia (szary był nieczytelny na akcencie)
+            now.setTextColor(if (live != null) android.content.res.ColorStateList.valueOf(Ui.live) else Ui.textColors(Ui.text2))
             root.isActivated = playing
             root.setOnClickListener { zapHide.run(); if (ch.key != list[pos].key) zapTo(ch, zapGroupName) }
         }

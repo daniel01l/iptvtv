@@ -702,7 +702,17 @@ object Ui {
                 // rodzic przewijanej listy zostaje przycinający (lista nie może wychodzić na przyciski obok)
                 if (it !is RecyclerView && gp != null && !isScroller(gp) && (0 until gp.childCount).none { i -> isScroller(gp.getChildAt(i)) }) gp.clipChildren = false }
             item = true
-        } else if (inItem) v.isDuplicateParentStateEnabled = true
+        } else if (inItem && !v.isDuplicateParentStateEnabled) {
+            v.isDuplicateParentStateEnabled = true
+            // rodzic powiadamia dzieci o zmianie stanu (zaznaczenie) tylko, gdy dziecko z „duplicateParentState” zostało do niego
+            // DODANE – tu flaga ustawiana jest po dodaniu, więc tekst w zaznaczonym elemencie nie zmieniał koloru
+            // (np. szary podpis na niebieskim zaznaczeniu). Jedno ponowne dodanie dziecka – raz na rodzica – ustawia powiadamianie.
+            (v.parent as? ViewGroup)?.takeIf { it !is RecyclerView && it.getTag(R.id.ui_dup) == null }?.let { p ->
+                p.setTag(R.id.ui_dup, true)
+                val i = p.indexOfChild(v); val lp = v.layoutParams
+                if (i >= 0 && lp != null && !v.hasFocus()) { p.removeViewAt(i); p.addView(v, i, lp); v.refreshDrawableState() }
+            }
+        }
         if ("field" in tags) v.background = fieldBg()
         if (v is TextView) styleText(v, tags, item)
         // listy: miejsce na powiększenie zaznaczonego elementu (bez przycinania na brzegach)
@@ -763,6 +773,9 @@ object Ui {
             override fun setTitle(id: Int): androidx.appcompat.app.AlertDialog.Builder { title = c.getString(id); return super.setTitle(id) }
             override fun create(): androidx.appcompat.app.AlertDialog {
                 val d = super.create()
+                // treść i wygląd okna (ramka, położenie panelu, animacja, przyciski) gotowe PRZED pokazaniem – wcześniej styl
+                // nakładany był w onShow: system rysował najpierw zwykłe okno, a dopiero potem właściwe (dwa okna po sobie)
+                runCatching { d.create(); styleDialog(d) }
                 val key = dialogKey(c, title)
                 d.setOnShowListener {
                     // drugie takie samo okno – zamykane od razu (zostaje pierwsze)

@@ -103,6 +103,12 @@
 
 Kanał trafia do „ostatnio oglądanych” po co najmniej 1 minucie odtwarzania.
 
+**v6.6** (17.11.2026):
+- **Kolory w zaznaczonych elementach (wszystkie motywy)**: tekst na zaznaczonym kafelku / wierszu zmienia kolor na „tekst zaznaczenia” (wcześniej podpisy zostawały szare i były nieczytelne na akcencie – STube, Stremio, lista kanałów w odtwarzaczu, wyszukiwarka programów).
+- **Stremio**: stała wysokość opisu zaznaczonego tytułu (1 + 1 + 3 linie) i rząd plakatów ustawiany zawsze tak samo (bez przeskakiwania przy różnych długościach opisów i ucinania rzędu); **automatyczny język**: jest polska ścieżka dźwiękowa (lektor, dubbing) – włączona i napisy wyłączone; brak – polskie napisy (wbudowane w plik albo z wtyczek); ręczny wybór napisów wyłącza automat dla bieżącego źródła. **Źródła**: do 5 z każdej rozdzielczości (4K, 1440p, 1080p, 720p, 480p, nieokreślona, CAM – od najwyższej), w każdej na górze polska wersja (dubbing / lektor, potem napisy PL). **Mniej zacięć**: większy bufor odtwarzacza (do 2 min / 160 MB, po przerwie wznowienie przy 8 s zapasu).
+- **Okna**: wygląd okna (panel, ramka, przyciski, podpowiedzi) gotowy przed pokazaniem – bez mignięcia zwykłego okna przed właściwym.
+- **Pulpity X25 i PS5, biblioteka aplikacji**: płynne przewijanie rzędów – rząd przesuwa się tylko, gdy kafelek wychodzi poza ekran, łagodną animacją (wcześniej przeskakiwał przy każdym ruchu pilotem); logo kanałów bez napisu pod spodem (inicjały tylko, gdy logo się nie wczyta); obrazy dekodowane w rozmiarze kafelka (mniej pracy przy nawigacji).
+
 **v6.5** (17.11.2026):
 - **Motywy**: zostały Nowoczesny, Klasyczny dekoder, Xbox, X25 i PS5 (pozostałe → Nowoczesny); **PS5 domyślny** przy pierwszym uruchomieniu po instalacji (aktualizacja nie zmienia motywu).
 - **Tryb launchera w stylu konsoli**: HOME od razu otwiera pulpit X25 / ekran główny PS5 (także przy innych motywach), biblioteka aplikacji z ikonami i Ustawieniami systemu, „Live TV” z pulpitu otwiera listę kanałów bez powrotu na pulpit i bez akcji startowej (opis w sekcji Tryb launchera).

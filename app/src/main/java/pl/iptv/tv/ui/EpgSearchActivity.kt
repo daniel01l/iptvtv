@@ -224,7 +224,7 @@ class EpgSearchActivity : BaseActivity() {
             when {
                 p.isNow(now) -> { h.badge.text = "● NA ŻYWO"; h.badge.setTextColor(Ui.live) }
                 p.end <= now && Repository.isInArchive(ch, p, now) -> { h.badge.text = "⟲ archiwum"; h.badge.setTextColor(Ui.archive) }
-                p.end <= now -> { h.badge.text = "minął"; h.badge.setTextColor(Ui.text2) }
+                p.end <= now -> { h.badge.text = "minął"; h.badge.setTextColor(Ui.textColors(Ui.text2)) }
                 Reminders.isSet(ch, p) -> { h.badge.text = "🔔"; h.badge.setTextColor(Ui.accent) }
                 else -> h.badge.text = ""
             }

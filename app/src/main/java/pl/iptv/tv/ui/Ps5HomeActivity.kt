@@ -149,7 +149,7 @@ class Ps5HomeActivity : BaseActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) { override fun handleOnBackPressed() = onBack() })
-        setContent { PS5ThemeProvider { Home() } }
+        setContent { PS5ThemeProvider { SmoothScrolling { Home() } } }
         pendingFocus = "a:" + apps().first().key
         lifecycleScope.launch {
             if (!StubeHistory.cacheLoaded) runCatching { StubeHistory.loadCache() }
@@ -496,11 +496,11 @@ class Ps5HomeActivity : BaseActivity() {
             when {
                 // ikona aplikacji z urządzenia
                 a.bitmap != null -> androidx.compose.foundation.Image(a.bitmap, a.title, Modifier.fillMaxSize().padding(dims.tile * 0.16f), contentScale = ContentScale.Fit)
-                a.image.isNotBlank() && a.icon == X25Action.CHANNEL -> {
-                    BasicText(initials(a.title), Modifier.align(Alignment.Center), style = Ps5Type.title.copy(color = c.text2))
-                    coil.compose.AsyncImage(a.image, null, Modifier.fillMaxSize().padding(10.dp), contentScale = ContentScale.Fit)
-                }
-                a.image.isNotBlank() -> coil.compose.AsyncImage(a.image, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                // logo kanału (inicjały tylko, gdy logo się nie wczyta)
+                a.icon == X25Action.CHANNEL -> TileImage(a.image, initials(a.title), Modifier.fillMaxSize().padding(10.dp), ContentScale.Fit,
+                    Ps5Type.title.copy(color = c.text2), sizePx = Ui.dp(dims.tile.value.toInt()))
+                a.image.isNotBlank() -> TileImage(a.image, initials(a.title), Modifier.fillMaxSize(), ContentScale.Crop,
+                    Ps5Type.title.copy(color = c.text2), sizePx = Ui.dp(dims.tile.value.toInt()))
                 else -> Canvas(Modifier.fillMaxSize().padding(dims.tile * 0.26f)) { X25Icons.draw(this, a.icon, Color.White) }
             }
         }
@@ -508,7 +508,7 @@ class Ps5HomeActivity : BaseActivity() {
 
     private fun lerpC(a: Color, b: Color, f: Float) = androidx.compose.ui.graphics.lerp(a, b, f).copy(alpha = 1f)
 
-    private fun initials(s: String) = s.split(' ').filter { it.isNotBlank() }.take(2).joinToString("") { it.take(1) }.uppercase()
+    private fun initials(s: String) = initialsOf(s)
 
     /** Nazwa zaznaczonego kafelka pod rzędem (jak „Witamy” na konsoli). */
     @Composable
@@ -529,7 +529,7 @@ class Ps5HomeActivity : BaseActivity() {
         val g = dims.gap
         val tallH = dims.bigH - dims.smallH - g
         // na TV Compose domyślnie trzyma zaznaczony element w ~30% szerokości – karty przewijają się tylko, gdy wychodzą poza ekran
-        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides MinimalScroll) {
+        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides SmoothScroll) {
         LazyRow(Modifier.fillMaxWidth().rowEntry("c:").focusGroup(), contentPadding = PaddingValues(horizontal = dims.side, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(g)) {
             item(key = "hero") { HeroCard() }
@@ -561,19 +561,6 @@ class Ps5HomeActivity : BaseActivity() {
         }
     }
 
-    /** Przewijanie do zaznaczonego elementu tylko o tyle, ile wystaje poza widok (z marginesem na obwódkę). */
-    @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-    private val MinimalScroll = object : androidx.compose.foundation.gestures.BringIntoViewSpec {
-        override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
-            val margin = Ui.dp(24).toFloat()
-            val end = offset + size
-            return when {
-                offset >= 0f && end <= containerSize -> 0f
-                size + 2 * margin >= containerSize || offset < 0f -> offset - margin
-                else -> end - containerSize + margin
-            }
-        }
-    }
 
     /** Wyszukiwanie z ekranu głównego: okno z polem tekstowym, wynik w STube / Stremio (istniejące ekrany wyszukiwania). */
     private fun searchIn(stube: Boolean) {
@@ -649,8 +636,7 @@ class Ps5HomeActivity : BaseActivity() {
             Box(Modifier.size(ww, hh)
                 .ps5Item(key, 8.dp, 1.06f, onFocus = { onFocused(key, title, sub) }, onClick = onClick)
                 .clip(RoundedCornerShape(8.dp)).background(Color(0xFF1A2754))) {
-                if (image.isNotBlank()) coil.compose.AsyncImage(image, title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                else BasicText(initials(title), Modifier.align(Alignment.Center), style = Ps5Type.title.copy(color = c.text2))
+                TileImage(image, initials(title), Modifier.fillMaxSize(), ContentScale.Crop, Ps5Type.title.copy(color = c.text2), sizePx = Ui.dp(120))
                 Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(fraction.coerceIn(0f, 1f)).height(3.dp).background(c.glow))
             }
         }
@@ -689,9 +675,8 @@ class Ps5HomeActivity : BaseActivity() {
                         style = Ps5Type.small.copy(color = c.text2), maxLines = 2)
                 }
             } else {
-                if (h.image.isNotBlank()) coil.compose.AsyncImage(h.image, null, if (h.logo) Modifier.fillMaxSize().padding(36.dp) else Modifier.fillMaxSize(),
-                    contentScale = if (h.logo) ContentScale.Fit else ContentScale.Crop)
-                else BasicText(initials(h.title), Modifier.align(Alignment.Center), style = Ps5Type.display.copy(color = c.text2))
+                TileImage(h.image, initials(h.title), if (h.logo) Modifier.fillMaxSize().padding(36.dp) else Modifier.fillMaxSize(),
+                    if (h.logo) ContentScale.Fit else ContentScale.Crop, Ps5Type.display.copy(color = c.text2), sizePx = Ui.dp(dims.heroW.value.toInt()))
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.45f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.85f))))
                 CardHeader(if (tab == 0) X25Action.LIVE else X25Icons.PLAY, "Ostatnio odtwarzane", Modifier.padding(14.dp))
                 Column(Modifier.align(Alignment.BottomStart).padding(14.dp)) {
@@ -776,7 +761,7 @@ class Ps5HomeActivity : BaseActivity() {
             return
         }
         CardFrame("c:q2", dims.midW, h, onClick = v.run, v.title, v.sub) {
-            if (v.image.isNotBlank()) coil.compose.AsyncImage(v.image, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            TileImage(v.image, "", Modifier.fillMaxSize(), ContentScale.Crop, Ps5Type.title, sizePx = Ui.dp(dims.midW.value.toInt()))
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.3f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.85f))))
             CardHeader(X25Icons.PLAY, "Kontynuuj", Modifier.padding(12.dp))
             Column(Modifier.align(Alignment.BottomStart).padding(12.dp)) {

@@ -82,7 +82,7 @@ class AppLibraryActivity : BaseActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { PS5ThemeProvider { Library() } }
+        setContent { PS5ThemeProvider { SmoothScrolling { Library() } } }
     }
 
     override fun onResume() {

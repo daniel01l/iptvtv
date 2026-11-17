@@ -150,7 +150,7 @@ class X25DashboardActivity : BaseActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) { override fun handleOnBackPressed() = onBack() })
-        setContent { X25ThemeProvider { Dashboard() } }
+        setContent { X25ThemeProvider { SmoothScrolling { Dashboard() } } }
         lifecycleScope.launch {
             if (!StubeHistory.cacheLoaded) runCatching { StubeHistory.loadCache() }
             tiles = X25Store.load(); loaded = true
@@ -556,20 +556,18 @@ class X25DashboardActivity : BaseActivity() {
             .clip(RoundedCornerShape(10.dp))
             .background(Brush.verticalGradient(listOf(c.panel.copy(alpha = 0.92f), Color.Black.copy(alpha = 0.85f))))) {
             when (r) {
-                is X25Recent.Ch -> {
-                    BasicText(r.c.name.split(' ').filter { it.isNotBlank() }.take(2).joinToString("") { it.take(1) }.uppercase(),
-                        Modifier.align(Alignment.Center), style = X25Type.hero.copy(fontSize = 26.sp, color = c.text2))
-                    if (r.c.logo.isNotBlank()) coil.compose.AsyncImage(r.c.logo, null, Modifier.fillMaxSize().padding(16.dp), contentScale = ContentScale.Fit)
-                }
+                // logo kanału; inicjały tylko, gdy logo się nie wczyta (wcześniej zawsze pod logo – prześwitywały)
+                is X25Recent.Ch -> TileImage(r.c.logo, initialsOf(r.c.name), Modifier.fillMaxSize().padding(16.dp), ContentScale.Fit,
+                    X25Type.hero.copy(fontSize = 26.sp, color = c.text2), sizePx = Ui.dp(dims.recent.value.toInt()))
                 is X25Recent.Vid -> {
-                    if (r.p.thumb.isNotBlank()) coil.compose.AsyncImage(r.p.thumb, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    if (r.p.thumb.isNotBlank()) TileImage(r.p.thumb, "", Modifier.fillMaxSize(), ContentScale.Crop, X25Type.title, sizePx = Ui.dp(dims.recent.value.toInt()))
                     else Canvas(Modifier.size(40.dp).align(Alignment.Center)) { X25Icons.draw(this, X25Icons.PLAY, c.text2) }
                     // pasek obejrzenia (jak na kafelkach STube)
                     Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(r.p.fraction.coerceIn(0f, 1f)).height(3.dp).background(c.accent))
                 }
                 is X25Recent.St -> {
-                    BasicText(r.p.name.take(1).uppercase(), Modifier.align(Alignment.Center), style = X25Type.hero.copy(fontSize = 26.sp, color = c.text2))
-                    if (r.p.poster.isNotBlank()) coil.compose.AsyncImage(r.p.poster, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    TileImage(r.p.poster, r.p.name.take(1).uppercase(), Modifier.fillMaxSize(), ContentScale.Crop,
+                        X25Type.hero.copy(fontSize = 26.sp, color = c.text2), sizePx = Ui.dp(dims.recent.value.toInt()))
                     Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(r.p.fraction).height(3.dp).background(c.accent))
                 }
             }

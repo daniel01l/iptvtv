@@ -35,7 +35,7 @@ sealed class SourceItem { data class Header(val g: StremioSourceGroup) : SourceI
 
 /**
  * Szczegóły filmu / serialu jak w Stremio: plakat, opis, sezony i odcinki, a po prawej źródła – zapytanie wyłącznie do włączonych
- * wtyczek ze źródłami, najwyżej [StremioStreams.PER_ADDON] źródeł na wtyczkę, pogrupowane według nazwy wtyczki
+ * wtyczek ze źródłami, najwyżej [StremioStreams.PER_ADDON] źródeł na wtyczkę z każdej rozdzielczości (polska wersja na górze), pogrupowane według nazwy wtyczki
  * (jakość, HDR, język, rozmiar).
  */
 class StremioDetailActivity : BaseActivity() {
@@ -183,7 +183,7 @@ class StremioDetailActivity : BaseActivity() {
         loadSources()
     }
 
-    /** Źródła z włączonych wtyczek (równolegle), po [StremioStreams.PER_ADDON] na wtyczkę. */
+    /** Źródła z włączonych wtyczek (równolegle), po [StremioStreams.PER_ADDON] na wtyczkę z każdej rozdzielczości. */
     fun loadSources() {
         sourcesJob?.cancel()
         val vid = videoId

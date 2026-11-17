@@ -1,6 +1,6 @@
 {
-  "versionCode": 58,
-  "versionName": "6.5",
+  "versionCode": 59,
+  "versionName": "6.6",
   "apk": "D-iptv-Player.apk",
-  "notes": "Nowy motyw PS5 (domyslny przy nowej instalacji): ekran glowny z zakladkami, rzad aplikacji, karty STube i Stremio z wyszukiwarka, dodawanie aplikacji z urzadzenia, menu w stylu ustawien konsoli, podpowiedzi przyciskow wg pilota/pada; tryb launchera w stylu konsoli z biblioteka aplikacji; plynniejszy motyw X25; mecze reprezentacji w programie TV na polskich stacjach; Stremio: logowanie kodem QR i lepsza obsluga dekoderow; zostaly motywy Nowoczesny, Klasyczny, Xbox, X25 i PS5"
+  "notes": "Stremio: do 5 zrodel z kazdej rozdzielczosci z polska wersja (lektor/dubbing/napisy) na gorze, automatycznie polski dzwiek albo polskie napisy, wiekszy bufor - mniej zaciec, staly opis bez przeskakiwania; czytelny tekst na zaznaczonych kafelkach we wszystkich motywach; plynne przewijanie pulpitow X25 i PS5; okna bez migniecia; logo kanalow bez napisu pod spodem"
 }

@@ -262,10 +262,11 @@ class StremioTest {
         waitFor { a.groups.isNotEmpty() && a.groups.none { it.loading } }
         assertEquals("tt2:1:1", a.videoId)
         assertEquals(listOf("Źródła a"), a.groups.map { it.addon.name })
-        assertEquals(5, a.groups[0].streams.size); assertEquals(8, a.groups[0].total)
+        // 1 × 4K + 7 × 1080p → po 5 z każdej rozdzielczości (6.6): 1 + 5
+        assertEquals(6, a.groups[0].streams.size); assertEquals(8, a.groups[0].total)
         assertTrue(paths.any { it.startsWith("/a/stream/series/tt2%3A1%3A1") || it.startsWith("/a/stream/series/tt2:1:1") })
         assertFalse(paths.any { it.startsWith("/b/stream") })      // wyłączona wtyczka nie jest pytana
-        assertEquals(5, a.sourceAdapter.sourceItems.size)
+        assertEquals(6, a.sourceAdapter.sourceItems.size)
         // odcinek 2 – nowe źródła
         a.selectEpisode(a.meta!!.episodes(1)[1])
         waitFor { a.videoId == "tt2:1:2" && a.groups.none { it.loading } }

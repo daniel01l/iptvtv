@@ -3,6 +3,8 @@ package pl.iptv.tv.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
@@ -88,6 +90,58 @@ fun DrawScope.ps5Switch(on: Boolean, accent: Color) {
     drawRoundRect(if (on) accent else Color.White.copy(alpha = 0.22f), cornerRadius = CornerRadius(rad))
     drawCircle(if (on) Color.White else Color.White.copy(alpha = 0.78f), rad - 3.dp.toPx(), Offset(if (on) size.width - rad else rad, h / 2))
 }
+
+/**
+ * Obraz (logo kanału, miniatura, plakat) z zastępczym tekstem: inicjały / nazwa tylko, gdy adresu brak albo obrazu nie udało się
+ * wczytać – nie pod spodem (wcześniej prześwitywały przez przezroczyste logo). Dekodowanie w rozmiarze kafelka ([sizePx]),
+ * bez przenikania – mniej pracy przy przewijaniu rzędów.
+ */
+@Composable
+fun TileImage(url: String, fallback: String, modifier: Modifier, contentScale: androidx.compose.ui.layout.ContentScale,
+              fallbackStyle: TextStyle, sizePx: Int = 0) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var failed by androidx.compose.runtime.remember(url) { androidx.compose.runtime.mutableStateOf(url.isBlank()) }
+    androidx.compose.foundation.layout.Box(modifier, contentAlignment = androidx.compose.ui.Alignment.Center) {
+        if (failed) androidx.compose.foundation.text.BasicText(fallback, style = fallbackStyle, maxLines = 2,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        else {
+            val req = androidx.compose.runtime.remember(url, sizePx) {
+                coil.request.ImageRequest.Builder(ctx).data(url).crossfade(false).apply { if (sizePx > 0) size(sizePx) }.build()
+            }
+            coil.compose.AsyncImage(req, null, androidx.compose.ui.Modifier.matchParentSize(), contentScale = contentScale, onError = { failed = true })
+        }
+    }
+}
+
+/**
+ * Płynne przewijanie list na pulpitach (X25, PS5, biblioteka aplikacji). Domyślnie na TV Compose trzyma zaznaczony element
+ * w ~30% szerokości – każdy ruch pilotem przesuwał cały rząd („przeskakiwanie”). Tu lista przesuwa się tylko o tyle,
+ * ile element wystaje poza widok (z marginesem na obwódkę), łagodną animacją.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+object SmoothScroll : androidx.compose.foundation.gestures.BringIntoViewSpec {
+    override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> =
+        androidx.compose.animation.core.tween(240, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+        val margin = Ui.dp(28).toFloat()
+        val end = offset + size
+        return when {
+            offset >= margin && end <= containerSize - margin -> 0f
+            size + 2 * margin >= containerSize || offset < margin -> offset - margin
+            else -> end - containerSize + margin
+        }
+    }
+}
+
+/** Pulpit z płynnym przewijaniem list ([SmoothScroll]). */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+fun SmoothScrolling(content: @Composable () -> Unit) =
+    CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides SmoothScroll, content = content)
+
+/** Inicjały nazwy (np. kanału) – zastępstwo logo. */
+fun initialsOf(s: String) = s.split(' ').filter { it.isNotBlank() }.take(2).joinToString("") { it.take(1) }.uppercase()
 
 /** Pozycja panelu opcji PS5 ([switch] = przełącznik po prawej, null – zwykła pozycja). */
 class Ps5Option(val label: String, val sub: String = "", val switch: Boolean? = null, val action: () -> Unit)

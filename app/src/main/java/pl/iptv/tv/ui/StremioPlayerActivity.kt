@@ -166,7 +166,7 @@ class StremioPlayerActivity : AppCompatActivity() {
         releasePlayer()
         titleView.text = intent.getStringExtra(EXTRA_NAME).orEmpty() + (if (label.isNotBlank()) "  ·  $label" else "")
         externalSub = null; lines = emptyList(); addonSubs = stream.subtitles; subView.setCues(emptyList())
-        audioWarned = false
+        audioWarned = false; langApplied = false; langManual = false; polishAudio = null; subsOff = false
         val http = OkHttpDataSource.Factory(Repository.http).setDefaultRequestProperties(stream.headers)
         val p = StremioDecoders.player(this, decoderStage, DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http)))
         player = p
@@ -184,7 +184,7 @@ class StremioPlayerActivity : AppCompatActivity() {
                 val pos = p.currentPosition
                 handler.post { if (player === p) onError(error, pos) }
             }
-            override fun onTracksChanged(tracks: androidx.media3.common.Tracks) { warnUnsupportedAudio(tracks) }
+            override fun onTracksChanged(tracks: androidx.media3.common.Tracks) { warnUnsupportedAudio(tracks); autoLanguage(p, tracks) }
         })
         if (atMs > 0) p.seekTo(atMs)
         p.prepare(); p.playWhenReady = true
@@ -290,12 +290,42 @@ class StremioPlayerActivity : AppCompatActivity() {
 
     // ---------------- napisy ----------------
 
+    /** Plan języka zastosowany dla bieżącego źródła / użytkownik sam wybrał napisy (bez automatu) / jest polski dźwięk. */
+    private var langApplied = false
+    private var langManual = false
+    var polishAudio: Boolean? = null; private set
+
+    /**
+     * Automatycznie (raz na źródło, do pierwszego ręcznego wyboru napisów): jest polska ścieżka dźwiękowa – włączona i napisy
+     * wyłączone; brak – polskie napisy (wbudowane w plik albo z wtyczek, np. OpenSubtitles).
+     */
+    private fun autoLanguage(p: androidx.media3.common.Player, tracks: androidx.media3.common.Tracks) {
+        if (langApplied || langManual || player !== p) return
+        val audio = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+        if (audio.isEmpty()) return
+        val text = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+        fun info(g: androidx.media3.common.Tracks.Group) = g.mediaTrackGroup.getFormat(0).let { it.language to it.label }
+        val plan = StremioDecoders.languagePlan(audio.map(::info), text.map(::info))
+        langApplied = true; polishAudio = plan.audio != null
+        val b = p.trackSelectionParameters.buildUpon()
+        plan.audio?.let { i -> audio[i].takeIf { !it.isSelected && it.isTrackSupported(0) }?.let { b.setOverrideForType(TrackSelectionOverride(it.mediaTrackGroup, 0)) } }
+        if (plan.subsOff) {
+            subsOff = true; externalSub = null; lines = emptyList(); subView.setCues(emptyList())
+            b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+        } else plan.embeddedText?.let { i ->
+            subsOff = false; externalSub = null; lines = emptyList()
+            b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).setOverrideForType(TrackSelectionOverride(text[i].mediaTrackGroup, 0))
+        }
+        p.trackSelectionParameters = b.build()
+        if (plan.addonSubs && externalSub == null) addonSubs.firstOrNull { StremioDecoders.isPolish(it.lang, null) }?.let { selectExternal(it, quiet = true) }
+    }
+
     private suspend fun loadAddonSubs() {
         val addons = StremioStore.enabledAddons().filter { it.supports("subtitles", type, videoId) }
         val got = addons.flatMap { a -> runCatching { StremioApi.subtitles(a, type, videoId, stream.filename, stream.videoSize) }.getOrDefault(emptyList()) }
         addonSubs = (stream.subtitles + got).distinctBy { it.url }
-        // preferowany język (domyślnie polski) – od razu, gdy plik nie ma własnych napisów w tym języku
-        if (externalSub == null && !subsOff) addonSubs.firstOrNull { it.lang.lowercase().startsWith(Prefs.stremioSubLang.take(2)) }?.let { s ->
+        // preferowany język (domyślnie polski) – od razu, gdy plik nie ma własnych napisów w tym języku ani polskiego dźwięku
+        if (externalSub == null && !subsOff && polishAudio != true && !langManual) addonSubs.firstOrNull { it.lang.lowercase().startsWith(Prefs.stremioSubLang.take(2)) }?.let { s ->
             val embedded = player?.currentTracks?.groups?.any { it.type == C.TRACK_TYPE_TEXT && (it.mediaTrackGroup.getFormat(0).language ?: "").startsWith(Prefs.stremioSubLang.take(2)) } == true
             if (!embedded) selectExternal(s, quiet = true)
         }
@@ -316,19 +346,19 @@ class StremioPlayerActivity : AppCompatActivity() {
         val p = player ?: return
         val embedded = p.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
         val items = mutableListOf<Pair<String, () -> Unit>>()
-        items += (if (subsOff) "✔ " else "") + "Wyłączone" to { subsOff = true; externalSub = null; subView.setCues(emptyList())
+        items += (if (subsOff) "✔ " else "") + "Wyłączone" to { langManual = true; subsOff = true; externalSub = null; subView.setCues(emptyList())
             p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() }
         embedded.forEachIndexed { i, g ->
             val f = g.mediaTrackGroup.getFormat(0)
             val sel = externalSub == null && !subsOff && g.isSelected
             items += (if (sel) "✔ " else "") + "Wbudowane: " + (f.label ?: f.language?.let { StremioSubs.langName(it) } ?: "ścieżka ${i + 1}") to {
-                subsOff = false; externalSub = null; lines = emptyList()
+                langManual = true; subsOff = false; externalSub = null; lines = emptyList()
                 p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
                     .setOverrideForType(TrackSelectionOverride(g.mediaTrackGroup, 0)).build()
             }
         }
         addonSubs.sortedWith(compareBy({ !it.lang.startsWith(Prefs.stremioSubLang.take(2)) }, { it.lang })).forEach { s ->
-            items += (if (externalSub?.url == s.url) "✔ " else "") + "${StremioSubs.langName(s.lang)}  ·  ${s.addon}" to { selectExternal(s) }
+            items += (if (externalSub?.url == s.url) "✔ " else "") + "${StremioSubs.langName(s.lang)}  ·  ${s.addon}" to { langManual = true; selectExternal(s) }
         }
         if (addonSubs.isEmpty() && embedded.isEmpty()) items += "Brak napisów (włącz wtyczkę napisów, np. OpenSubtitles)" to {}
         Dialogs.menu(this, "Napisy", items)
