@@ -128,14 +128,16 @@ interface WatchLaterDao {
     @Query("SELECT COUNT(*) FROM watch_later") suspend fun count(): Int
 }
 
-// v2: lista „Do obejrzenia później”, v3: kolejka odtwarzania – migracje automatyczne (schematy w app/schemas), dane zachowane
-@Database(entities = [SearchEntry::class, WatchProgress::class, WatchLater::class, QueueItem::class], version = 3, exportSchema = true,
-    autoMigrations = [androidx.room.AutoMigration(from = 1, to = 2), androidx.room.AutoMigration(from = 2, to = 3)])
+// v2: lista „Do obejrzenia później”, v3: kolejka odtwarzania, v4: kafelki pulpitu X25, v5: Stremio (wtyczki, postęp) – migracje automatyczne (schematy w app/schemas), dane zachowane
+@Database(entities = [SearchEntry::class, WatchProgress::class, WatchLater::class, QueueItem::class, DashTile::class, StremioAddonState::class, StremioProgress::class], version = 5, exportSchema = true,
+    autoMigrations = [androidx.room.AutoMigration(from = 1, to = 2), androidx.room.AutoMigration(from = 2, to = 3), androidx.room.AutoMigration(from = 3, to = 4), androidx.room.AutoMigration(from = 4, to = 5)])
 abstract class StubeDatabase : RoomDatabase() {
     abstract fun search(): SearchDao
     abstract fun progress(): ProgressDao
     abstract fun watchLater(): WatchLaterDao
     abstract fun queue(): QueueDao
+    abstract fun dash(): DashTileDao
+    abstract fun stremio(): StremioDao
 
     companion object {
         const val NAME = "stube.db"
@@ -256,6 +258,9 @@ object StubeHistory {
 
     /** Czy jest rozpoczęty, nieukończony film (rząd „Kontynuuj oglądanie”) – z pamięci, bez dostępu do bazy. */
     val hasUnfinished get() = enabled && cache.values.any { it.positionMs > 0 && !it.finished }
+
+    /** Liczba filmów w historii (w pamięci) – czy budować miksy. */
+    val historyCount get() = cache.size
 
     suspend fun progress(videoId: String): WatchProgress? =
         cache[videoId] ?: db()?.let { d -> withContext(Dispatchers.IO) { runCatching { d.progress().get(videoId) }.getOrNull() } }?.also { cache[videoId] = it }

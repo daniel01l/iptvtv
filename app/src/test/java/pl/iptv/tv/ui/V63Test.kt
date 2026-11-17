@@ -60,12 +60,12 @@ class V63Test {
         server.start()
         SponsorBlock.apiBase = server.url("/sb").toString().trimEnd('/')
         Prefs.permissionsAsked = true; Prefs.setupDone = true; Prefs.stubeResume = false; Prefs.stubeInternal = true
-        Prefs.stubeRemote = false; Prefs.stubePin = ""; Prefs.stubeTheme = 0; Prefs.stubeLayout = 0; Prefs.ytBackground = false
+        Prefs.stubeRemote = false; Prefs.stubePin = ""; Prefs.stubeTheme = 0; Prefs.stubeLayout = 0
         YtEqSession.factory = { YtEqSession(null as YtEqSession.Device?) }
     }
 
     @After fun tearDown() {
-        YtStreams.resolverOverride = null; YtEqSession.factory = null; YtBackground.stop(ctx)
+        YtStreams.resolverOverride = null; YtEqSession.factory = null; YtEngine.releasePlayer(); YtEngine.listeners.clear()
         StubeTheme.exit(); Prefs.stubeTheme = 0; Prefs.stubeLayout = 0; Prefs.stubeRemote = false
         server.shutdown(); StubeHistory.useDatabase(null); db.close()
     }
@@ -161,7 +161,7 @@ class V63Test {
     private fun player(related: List<YtVideo> = listOf(v("r1"), v("r2"))): YtPlayerActivity {
         YtStreams.resolverOverride = { YtPlayable.Muxed("Film", 300, YtCandidate(server.url("/v.mp4").toString(), 360), related = related) }
         val a = Robolectric.buildActivity(YtPlayerActivity::class.java, YtPlayerActivity.intent(ctx, "abcdefghijk", "Film")).setup().get()
-        waitFor { a.player != null }
+        waitFor { a.player != null && YtEngine.playable != null }
         return a
     }
 
@@ -198,9 +198,10 @@ class V63Test {
     @Test fun endOfVideoPlaysNextFromQueue() {
         runBlocking { StubeQueue.add(QueueItem.of(v("next1"))) }
         val a = player()
-        a.remote("next"); waitFor { a.isFinishing }
-        val i = shadowOf(a).nextStartedActivity
-        assertEquals("next1", i.getStringExtra(YtPlayerActivity.EXTRA_ID))
+        a.remote("next")
+        // następny film z kolejki – w tym samym oknie (silnik w usłudze), bez nowego ekranu
+        waitFor { YtEngine.video?.id == "next1" }
+        assertEquals("next1", YtEngine.video?.id); assertFalse(a.isFinishing)
         assertTrue(runBlocking { StubeQueue.items() }.isEmpty())
     }
 
@@ -221,19 +222,25 @@ class V63Test {
         assertFalse(a.ambientShown); assertFalse(a.player!!.playWhenReady)
     }
 
-    @Test fun backgroundHandOffAndTake() {
-        val exo = ExoPlayer.Builder(ctx).build()
-        YtBackground.handOff(ctx, exo, v("bg1"), null, emptyList())
-        assertTrue(YtBackground.holds("bg1")); assertFalse(YtBackground.holds("inny"))
-        val svc = shadowOf(ctx).nextStartedService
-        assertEquals(YtPlaybackService::class.java.name, svc.component!!.className)
-        val t = YtBackground.take(ctx)!!
-        assertSame(exo, t.player); assertFalse(YtBackground.active)
-        // nowy film przy grze w tle – tło zatrzymane
-        YtBackground.handOff(ctx, exo, v("bg1"), null, emptyList()); YtBackground.stop(ctx)
-        assertFalse(YtBackground.active)
-        // tylko grający odtwarzacz przechodzi do tła
-        assertFalse(YtBackground.canHandOff(ExoPlayer.Builder(ctx).build()))
+    @Test fun closingScreenKeepsEnginePlaying() {
+        YtStreams.resolverOverride = { YtPlayable.Muxed("Film", 300, YtCandidate(server.url("/v.mp4").toString(), 360)) }
+        val c = Robolectric.buildActivity(YtPlayerActivity::class.java, YtPlayerActivity.intent(ctx, v("bg1"))).setup()
+        val a = c.get()
+        waitFor { YtEngine.video?.id == "bg1" }
+        val exo = YtEngine.player!!
+        // WSTECZ / HOME: ekran znika, odtwarzacz w usłudze dalej gra (bez pause/release), obraz wyłączony
+        c.pause().stop().destroy(); idle()
+        assertTrue(a.isDestroyed)
+        assertSame(exo, YtEngine.player); assertEquals("bg1", YtEngine.video?.id); assertTrue(exo.playWhenReady)
+        assertTrue(YtEngine.background)
+        assertTrue(exo.trackSelectionParameters.disabledTrackTypes.contains(androidx.media3.common.C.TRACK_TYPE_VIDEO))
+        // powrót: ten sam film bez ponownego wczytania, obraz włączony
+        val c2 = Robolectric.buildActivity(YtPlayerActivity::class.java, YtPlayerActivity.resumeIntent(ctx)).setup(); idle()
+        assertSame(exo, c2.get().player); assertFalse(YtEngine.background)
+        assertFalse(exo.trackSelectionParameters.disabledTrackTypes.contains(androidx.media3.common.C.TRACK_TYPE_VIDEO))
+        // zatrzymanie (✖ w mini-playerze) – koniec, ekran się zamyka
+        YtEngine.stop(); idle()
+        assertNull(YtEngine.video); assertFalse(YtEngine.active); assertTrue(c2.get().isFinishing)
     }
 
     // ---------------- motywy STube ----------------

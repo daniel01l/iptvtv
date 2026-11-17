@@ -45,6 +45,7 @@ import kotlin.math.abs
 
 @OptIn(UnstableApi::class)
 class PlayerActivity : BaseActivity() {
+    override val x25Root = true
     override val isPlayerScreen = true
     companion object {
         fun delayLabel(ms: Int) = when { ms == 0 -> "bez przesunięcia"; ms < 0 -> "dźwięk wcześniej o ${-ms} ms"; else -> "dźwięk później o $ms ms" }
@@ -134,7 +135,7 @@ class PlayerActivity : BaseActivity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         // film STube grający w tle kończy się przy przejściu do telewizji
-        YtBackground.stop(this)
+        YtEngine.stop()
         setContentView(R.layout.activity_player)
         playerView = findViewById(R.id.playerView)
         overlay = findViewById(R.id.overlay)
@@ -192,7 +193,7 @@ class PlayerActivity : BaseActivity() {
         findViewById<View>(R.id.tRecent).setOnClickListener { openRight() }
         findViewById<View>(R.id.tPrev).setOnClickListener { zap(-1) }
         findViewById<View>(R.id.tNext).setOnClickListener { zap(1) }
-        findViewById<View>(R.id.tClose).setOnClickListener { finish() }
+        findViewById<View>(R.id.tClose).setOnClickListener { leaveScreen() }
         findViewById<View>(R.id.tFav).setOnClickListener {
             val added = Repository.toggleFav(list[pos])
             Toast.makeText(this, if (added) "Dodano do ulubionych" else "Usunięto z ulubionych", Toast.LENGTH_SHORT).show()
@@ -208,7 +209,7 @@ class PlayerActivity : BaseActivity() {
                     leftOpen || rightOpen -> closePanels()
                     isCatchup && playerView.isControllerFullyVisible -> playerView.hideController()
                     overlay.visibility == View.VISIBLE && touchBar.visibility == View.VISIBLE -> hideOverlay.run()
-                    else -> finish()
+                    else -> leaveScreen()
                 }
             }
         })
@@ -1616,6 +1617,26 @@ class PlayerActivity : BaseActivity() {
     private val zapHide = Runnable { if (::playerView.isInitialized) zapPanel.visibility = View.GONE }
     private fun zapTimer() { handler.removeCallbacks(zapHide); handler.postDelayed(zapHide, 3000) }
 
+    /**
+     * Niski ekran (telefon w poziomie): pasek informacji i górny pasek dotykowy zajmują dużą część wysokości – lista po OK
+     * dostaje tyle pełnych wierszy, ile mieści się między nimi (bez nachodzenia warstw).
+     */
+    private fun fitZapBetweenBars() {
+        val infoTop = Ui.infoPos == 1
+        val upper = maxOf(if (touchBar.visibility == View.VISIBLE) touchBar.bottom else 0, if (infoTop) overlay.bottom else 0)
+        val lower = if (infoTop) (zapPanel.parent as View).height else overlay.top
+        val free = lower - upper - Ui.dp(16)
+        val extra = zapPanel.height - zapList.layoutParams.height           // nagłówek kategorii
+        val stride = zapRowH + Ui.dp(4)
+        val rows = ((free - extra - Ui.dp(8)) / stride).coerceAtLeast(1)
+        if (rows >= zapShown) return
+        zapRowsMax = rows; zapShown = rows
+        zapList.layoutParams.height = rows * stride + Ui.dp(8); zapList.requestLayout()
+        // środek wolnego pasa
+        zapPanel.translationY = 0f
+        zapPanel.post { zapPanel.translationY = (upper + Ui.dp(8) + (free - zapPanel.height) / 2f - zapPanel.top).coerceAtLeast(-zapPanel.top.toFloat()) }
+    }
+
     /** Lista kanałów z bieżącym programem na środku ekranu – same kafelki (bez ramki), znika po 3 s bez ruchu. */
     private fun openZap() {
         if (!Prefs.zapListEnabled || isCatchup || list.isEmpty()) return
@@ -1644,6 +1665,7 @@ class PlayerActivity : BaseActivity() {
         // na środku, ale nie pod paskiem informacji
         zapPanel.post {
             if (overlay.visibility != View.VISIBLE || overlay.height == 0) return@post
+            fitZapBetweenBars()
             val top = Ui.infoPos == 1
             if (!top) { val over = zapPanel.bottom - (overlay.top - Ui.dp(8)); if (over > 0) zapPanel.translationY = -over.toFloat().coerceAtMost(zapPanel.top.toFloat()) }
             else { val over = overlay.bottom + Ui.dp(8) - zapPanel.top; if (over > 0) zapPanel.translationY = over.toFloat() }

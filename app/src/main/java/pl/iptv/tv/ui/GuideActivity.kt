@@ -28,6 +28,7 @@ import kotlin.math.abs
  * Okno czasowe przesuwa się pilotem (◄ ► na brzegu siatki), przyciskami lub gestem.
  */
 class GuideActivity : BaseActivity() {
+    override val x25Root = true
     companion object {
         const val EXTRA_CHANNEL = "ch"
         const val EXTRA_FROM_PLAYER = "from_player"

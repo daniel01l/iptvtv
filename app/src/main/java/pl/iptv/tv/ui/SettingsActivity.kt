@@ -29,6 +29,7 @@ import java.text.DateFormat
 import java.util.Date
 
 class SettingsActivity : BaseActivity() {
+    override val ps5Hints = true
     private lateinit var container: LinearLayout
     private lateinit var sticky: LinearLayout
     private lateinit var scroll: ScrollView
@@ -306,10 +307,17 @@ class SettingsActivity : BaseActivity() {
         return r
     }
 
-    private fun toggle(title: String, get: () -> Boolean, look: Boolean = false, set: (Boolean) -> Unit) =
-        row(title, if (get()) "✔ Włączone" else "✖ Wyłączone") {
-            set(!get()); if (look) lookChanged() else build(keepFocus = true)
+    private fun toggle(title: String, get: () -> Boolean, look: Boolean = false, set: (Boolean) -> Unit): View {
+        val click = { set(!get()); if (look) lookChanged() else build(keepFocus = true) }
+        if (!Ps5Theme.active) return row(title, if (get()) "✔ Włączone" else "✖ Wyłączone") { click() }
+        // PS5: przełącznik „switch” po prawej stronie wiersza (jak w ustawieniach konsoli)
+        val on = get()
+        return (row(title) { click() } as LinearLayout).also { r ->
+            r.contentDescription = clean(title) + if (on) ": włączone" else ": wyłączone"
+            r.addView(android.widget.ImageView(this).apply { setImageDrawable(Ps5Switch(on)); tag = "ps5switch"; isDuplicateParentStateEnabled = true },
+                LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(12) })
         }
+    }
 
     private fun choice(title: String, options: List<String>, get: () -> Int, look: Boolean = true, set: (Int) -> Unit) =
         row(title, options.getOrNull(get()) ?: "") {
@@ -596,6 +604,28 @@ class SettingsActivity : BaseActivity() {
         }
         note("Motyw działa od razu na wszystkich ekranach (menu, odtwarzacz, pasek informacji, okna) – bez ponownego uruchamiania.")
         note("Wybór motywu ustawia kolory, czcionkę, animacje, pasek postępu i położenie paska informacji. Każdą z tych opcji możesz potem zmienić osobno.")
+        header("X25 Dashboard")
+        toggle("Motyw X25 Dashboard", { X25Theme.active }, look = true) { X25Theme.setEnabled(it) }
+        if (X25Theme.active) {
+            toggle("Pulpit X25 jako ekran startowy", { Prefs.x25Dashboard }) { Prefs.x25Dashboard = it }
+            toggle("Menu jako panel boczny (Guide)", { Prefs.x25Guide }) { Prefs.x25Guide = it }
+            toggle("Dźwięki nawigacji", { Prefs.x25Sounds }) { Prefs.x25Sounds = it }
+            row("▶ Otwórz pulpit X25") { X25Theme.openDashboard(this) }
+            row("↺ Przywróć układ kafelków pulpitu") {
+                lifecycleScope.launch { pl.iptv.tv.data.X25Store.reset(); Toast.makeText(this@SettingsActivity, "Przywrócono domyślny układ pulpitu", Toast.LENGTH_SHORT).show() }
+            }
+        }
+        note("X25: grafit i czerń z neonową zielenią, akrylowe panele i pulpit z kafelkami. Kafelki edytujesz na pulpicie: przytrzymaj OK lub MENU. Wyłączenie wraca do poprzedniego motywu.")
+        header("PS5")
+        toggle("Motyw PS5", { Ps5Theme.active }, look = true) { Ps5Theme.setEnabled(it) }
+        if (Ps5Theme.active) {
+            toggle("Ekran główny PS5 jako ekran startowy", { Prefs.ps5Home }) { Prefs.ps5Home = it }
+            toggle("Menu jako panel ustawień PS5", { Prefs.ps5Panel }) { Prefs.ps5Panel = it }
+            toggle("Dźwięki nawigacji", { Prefs.ps5Sounds }) { Prefs.ps5Sounds = it }
+            row("▶ Otwórz ekran główny PS5") { Ps5Theme.openHome(this) }
+        }
+        note("PS5: głęboki granat, świetliste błękity i tło w stylu rysunku technicznego, ekran główny z zakładkami, rzędem aplikacji i kartami. " +
+            "Włączenie PS5 przy X25 (i odwrotnie) przełącza motyw konsolowy; wyłączenie wraca do poprzedniego.")
         header("Układ menu głównego")
         choice("Układ menu", MAIN_LAYOUTS, { Prefs.mainLayout }, look = false) { Prefs.mainLayout = it }
         choice("Orientacja ekranu (telefon)", listOf("Poziomo", "Automatycznie (obrót)", "Pionowo (odtwarzacz z obrotem)"), { Prefs.orientation }, look = false) {
@@ -910,8 +940,9 @@ class SettingsActivity : BaseActivity() {
             isHome -> "✔ Włączony – domyślny ekran główny"
             else -> "⚠ Włączony – nie jest domyślny"
         }) { launcherMenu(launcherOn, isHome) }
-        note("Jako ekran główny aplikacja otwiera się przy każdym włączeniu telewizora i po naciśnięciu HOME, " +
-            "a system jej nie zamyka. Inne aplikacje uruchomisz przyciskiem „▦ Aplikacje” na liście kanałów.")
+        note("Jako ekran główny aplikacja otwiera się przy każdym włączeniu telewizora, a HOME od razu pokazuje pulpit: " +
+            "X25 przy motywie X25, w pozostałych motywach ekran główny w stylu PS5 (telewizja, STube, Stremio, aplikacje z urządzenia). " +
+            "Wszystkie aplikacje i ustawienia systemu – w bibliotece aplikacji (kafelek „Aplikacje”, MENU → Wszystkie aplikacje).")
         if (launcherOn) row("▦ Aplikacje systemu") { SystemTools.showApps(this) }
 
         header("Uprawnienia")
@@ -1086,8 +1117,7 @@ class SettingsActivity : BaseActivity() {
         }
 
         header("Odtwarzanie w tle, wygaszacz, kolejka")
-        toggle("Odtwarzanie w tle (po HOME)", { Prefs.ytBackground }) { Prefs.ytBackground = it }
-        note("Film STube gra dalej po wyjściu do ekranu głównego lub innej aplikacji (powiadomienie z przyciskami). Powrót do odtwarzacza – bez przerwy.")
+        note("Film STube gra dalej po wyjściu z odtwarzacza (WSTECZ, HOME) – pasek „Teraz odtwarzane” w STube i menu, powiadomienie z przyciskami. Zatrzymanie: ✖ na pasku lub ⏹ w opcjach odtwarzacza.")
         val ambient = listOf(0, 2, 5, 10, 15, 30)
         choice("Wygaszacz w pauzie", ambient.map { if (it == 0) "Wyłączony" else "po $it min" },
             { ambient.indexOf(Prefs.ytAmbientMin).let { i -> if (i < 0) 2 else i } }, look = false) { Prefs.ytAmbientMin = ambient[it] }

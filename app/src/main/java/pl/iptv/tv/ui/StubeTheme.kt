@@ -33,7 +33,8 @@ object StubeTheme {
         Layout("Minimalny (miniatury i tytuły)", 236, 126, 1, false, 14),
     )
 
-    val palette: Palette? get() = THEMES.getOrNull(Prefs.stubeTheme)
+    /** Paleta STube; przy motywie X25 zawsze kolory motywu (spójny wygląd konsoli – STube jak reszta aplikacji). */
+    val palette: Palette? get() = if (X25Theme.active || Ps5Theme.active) null else THEMES.getOrNull(Prefs.stubeTheme)
     val layout: Layout get() = LAYOUTS.getOrElse(Prefs.stubeLayout) { LAYOUTS[0] }
 
     /** Kolory palety w kluczach [Ui.color]. */
@@ -41,7 +42,7 @@ object StubeTheme {
         "focusText" to p.focusText, "text" to p.text, "text2" to p.text2)
 
     /** Klucz wyglądu (motyw + układ) – ekran przebudowuje się, gdy zmieniono go w Ustawieniach. */
-    val key get() = "${Prefs.stubeTheme}|${Prefs.stubeLayout}|${Ui.themeEpoch}"
+    val key get() = "${if (X25Theme.active) "x25" else if (Ps5Theme.active) "ps5" else Prefs.stubeTheme}|${Prefs.stubeLayout}|${Ui.themeEpoch}"
 
     fun enter() { Ui.scoped = palette?.let(::colors) }
     fun exit() { Ui.scoped = null }

@@ -73,6 +73,8 @@ object STubeScreen {
     const val PROGRESS_H = 4
     /** Biblioteka (playlisty), kanały z subskrypcji i rząd otwartej playlisty / kanału (wstawiany pod rząd, z którego otwarto). */
     const val ROW_LIBRARY = "library"; const val ROW_CHANNELS = "channels"; const val ROW_PLAYLIST = "playlist"
+    /** „Twoje miksy” – gotowe playlisty z historii ([StubeMixes]); id playlisty miksu: [PL_MIX] + id. */
+    const val ROW_MIXES = "mixes"; const val PL_MIX = "mix:"
     /** Identyfikatory playlist specjalnych (nie są playlistami YouTube). */
     const val PL_LATER = "local:later"; const val PL_HISTORY = "local:history"; const val PL_LIKED = "liked"; const val PL_CHANNEL = "channel:"
 
@@ -81,7 +83,7 @@ object STubeScreen {
 
     /** Ikona kafelka playlisty bez miniatury. */
     fun playlistIcon(id: String) = when {
-        id == PL_LATER -> "🕘"; id == PL_HISTORY -> "📜"; id == PL_LIKED -> "👍"; id.startsWith(PL_CHANNEL) -> "📺"; else -> "☰"
+        id == PL_LATER -> "🕘"; id == PL_HISTORY -> "📜"; id.startsWith(PL_MIX) -> "🎵"; id == PL_LIKED -> "👍"; id.startsWith(PL_CHANNEL) -> "📺"; else -> "☰"
     }
 
     /** Kafelki Biblioteki: listy lokalne zawsze, z kontem – Polubione i playlisty konta (błąd API nie ukrywa list lokalnych). */
@@ -102,6 +104,7 @@ object STubeScreen {
         when {
             p.id == PL_LATER -> STubePage(StubeHistory.watchLater().map { STubeTile.Video(it.toVideo()) })
             p.id == PL_HISTORY -> STubePage(StubeHistory.watched().map { STubeTile.Video(it.toVideo()) })
+            p.id.startsWith(PL_MIX) -> STubePage((pl.iptv.tv.data.StubeMixes.byId(p.id.removePrefix(PL_MIX))?.let { pl.iptv.tv.data.StubeMixes.videos(it) }.orEmpty()).map(STubeTile::Video))
             p.id == PL_LIKED -> YouTubeRepository.liked(page).let { STubePage(it.videos.map(STubeTile::Video), it.nextPage) }
             p.id.startsWith(PL_CHANNEL) -> YouTubeRepository.playlistVideos(YouTubeRepository.uploadsPlaylist(p.id.removePrefix(PL_CHANNEL)), page)
                 .let { STubePage(it.videos.map(STubeTile::Video), it.nextPage) }
@@ -109,9 +112,10 @@ object STubeScreen {
         }
     }.also { it.source = p }
 
-    fun rowIds(loggedIn: Boolean, personal: Boolean, query: String?, hasContinue: Boolean = false): List<String> = buildList {
+    fun rowIds(loggedIn: Boolean, personal: Boolean, query: String?, hasContinue: Boolean = false, hasMixes: Boolean = false): List<String> = buildList {
         if (!query.isNullOrBlank()) add(ROW_SEARCH)
         if (hasContinue) add(ROW_CONTINUE)
+        if (hasMixes) add(ROW_MIXES)
         if (loggedIn && personal) add(ROW_FOR_YOU) else if (!loggedIn) add(ROW_LOGIN)
         // najnowsze z subskrypcji zaraz pod „Dla Ciebie” (jak karta Subskrypcje w YouTube)
         if (loggedIn) add(ROW_SUBS)
@@ -138,8 +142,12 @@ object STubeScreen {
     fun rows(query: String?): List<STubeRow> {
         val logged = YouTubeTokens.loggedIn
         val personal = YouTubeRepository.source == YtSource.PERSONAL
-        return rowIds(logged, personal, query, StubeHistory.hasUnfinished).map { id ->
+        return rowIds(logged, personal, query, StubeHistory.hasUnfinished, StubeHistory.historyCount >= pl.iptv.tv.data.StubeMixes.MIN_HISTORY).map { id ->
             when (id) {
+                // gotowe miksy z historii oglądania (Room) – filmy z YouTube po otwarciu
+                ROW_MIXES -> STubeRow(id, "🎵 Twoje miksy / gotowe playlisty") { _ ->
+                    STubePage(pl.iptv.tv.data.StubeMixes.current().map { STubeTile.Playlist(YtPlaylist(PL_MIX + it.id, it.title, it.thumb)) })
+                }
                 ROW_CONTINUE -> STubeRow(id, "Kontynuuj oglądanie") { _ -> STubePage(StubeHistory.unfinished().map { STubeTile.Video(it.toVideo()) }) }
                 // wyszukiwanie bez klucza (nie zużywa limitu API: 100 jednostek za zapytanie); API – zapasowo
                 ROW_SEARCH -> STubeRow(id, "Wyniki: ${query!!.trim()}") { _ ->
@@ -303,6 +311,7 @@ class STubeTileAdapter(private val row: STubeRow) : RecyclerView.Adapter<STubeTi
                 h.title.text = t.p.title
                 h.sub.text = when {
                     t.p.id.startsWith("local:") -> "Na tym urządzeniu"
+                    t.p.id.startsWith(STubeScreen.PL_MIX) -> pl.iptv.tv.data.StubeMixes.byId(t.p.id.removePrefix(STubeScreen.PL_MIX))?.subtitle ?: "Gotowy miks"
                     t.p.id == STubeScreen.PL_LIKED -> "Konto YouTube"
                     else -> "Playlista"
                 }

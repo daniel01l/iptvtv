@@ -47,16 +47,16 @@ class V60Test {
     @After fun tearDown() { Ui.applyPreset("modern"); Ui.changed(); Prefs.mainLayout = 0 }
 
     @Test fun systemThemesGeometryAndFocus() {
-        Ui.applyPreset("ios"); Ui.changed()
-        assertTrue(Ui.preset.radius in 20..24)                               // duże, zaokrąglone karty
-        assertTrue(focused() is LayerDrawable)                               // miękki, świecący pierścień
+        Ui.applyPreset(Ps5Theme.ID); Ui.changed()
+        assertEquals(12, Ui.preset.radius)                                   // zaokrąglone karty PS5
+        assertTrue(focused() is LayerDrawable)                               // biało-błękitna obwódka z poświatą
         Ui.applyPreset("xbox"); Ui.changed()
         assertEquals(0xFF107C10.toInt(), Ui.focus)                           // ramka #107C10
         assertTrue(focused() is LayerDrawable)                               // ramka + jasna linia wewnętrzna
     }
 
     @Test fun listItemsClipTheirContent() {
-        for (id in listOf("modern", "ios", "xbox")) {
+        for (id in listOf("modern", Ps5Theme.ID, "xbox")) {
             Ui.applyPreset(id); Ui.changed()
             val c = Robolectric.buildActivity(MainActivity::class.java).setup(); idle(400)
             val rv = c.get().findViewById<RecyclerView>(R.id.channels)

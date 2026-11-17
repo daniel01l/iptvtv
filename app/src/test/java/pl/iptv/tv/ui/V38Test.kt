@@ -142,6 +142,32 @@ class V38Test {
         assertTrue(bl.none { it.channel.name == "K1" })
     }
 
+    /** Mecz reprezentacji: nazwy z ESPN po angielsku, polski program TV po polsku (wcześniej tylko stacje zagraniczne). */
+    @Test fun nationalTeamMatchFoundOnPolishChannels() {
+        val now = System.currentTimeMillis(); val H = 3_600_000L
+        val fmt = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+        fun prog(ch: Int, title: String, desc: String = "") =
+            "<programme start=\"${fmt.format(Date(now - H))}\" stop=\"${fmt.format(Date(now + H))}\" channel=\"c$ch\"><title>$title</title><desc>$desc</desc></programme>"
+        val xml = "<tv>" + prog(1, "Football: Poland v Netherlands", "World Cup qualifier") +
+            prog(2, "Piłka nożna: Eliminacje Mistrzostw Świata 2026 - mecz: Polska - Holandia") +
+            prog(3, "Studio: przed meczem reprezentacji Polski", "Eliminacje MŚ") +
+            prog(4, "Rumunia - Austria", "Liga Narodów UEFA") + "</tv>"
+        val x = File(ctx.filesDir, "v38c.xml").apply { writeText(xml) }
+        Prefs.epgUrl = x.absolutePath
+        runBlocking { Repository.loadEpg(x.absolutePath) }
+        val m = Scores.Match("9", "fifa.worldq.uefa", "El. MŚ", "Poland", "Netherlands", "1", "2", 0, 0, Scores.State.LIVE, "30'", now - H / 2,
+            homeFull = "Poland", awayFull = "Netherlands")
+        val b = Scores.broadcasts(m)
+        // polska stacja: obie drużyny po polsku – dopasowanie pewne (jak zagraniczna)
+        assertTrue(b.toString(), b.any { it.channel.name == "K2" && it.sure })
+        assertTrue(b.any { it.channel.name == "K1" && it.sure })
+        // studio z „reprezentacji Polski” (odmiana) – niepewne; inny mecz („Rumunia”, nie „Oman”) – brak
+        assertTrue(b.any { it.channel.name == "K3" && !it.sure })
+        assertTrue(b.none { it.channel.name == "K4" })
+        assertTrue(Scores.teamKeys("Poland").containsAll(listOf("poland", "polska")))
+        assertFalse("oman" in Scores.teamKeys("Romania"))
+    }
+
     @Test fun secondRightOpensScoresTab() {
         Scores.follow(Scores.Follow("eng.1", "363", "Chelsea"))
         val i = Intent(ctx, PlayerActivity::class.java).putExtra(PlayerActivity.EXTRA_CHANNEL, Repository.channels[0].key).putExtra(PlayerActivity.EXTRA_GROUP, Repository.ALL)

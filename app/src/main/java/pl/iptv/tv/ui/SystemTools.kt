@@ -126,11 +126,8 @@ object SystemTools {
         return result.values.sortedBy { it.label.lowercase() }
     }
 
-    fun showApps(a: Activity) {
-        val apps = installedApps(a)
-        val items = listOf(AppEntry("⚙ Ustawienia systemu", Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))) + apps
-        Dialogs.menu(a, "Aplikacje", items.map { e -> e.label to { if (!tryStart(a, e.intent)) toast(a, "Nie można uruchomić") } })
-    }
+    /** Biblioteka aplikacji (siatka z ikonami, ustawienia systemu) – launcher, pulpity, menu odtwarzacza. */
+    fun showApps(a: Activity) { a.startActivity(Intent(a, AppLibraryActivity::class.java)) }
 
     // ---------------- aplikacje w menu odtwarzacza ----------------
 

@@ -45,14 +45,14 @@ class V61Test {
         Repository.resetAllEdits(); runBlocking { Repository.loadPlaylist(f.absolutePath) }
     }
 
-    @After fun tearDown() { Ui.applyPreset("modern"); Ui.changed(); Prefs.mainLayout = 0; Prefs.bootStart = false }
+    @After fun tearDown() { X25Theme.launcherForTest = null; Ui.applyPreset("modern"); Ui.changed(); Prefs.mainLayout = 0; Prefs.bootStart = false }
 
     @Test fun onlyCoreThemesAndMigration() {
         val ids = Ui.PRESETS.map { it.id }
-        assertTrue(ids.containsAll(listOf("ios", "xbox")))
-        for (gone in listOf("ps5", "win11", "magic")) assertFalse(gone, gone in ids)
+        assertTrue(ids.containsAll(listOf("xbox", Ps5Theme.ID)))
+        for (gone in listOf("ps5", "win11", "magic", "ios")) assertFalse(gone, gone in ids)
         Prefs.theme = "ps5"; assertEquals("xbox", Ui.preset.id)
-        Prefs.theme = "magic"; assertEquals("ios", Ui.preset.id)
+        Prefs.theme = "magic"; assertEquals("modern", Ui.preset.id)
         Prefs.theme = "win11"; assertEquals("modern", Ui.preset.id)
         assertTrue(Ui.ANIMS.none { "PS5" in it || "MagicOS" in it || "Windows" in it })
         assertTrue(Ui.INFO_STYLES.none { "PS5" in it || "MagicOS" in it || "Windows" in it })
@@ -127,6 +127,7 @@ class V61Test {
     }
 
     @Test fun launcherBootHandling() {
+        X25Theme.launcherForTest = false                                       // bez trybu launchera (stan z innych testów)
         Prefs.homeBootId = ""
         assertTrue(HomeActivity.firstSinceBoot(ctx))                          // pierwsze HOME po włączeniu – akcja startowa
         assertFalse(HomeActivity.firstSinceBoot(ctx))                         // kolejne – tylko lista kanałów (także po restarcie procesu)

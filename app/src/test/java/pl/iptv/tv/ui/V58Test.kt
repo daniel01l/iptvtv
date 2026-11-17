@@ -53,7 +53,7 @@ class V58Test {
     @After fun tearDown() { Ui.applyPreset("modern"); Ui.changed(); Prefs.mainLayout = 0; Prefs.remove("anim") }
 
     @Test fun consoleThemesSetGeometryAndLayout() {
-        for (id in listOf("ios", "xbox")) assertTrue(id, Ui.PRESETS.any { it.id == id }); for (id in listOf("magic", "win11", "ps5")) assertFalse(id, Ui.PRESETS.any { it.id == id })
+        for (id in listOf(Ps5Theme.ID, "xbox")) assertTrue(id, Ui.PRESETS.any { it.id == id }); for (id in listOf("magic", "win11", "ps5")) assertFalse(id, Ui.PRESETS.any { it.id == id })
         Ui.applyPreset("ps5"); Ui.changed()
         assertEquals(Ui.S_XBOX, Ui.surface)                                 // usunięty PS5 → Xbox
         assertEquals(Ui.LAYOUT_CARDS, Prefs.mainLayout)                      // motyw konsolowy = karty poziome
@@ -64,11 +64,10 @@ class V58Test {
         Ui.applyPreset("xbox"); Ui.changed()
         assertEquals(Ui.LAYOUT_CARDS, Prefs.mainLayout)
         assertEquals(2, Ui.preset.radius); assertEquals(3, Ui.geo.focusStroke); assertTrue(Ui.geo.topBar)
-        Ui.applyPreset("ios"); Ui.changed()
+        Ui.applyPreset("modern"); Ui.changed()
         assertEquals(0, Prefs.mainLayout)                                    // zwykły motyw przywraca układ
-        assertTrue(Ui.geo.titleCenter); assertTrue(Ui.geo.headerScale > 1.3f)
         // każdy motyw ma własne przejście ekranów
-        assertEquals(listOf(5, 8), listOf("ios", "xbox").map { id -> Ui.PRESETS.first { it.id == id }.anim })
+        assertEquals(listOf(3, 8), listOf(Ps5Theme.ID, "xbox").map { id -> Ui.PRESETS.first { it.id == id }.anim })
         assertEquals(9, Ui.ANIMS.size)
     }
 
@@ -90,12 +89,12 @@ class V58Test {
 
     @Test fun dialogFramesPerTheme() {
         val m = Robolectric.buildActivity(MainActivity::class.java).setup(); idle(400)
-        Ui.applyPreset("ios"); Ui.changed()
+        Ui.applyPreset(Ps5Theme.ID); Ui.changed()
         Dialogs.confirm(m.get(), "Tytuł", "Treść") {}; idle()
         var d = ShadowDialog.getLatestDialog() as androidx.appcompat.app.AlertDialog
         val t = d.findViewById<TextView>(androidx.appcompat.R.id.alertTitle)!!
-        assertEquals(android.view.Gravity.CENTER_HORIZONTAL, t.gravity and android.view.Gravity.HORIZONTAL_GRAVITY_MASK)
-        assertTrue(t.textSize > Ui.dp(26))                                   // duży nagłówek
+        assertEquals(android.view.Gravity.START, t.gravity and android.view.Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK)
+        assertTrue(t.textSize > Ui.dp(20))                                   // większy nagłówek (PS5)
         d.dismiss(); idle()
         Ui.applyPreset("xbox"); Ui.changed()
         Dialogs.confirm(m.get(), "Tytuł 2", "Treść") {}; idle()
@@ -151,9 +150,6 @@ class V58Test {
     }
 
     @Test fun roundIconTilesInConsoleTheme() {
-        Ui.applyPreset("ios"); Ui.changed()
-        val bg = (Ui.iconBoxBg() as android.graphics.drawable.StateListDrawable).current as android.graphics.drawable.GradientDrawable
-        assertEquals(android.graphics.drawable.GradientDrawable.OVAL, bg.shape)
         Ui.applyPreset("xbox"); Ui.changed()
         val sq = (Ui.iconBoxBg() as android.graphics.drawable.StateListDrawable).current as android.graphics.drawable.GradientDrawable
         assertEquals(android.graphics.drawable.GradientDrawable.RECTANGLE, sq.shape)

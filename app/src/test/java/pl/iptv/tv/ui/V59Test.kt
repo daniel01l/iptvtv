@@ -47,7 +47,7 @@ class V59Test {
     @After fun tearDown() { Ui.applyPreset("modern"); Ui.changed(); Prefs.mainLayout = 0 }
 
     @Test fun panelsAndLogosClipToTheirFrames() {
-        for (id in listOf("modern", "ios", "xbox")) {
+        for (id in listOf("modern", Ps5Theme.ID, "xbox")) {
             Ui.applyPreset(id); Ui.changed()
             val c = Robolectric.buildActivity(MainActivity::class.java).setup(); idle(400)
             val a = c.get()
@@ -63,20 +63,23 @@ class V59Test {
     }
 
     @Test fun infoBarFollowsTheme() {
-        val expect = mapOf("ios" to 6, "xbox" to 9, "modern" to 0)
+        val expect = mapOf(Ps5Theme.ID to 1, "xbox" to 9, "modern" to 0)
         expect.forEach { (id, style) ->
             Ui.applyPreset(id); Ui.changed()
             assertEquals(id, style, Ui.infoStyle)
             if (style >= 5) { assertTrue(id, Ui.infoBarBg(false) is TexturedDrawable); assertNotNull(id, Ui.infoLogoBg()) }
         }
-        Ui.applyPreset("ios"); Ui.changed()
+        Ui.applyPreset(Ps5Theme.ID); Ui.changed()
         assertTrue(Ui.infoFloating)
+        // pasek z tłem loga (style 5–9): panel z paskiem akcentu
+        Ui.infoStyle = 7; Ui.changed()
         val c = Robolectric.buildActivity(PlayerActivity::class.java, Intent(ctx, PlayerActivity::class.java)
             .putExtra(PlayerActivity.EXTRA_CHANNEL, Repository.channels[1].key).putExtra(PlayerActivity.EXTRA_GROUP, Repository.ALL)).setup(); idle(600)
         val a = c.get()
         val logo = a.findViewById<ImageView>(R.id.oPicon)
         assertNotNull(logo.background); assertTrue(logo.clipToOutline)
         assertTrue(a.findViewById<View>(R.id.overlay).background is TexturedDrawable)
+        Prefs.remove("info_style")
         c.pause().stop().destroy()
     }
 

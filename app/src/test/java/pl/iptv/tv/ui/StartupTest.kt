@@ -153,7 +153,10 @@ class LauncherAndBatteryTest {
         assertFalse(first.getBooleanExtra(MainActivity.EXTRA_SKIP_START, true))   // start TV -> akcja startowa
         assertTrue(h.get().isFinishing)
         val h2 = Robolectric.buildActivity(pl.iptv.tv.HomeActivity::class.java).setup()
-        assertTrue(shadowOf(h2.get()).nextStartedActivity.getBooleanExtra(MainActivity.EXTRA_SKIP_START, false)) // kolejny HOME
+        // kolejny HOME: aplikacja jako ekran główny – od razu pulpit (6.5); inaczej lista kanałów bez akcji startowej
+        val next = shadowOf(h2.get()).nextStartedActivity
+        if (X25Theme.launcherHome) assertEquals(Ps5HomeActivity::class.java.name, next.component!!.className)
+        else assertTrue(next.getBooleanExtra(MainActivity.EXTRA_SKIP_START, false))
         val m = Robolectric.buildActivity(MainActivity::class.java,
             Intent(ctx, MainActivity::class.java).putExtra(MainActivity.EXTRA_SKIP_START, true)).setup(); idle()
         assertNull(shadowOf(m.get()).nextStartedActivity)          // HOME nie włącza kanału ponownie

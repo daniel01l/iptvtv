@@ -59,7 +59,11 @@ class TexturedDrawable(
         fill.shader = android.graphics.LinearGradient(b.left.toFloat(), b.top.toFloat(), if (diagonal) b.right.toFloat() else b.left.toFloat(), b.bottom.toFloat(),
             c1, c2, android.graphics.Shader.TileMode.CLAMP)
         if (noiseAlpha > 0) grain.shader = android.graphics.BitmapShader(noise, android.graphics.Shader.TileMode.REPEAT, android.graphics.Shader.TileMode.REPEAT)
+        // jaśniejsza górna krawędź wygasa płynnie (dawniej ucięta w 1/3 wysokości – na wysokich panelach widoczny „urwany” pasek)
+        if (highlight != 0) glint = android.graphics.LinearGradient(0f, b.top.toFloat(), 0f, b.top + minOf(b.height() / 3f, Ui.dp(120).toFloat()),
+            highlight, Color.TRANSPARENT, android.graphics.Shader.TileMode.CLAMP)
     }
+    private var glint: android.graphics.Shader? = null
 
     override fun draw(c: android.graphics.Canvas) {
         if (rect.isEmpty) return
@@ -75,11 +79,12 @@ class TexturedDrawable(
         val half = strokeW / 2
         if (highlight != 0 && strokeW > 0) {
             // jaśniejsza górna krawędź (światło z góry – szkło, karty)
-            line.strokeWidth = strokeW; line.color = highlight; line.alpha = Color.alpha(highlight) * alphaMul / 255
-            c.save(); c.clipRect(rect.left, rect.top, rect.right, rect.top + rect.height() / 3)
-            c.drawRoundRect(rect.left + half, rect.top + half, rect.right - half, rect.bottom - half, radius, radius, line); c.restore()
+            line.strokeWidth = strokeW; line.color = Color.WHITE; line.alpha = alphaMul; line.shader = glint
+            c.drawRoundRect(rect.left + half, rect.top + half, rect.right - half, rect.bottom - half, radius, radius, line)
+            line.shader = null
         }
         if (stroke != 0 && strokeW > 0) {
+            line.shader = null
             line.strokeWidth = strokeW; line.color = stroke; line.alpha = Color.alpha(stroke) * alphaMul / 255
             c.drawRoundRect(rect.left + half, rect.top + half, rect.right - half, rect.bottom - half, radius, radius, line)
         }
@@ -117,26 +122,24 @@ object Ui {
             c("#EFEFEF"), c("#9AA3B2"), 10, 0, FocusStyle.FILL, 1, 2, 0, true),
         ThemePreset("classic", "Klasyczny dekoder", c("#06134A"), c("#0D2470"), c("#FFC400"), c("#FFB300"), c("#000000"),
             c("#FFFFFF"), c("#B8C7F0"), 0, 2, FocusStyle.GRADIENT, 0, 3, 0, false),
-        ThemePreset("amoled", "AMOLED czerń", c("#000000"), c("#0D0D0D"), c("#00BFA5"), c("#00BFA5"), c("#000000"),
-            c("#FFFFFF"), c("#8A8A8A"), 6, 3, FocusStyle.FILL, 1, 0, 0, false),
-        ThemePreset("light", "Jasny", c("#E9EDF2"), c("#FFFFFF"), c("#1565C0"), c("#1565C0"), c("#FFFFFF"),
-            c("#1A1A1A"), c("#5F6B7A"), 8, 0, FocusStyle.FILL, 2, 2, 0, true),
-        ThemePreset("neon", "Neon retro", c("#12051F"), c("#1E0A33"), c("#FF2BD6"), c("#FF2BD6"), c("#FFFFFF"),
-            c("#F5E6FF"), c("#B48CD9"), 4, 12, FocusStyle.OUTLINE, 3, 3, 1, false),
-        ThemePreset("cinema", "Kino", c("#141010"), c("#1F1717"), c("#E50914"), c("#E50914"), c("#FFFFFF"),
-            c("#FFFFFF"), c("#A89A9A"), 4, 8, FocusStyle.FILL, 3, 1, 0, true),
-        ThemePreset("forest", "Leśny", c("#0E1A12"), c("#15261B"), c("#66BB6A"), c("#2E7D32"), c("#FFFFFF"),
-            c("#EAF5EA"), c("#9DB8A0"), 14, 10, FocusStyle.FILL, 2, 2, 0, true),
-        // inspirowane systemami (nie kopie): szkło iOS i konsola Xbox
-        ThemePreset("ios", "iOS – szkło", c("#05060A"), c("#1C1C1E"), c("#0A84FF"), c("#F2F2F7"), c("#000000"),
-            c("#FFFFFF"), c("#8E8E93"), 22, 8, FocusStyle.FILL, 5, 2, 0, true, S_GLASS),
+        // (6.5) zostają tylko: Nowoczesny, Klasyczny dekoder, Xbox, X25 i PS5 – pozostałe w [REMOVED_THEMES]
         ThemePreset("xbox", "Xbox Series X – konsola", c("#0B0B0B"), c("#1C1C1C"), c("#107C10"), c("#107C10"), c("#FFFFFF"),
             c("#F2F2F2"), c("#9A9A9A"), 2, 2, FocusStyle.OUTLINE, 8, 1, 0, true, S_XBOX, LAYOUT_CARDS),
+        // X25: grafit i czerń z neonową zielenią, akrylowe panele, pulpit z kafelkami (X25DashboardActivity)
+        ThemePreset(X25Theme.ID, "X25 Dashboard (rocznicowy, zielony neon)", c("#050806"), c("#121815"), c("#3CF26A"), c("#3CF26A"), c("#FFFFFF"),
+            c("#FFFFFF"), c("#9DB3A3"), 10, 4, FocusStyle.OUTLINE, 8, 2, 0, true, S_X25),
+        // PS5: głęboki granat i czerń, świetliste błękity, tło „blueprint”, biało-błękitna obwódka, ekran główny (Ps5HomeActivity)
+        ThemePreset(Ps5Theme.ID, "PS5 (granat, blueprint)", c("#050A1E"), c("#0E1736"), c("#3D8BFF"), c("#EAF4FF"), c("#FFFFFF"),
+            c("#FFFFFF"), c("#A9B8DA"), 12, 3, FocusStyle.OUTLINE, 3, 2, 0, true, S_PS5),
     )
 
     const val S_FLAT = 0
     const val S_GLASS = 2
     const val S_XBOX = 5
+    /** Motyw X25: akryl (półprzezroczyste panele), neonowa ramka zaznaczenia z poświatą, tło [X25Backdrop]. */
+    const val S_X25 = 6
+    /** Motyw PS5: granatowe panele, biało-błękitna obwódka zaznaczenia, tło [Ps5Backdrop]. */
+    const val S_PS5 = 7
     /** Układ menu głównego „karty poziome” (konsole). */
     const val LAYOUT_CARDS = 4
     val surface get() = preset.surface
@@ -154,6 +157,8 @@ object Ui {
     val geo: Geometry get() = when (surface) {
         S_GLASS -> Geometry(zoomMax = 0.05f, headerScale = 1.35f, zoomMs = 170, overshoot = 1.4f, titleCenter = true, iconRound = true, blur = 28)
         S_XBOX -> Geometry(zoomMax = 0.05f, headerScale = 1.1f, zoomMs = 80, topBar = true, focusStroke = 3)
+        S_X25 -> Geometry(zoomMax = 0.04f, headerScale = 1.15f, zoomMs = 90, topBar = true, glow = true, focusStroke = 3)
+        S_PS5 -> Geometry(zoomMax = 0.05f, headerScale = 1.2f, zoomMs = 90, glow = true, focusStroke = 2)
         else -> Geometry()
     }
 
@@ -216,8 +221,24 @@ object Ui {
     var version = 0; private set
     fun changed() { version++; tfCache.clear() }
 
-    /** Usunięte motywy (6.1) → najbliższy pozostały: PS5 → Xbox, MagicOS → iOS, Windows 11 → Nowoczesny. */
-    val REMOVED_THEMES = mapOf("ps5" to "xbox", "magic" to "ios", "win11" to "modern")
+    /**
+     * Usunięte motywy → najbliższy pozostały. 6.1: stary PS5 → Xbox, MagicOS / Windows 11 → Nowoczesny;
+     * 6.5: iOS, AMOLED, Jasny, Neon, Kino, Leśny → Nowoczesny (nowy motyw PS5 z 6.5 ma id [Ps5Theme.ID]).
+     */
+    val REMOVED_THEMES = mapOf("ps5" to "xbox", "magic" to "modern", "win11" to "modern", "ios" to "modern", "amoled" to "modern",
+        "light" to "modern", "neon" to "modern", "cinema" to "modern", "forest" to "modern")
+
+    /**
+     * Pierwsze uruchomienie po instalacji (nie po aktualizacji) bez wybranego motywu – motyw PS5 (ekran główny konsoli).
+     * Poprzedni motyw („wyłącz PS5”) – Nowoczesny. Zwraca true, gdy motyw ustawiono.
+     */
+    fun applyFirstRunTheme(freshInstall: Boolean): Boolean {
+        if (!freshInstall || Prefs.has("theme")) return false
+        applyPreset(Ps5Theme.ID)
+        Prefs.ps5PrevTheme = "modern"
+        X25Theme.justEnabled = false
+        return true
+    }
 
     val preset: ThemePreset get() {
         val id = Prefs.theme.let { REMOVED_THEMES[it] ?: it }
@@ -230,11 +251,16 @@ object Ui {
      */
     var themeEpoch = 0; private set
 
-    fun applyPreset(id: String) {
+    /** [restoring] – powrót do poprzedniego motywu (wyłączenie X25 / PS5): jego zapamiętany „poprzedni” motyw zostaje bez zmian. */
+    fun applyPreset(id: String, restoring: Boolean = false) {
         themeEpoch++
         val old = preset
         Prefs.theme = id; Prefs.remove(*PRESET_KEYS)
         // motywy konsolowe ustawiają też układ menu (karty poziome); powrót do zwykłego motywu przywraca układ klasyczny
+        // X25: zapamiętany poprzedni motyw (wyłączenie X25 wraca do niego), pulpit otwierany od razu
+        if (id == X25Theme.ID && old.id != X25Theme.ID) { if (!restoring) Prefs.x25PrevTheme = old.id; X25Theme.justEnabled = true }
+        // PS5: tak samo (poprzedni motyw może być X25 – swobodne przełączanie między motywami konsolowymi)
+        if (id == Ps5Theme.ID && old.id != Ps5Theme.ID) { if (!restoring) Prefs.ps5PrevTheme = old.id; X25Theme.justEnabled = true }
         val p = preset
         if (p.layout >= 0) Prefs.mainLayout = p.layout
         else if (old.layout >= 0 && Prefs.mainLayout == old.layout) Prefs.mainLayout = 0
@@ -268,6 +294,10 @@ object Ui {
             S_GLASS -> TexturedDrawable(blend(b, accent, 0.16f), b, 0f, noiseAlpha = 0x08, diagonal = true)
             // Xbox: grafit z delikatną zielenią
             S_XBOX -> TexturedDrawable(blend(b, accent, 0.07f), shade(b, -0.1f), 0f)
+            // X25: warstwowy ciemnozielony gradient z poświatą i znakiem „25” (rysowany – bez bitmap)
+            S_X25 -> X25Backdrop(b, accent)
+            // PS5: granat z siatką kreślarską i rysunkami technicznymi (bitmapa w połowie rozdzielczości, wspólna)
+            S_PS5 -> Ps5Backdrop(b, accent)
             else -> TexturedDrawable(shade(b, 0.03f), shade(b, -0.08f), 0f)
         }
     }
@@ -287,6 +317,13 @@ object Ui {
             // Xbox: jednolita, ostra powierzchnia
             S_XBOX -> TexturedDrawable(withAlpha(base, alpha), withAlpha(shade(base, -0.05f), alpha), r,
                 stroke = withAlpha(Color.WHITE, 0x14), strokeW = dp(1).toFloat(), topBar = tb)
+            // X25: akryl – półprzezroczysty grafit z zielonkawym odcieniem, jasna górna krawędź, cienka ramka
+            S_X25 -> TexturedDrawable(withAlpha(blend(shade(base, 0.06f), accent, 0.05f), minOf(alpha, 0xDC)), withAlpha(shade(base, -0.25f), minOf(alpha, 0xE8)), r,
+                stroke = withAlpha(Color.WHITE, 0x1A), strokeW = dp(1).toFloat(), highlight = withAlpha(Color.WHITE, 0x30), topBar = tb)
+            // PS5: półprzezroczysty granat (blueprint prześwituje), delikatna jasna krawędź, bez paska akcentu
+            // (okna prawie nieprzezroczyste – tekst ekranu pod spodem nie prześwituje)
+            S_PS5 -> TexturedDrawable(withAlpha(blend(shade(base, 0.05f), accent, 0.06f), minOf(alpha, 0xF0)), withAlpha(shade(base, -0.35f), minOf(alpha, 0xF6)), r,
+                stroke = withAlpha(Color.WHITE, 0x16), strokeW = dp(1).toFloat(), highlight = withAlpha(Color.WHITE, 0x22))
             else -> null
         }
     }
@@ -327,7 +364,7 @@ object Ui {
     var zoom: Boolean get() = (Prefs.optInt("zoom") ?: if (preset.zoom) 1 else 0) == 1; set(v) = Prefs.setOptInt("zoom", if (v) 1 else 0)
     /** Styl paska informacji; domyślnie wg motywu (motywy systemowe i konsolowe mają własny pasek). */
     var infoStyle: Int get() = (Prefs.optInt("info_style") ?: when (surface) {
-        S_GLASS -> 6; S_XBOX -> 9
+        S_GLASS -> 6; S_XBOX -> 9; S_X25 -> 7; S_PS5 -> 1
         else -> if (preset.focusStyle == FocusStyle.GRADIENT) 3 else 0 }).coerceIn(INFO_STYLES.indices); set(v) = Prefs.setOptInt("info_style", v)
     var infoAlphaIndex: Int get() = (Prefs.optInt("info_alpha") ?: 0).coerceIn(INFO_ALPHAS.indices); set(v) = Prefs.setOptInt("info_alpha", v)
     var infoSizeIndex: Int get() = (Prefs.optInt("info_size") ?: 1).coerceIn(INFO_SIZES.indices); set(v) = Prefs.setOptInt("info_size", v)
@@ -397,7 +434,37 @@ object Ui {
         // iOS: jasna karta z miękkim, świecącym pierścieniem
         preset.focusStyle == FocusStyle.FILL && surface == S_GLASS && color2("focus") == null -> glowFocus(Color.WHITE)
         surface == S_XBOX -> xboxFocus()
+        surface == S_X25 -> x25Focus()
+        surface == S_PS5 -> ps5Focus()
         else -> focusDrawableClassic()
+    }
+
+    /**
+     * PS5: czysta biało-błękitna obwódka (biała linia + błękitna poświata na zewnątrz) i lekko rozjaśnione wnętrze;
+     * powiększenie daje [geo]. Tryb słabszych urządzeń – sama obwódka.
+     */
+    private fun ps5Focus(): Drawable {
+        val r = dp(preset.radius).toFloat()
+        fun ring(rad: Float, w: Int, c: Int, fill: Int = Color.TRANSPARENT) = GradientDrawable().apply { cornerRadius = rad; setColor(fill); setStroke(dp(w), c) }
+        val core = ring(maxOf(r - dp(3), 0f), geo.focusStroke, focus, withAlpha(Color.WHITE, 0x1C))
+        if (Prefs.lowPerf) return core
+        return android.graphics.drawable.LayerDrawable(arrayOf(ring(r, 3, withAlpha(Ps5Theme.GLOW, 0x50)), ring(maxOf(r - dp(1), 0f), 2, withAlpha(Ps5Theme.GLOW, 0x90)), core)).apply {
+            setLayerInset(1, dp(1), dp(1), dp(1), dp(1)); setLayerInset(2, dp(3), dp(3), dp(3), dp(3))
+        }
+    }
+
+    /**
+     * X25: pogrubiona, zaokrąglona ramka w neonowej zieleni z poświatą (dwa półprzezroczyste pierścienie – bez rozmycia,
+     * tanie w rysowaniu) i lekko zielone wypełnienie; tryb słabszych urządzeń – sama ramka.
+     */
+    private fun x25Focus(): Drawable {
+        val r = dp(preset.radius).toFloat()
+        fun ring(rad: Float, w: Int, c: Int, fill: Int = Color.TRANSPARENT) = GradientDrawable().apply { cornerRadius = rad; setColor(fill); setStroke(dp(w), c) }
+        val core = ring(maxOf(r - dp(3), 0f), geo.focusStroke, focus, withAlpha(focus, 0x26))
+        if (Prefs.lowPerf) return core
+        return android.graphics.drawable.LayerDrawable(arrayOf(ring(r, 3, withAlpha(focus, 0x30)), ring(maxOf(r - dp(1), 0f), 2, withAlpha(focus, 0x60)), core)).apply {
+            setLayerInset(1, dp(1), dp(1), dp(1), dp(1)); setLayerInset(2, dp(3), dp(3), dp(3), dp(3))
+        }
     }
 
     /** Zaznaczenie z poświatą: dwa półprzezroczyste pierścienie w kolorze akcentu wokół jasnej karty. */
@@ -447,6 +514,10 @@ object Ui {
         addState(intArrayOf(), when (surface) {
             S_GLASS -> shape(withAlpha(Color.WHITE, 0x0E), if (border) 1 else 0, withAlpha(Color.WHITE, 0x14))
             S_XBOX -> shape(withAlpha(Color.WHITE, 0x0A))
+            // X25: ciemne kafelki (akryl) z delikatną krawędzią
+            S_X25 -> shape(withAlpha(shade(panel, 0.04f), 0xB8), if (border) 1 else 0, withAlpha(Color.WHITE, 0x12))
+            // PS5: prawie przezroczyste wiersze (jak lista ustawień konsoli) – tło daje panel
+            S_PS5 -> shape(withAlpha(Color.WHITE, 0x06), if (border) 1 else 0, withAlpha(Color.WHITE, 0x0E))
             else -> if (border) shape(Color.TRANSPARENT, 1, withAlpha(text, 0x1C)) else shape(Color.TRANSPARENT)
         })
         setEnterFadeDuration(if (anim == 0) 0 else 90); setExitFadeDuration(if (anim == 0) 0 else 90)
@@ -588,8 +659,10 @@ object Ui {
         fun a(sc: Float, z: Float) = ObjectAnimator.ofPropertyValuesHolder(v, PropertyValuesHolder.ofFloat(View.SCALE_X, sc),
             PropertyValuesHolder.ofFloat(View.SCALE_Y, sc), PropertyValuesHolder.ofFloat(View.TRANSLATION_Z, z)).setDuration(g.zoomMs)
             .apply { if (g.overshoot > 0f && sc > 1f) interpolator = android.view.animation.OvershootInterpolator(g.overshoot) }
+        // PS5: bez unoszenia – cień elewacji prześwitywał przez półprzezroczyste wypełnienie (ciemne obrzeże, jaśniejszy prostokąt w środku)
+        val lift = if (surface == S_PS5) 0f else dp(4).toFloat()
         return StateListAnimator().apply {
-            addState(intArrayOf(android.R.attr.state_focused), a(s, dp(4).toFloat()))
+            addState(intArrayOf(android.R.attr.state_focused), a(s, lift))
             addState(intArrayOf(), a(1f, 0f))
         }
     }
@@ -709,7 +782,7 @@ object Ui {
 
     fun dialogBg(): Drawable {
         // ramka okna wg motywu: ostra (Xbox), duże zaokrąglenia (iOS)
-        val r = when (surface) { S_XBOX -> 2; S_GLASS -> 22; else -> maxOf(preset.radius, 14) }
+        val r = when (surface) { S_XBOX -> 2; S_GLASS -> 22; S_X25 -> 6; S_PS5 -> 14; else -> maxOf(preset.radius, 14) }
         if (color2("panel") != null) return fill("panel").apply { setStroke(dp(1), withAlpha(accent, 0x90)); cornerRadius = dp(r).toFloat() }
         // szkło: okno półprzezroczyste (rozmycie tła pod oknem, gdy system je obsługuje)
         return texturedSurface(panel, if (geo.blur > 0 && surface != S_XBOX) 0xE4 else 0xFA, r, frame = true)
@@ -717,7 +790,8 @@ object Ui {
     }
 
     private fun pillBg(primary: Boolean): Drawable = StateListDrawable().apply {
-        val r = dp(22).toFloat()
+        // X25: prostokątne przyciski akcji (lekko zaokrąglone), zaznaczony – pełna neonowa zieleń
+        val r = dp(if (surface == S_X25) 4 else 22).toFloat()
         addState(intArrayOf(android.R.attr.state_focused), GradientDrawable().apply { cornerRadius = r; setColor(focus) })
         addState(intArrayOf(android.R.attr.state_pressed), GradientDrawable().apply { cornerRadius = r; setColor(focus) })
         addState(intArrayOf(), GradientDrawable().apply {
@@ -729,11 +803,17 @@ object Ui {
         val w = d.window ?: return
         val dm = d.context.resources.displayMetrics
         val wide = dm.widthPixels / dm.density >= 900
-        w.setBackgroundDrawable(dialogBg())
+        // X25: menu i listy wyboru wysuwają się z lewej jako panel boczny (Guide) na całą wysokość ekranu
+        // PS5: menu jako panel ustawień konsoli (pionowa lista przy lewej krawędzi) – ten sam układ co panel X25, inny wygląd
+        val ps5 = Ps5Theme.isPanel(d)
+        val guide = X25Theme.isGuide(d) || ps5
+        w.setBackgroundDrawable(if (ps5) Ps5Theme.panelBg() else if (guide) X25Theme.guideBg() else dialogBg())
         // TV: 46% szerokości; telefon/tablet: do 92%, ale nie szerzej niż 560 dp (w poziomie okno nie rozciąga się na cały ekran)
-        w.setLayout(if (wide) (dm.widthPixels * 0.46f).toInt() else minOf((dm.widthPixels * 0.92f).toInt(), dp(560)), ViewGroup.LayoutParams.WRAP_CONTENT)
-        w.setDimAmount(0.7f)
-        if (anim != 0) w.setWindowAnimations(R.style.DialogAnim)
+        if (ps5) Ps5Theme.layoutPanel(w, wide)
+        else if (guide) X25Theme.layoutGuide(w, wide)
+        else w.setLayout(if (wide) (dm.widthPixels * 0.46f).toInt() else minOf((dm.widthPixels * 0.92f).toInt(), dp(560)), ViewGroup.LayoutParams.WRAP_CONTENT)
+        w.setDimAmount(if (guide) 0.45f else 0.7f)
+        if (anim != 0) w.setWindowAnimations(if (guide) R.style.X25GuideAnim else R.style.DialogAnim)
         // szkło: rozmyte tło pod oknem (Android 12+, gdy urządzenie obsługuje rozmycie między oknami)
         if (geo.blur > 0 && android.os.Build.VERSION.SDK_INT >= 31 &&
             (d.context.getSystemService(android.content.Context.WINDOW_SERVICE) as? android.view.WindowManager)?.isCrossWindowBlurEnabled == true) {
@@ -748,7 +828,7 @@ object Ui {
         }
         w.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         // treść odsunięta od zaokrąglonej ramki – zaznaczenia i przyciski nie są ucinane na rogach
-        w.decorView.setPadding(dp(10), dp(8), dp(10), dp(10))
+        w.decorView.setPadding(dp(10), dp(8), dp(10), dp(if (guide) 24 else 10))   // panel Guide: przyciski nad dolną krawędzią ekranu
         styleDialogTree(w.decorView)
         d.findViewById<TextView>(androidx.appcompat.R.id.alertTitle)?.apply {
             setTextColor(Ui.accent); typeface = Ui.typeface(Typeface.BOLD)
@@ -766,7 +846,7 @@ object Ui {
             d.getButton(which)?.apply {
                 val primary = which == android.content.DialogInterface.BUTTON_POSITIVE
                 isAllCaps = false
-                setTextColor(textColors(if (primary) Ui.accent else Ui.text))
+                setTextColor(when (surface) { S_X25 -> X25Theme.buttonText(primary); S_PS5 -> Ps5Theme.buttonText(primary); else -> textColors(if (primary) Ui.accent else Ui.text) })
                 typeface = Ui.typeface(Typeface.BOLD)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f * fontScale)
                 background = pillBg(primary)
@@ -776,13 +856,14 @@ object Ui {
         }
         d.listView?.let { lv -> styleList(lv) }
         d.findViewById<View>(androidx.appcompat.R.id.buttonPanel)?.let { bp ->
-            bp.setPadding(dp(8), dp(6), dp(8), dp(6))
-            // pasek przycisków (w AppCompat to ScrollView) bez paska przewijania i bez przycinania powiększonego przycisku
+            bp.setPadding(dp(8), dp(if (guide) 10 else 6), dp(8), dp(if (guide) 10 else 6))            // pasek przycisków (w AppCompat to ScrollView) bez paska przewijania i bez przycinania powiększonego przycisku
             bp.isVerticalScrollBarEnabled = false; bp.isHorizontalScrollBarEnabled = false; bp.overScrollMode = View.OVER_SCROLL_NEVER
             (bp as? ViewGroup)?.let { g -> g.clipToPadding = false; g.clipChildren = false
                 (g.getChildAt(0) as? ViewGroup)?.let { bar -> bar.clipChildren = false; bar.clipToPadding = false } }
         }
         fixDialogScrollers(w.decorView)
+        // PS5: podpowiedzi przycisków na dole okna (✕ Wybierz · ○ Wstecz · ▲▼ Nawiguj)
+        if (surface == S_PS5) Ps5Theme.addDialogHints(d)
         // początkowy kursor: pole tekstowe → lista (pierwsza pozycja) → „OK”
         w.decorView.post {
             val edit = findFirst(w.decorView) { it is EditText && it.isShown } as EditText?
@@ -806,7 +887,7 @@ object Ui {
         }
         // okno nie wyższe niż ekran – przyciski na dole zawsze widoczne (treść przewija się);
         // sprawdzane przy każdej zmianie rozmiaru (np. lista odświeżona w oknie „na żywo”), nie tylko raz po otwarciu
-        if (w.decorView.getTag(R.id.ui_clip) == null) {
+        if (!guide && w.decorView.getTag(R.id.ui_clip) == null) {
             w.decorView.setTag(R.id.ui_clip, true)
             w.decorView.addOnLayoutChangeListener { v, _, t, _, b, _, _, _, _ ->
                 val maxH = (v.resources.displayMetrics.heightPixels * 0.9f).toInt()

@@ -23,6 +23,9 @@ open class BaseActivity : AppCompatActivity() {
     protected lateinit var content: View
     /** Obraz odtwarzanego kanału w tle (ustawienia, edytor, przewodnik…). */
     protected open val videoBackground = true
+    /** Pasek „Teraz odtwarzane” (film STube w tle) na dole ekranu. */
+    protected open val miniPlayer = false
+    protected var miniBar: MiniPlayerBar? = null; private set
     private var videoView: androidx.media3.ui.PlayerView? = null
     private var appliedVersion = -1
 
@@ -43,8 +46,30 @@ open class BaseActivity : AppCompatActivity() {
         applyOrientation(); super.onCreate(savedInstanceState)
         // tło okna od razu w kolorze motywu: zanim ekran się narysuje, widać tło motywu, nie stały ciemny kolor (mignięcie „czarnego ekranu”)
         if (!isPlayerScreen) window.setBackgroundDrawable(Ui.bgDrawable())
+        // X25: dźwięk przy przejściu fokusu pilotem (motyw sprawdzany przy każdym zdarzeniu – działa też po zmianie motywu)
+        if (!isPlayerScreen) X25Theme.attachSounds(this)
+        // ekrany główne: WSTECZ (wyjście) – przy pulpicie X25 prosto na pulpit; obsługa ekranu (własne wywołania zwrotne) ma pierwszeństwo
+        if (x25Root) onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() = leaveScreen()
+        })
         createdEpoch = Ui.themeEpoch
     }
+
+    /** Ekran w stylu ustawień konsoli: przy motywie PS5 pasek podpowiedzi przycisków (✕ Wybierz · ○ Wstecz · ▲▼ Nawiguj). */
+    protected open val ps5Hints = false
+
+    /** Ekran główny otwierany z pulpitu X25 (odtwarzacz, STube, Stremio, przewodnik, wyszukiwarka). */
+    protected open val x25Root = false
+
+    /** Wyjście z ekranu: przy pulpicie X25 – na pulpit (nie na listę kanałów pod spodem). */
+    fun leaveScreen() {
+        if (x25Root && X25Theme.dashboardOn) X25Theme.openDashboard(this)
+        finish()
+    }
+
+    /** Zmiana motywu od zbudowania ekranu: domyślnie przebudowa (pulpit X25 może się zamiast tego zamknąć). */
+    protected open fun onThemeEpochChanged() = rebuildForTheme()
+
 
     /** Motyw, z którym zbudowano ekran; inny = ekran budowany od nowa (układ, kafelki, ramki nowego motywu). */
     private var createdEpoch = 0
@@ -58,16 +83,43 @@ open class BaseActivity : AppCompatActivity() {
         recreate()
     }
 
+    override fun onStart() { super.onStart(); miniBar?.start() }
+    override fun onStop() { miniBar?.stop(); super.onStop() }
+
+    /** ▼ z najniższego elementu – pasek „Teraz odtwarzane”. */
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        // PS5: podpowiedzi przycisków wg ostatnio użytego urządzenia (pilot / pad)
+        Ps5Input.onKey(event)
+        if (miniBar?.handleKey(event) == true) return true
+        return super.dispatchKeyEvent(event)
+    }
+
+    /** Dotknięcie ekranu (nie mysz) – podpowiedzi przycisków PS5 ukryte. */
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN && ev.isFromSource(android.view.InputDevice.SOURCE_TOUCHSCREEN)) Ps5Input.onTouch()
+        return super.dispatchTouchEvent(ev)
+    }
+
     override fun onResume() {
+        X25Theme.refreshLauncher(this)
         super.onResume()
         applyOrientation()
         // powrót do aplikacji z okienkiem PiP: okienko się zamyka, obraz przechodzi na ten ekran
         if (this !is PlayerActivity) PlayerActivity.closePip()
         gateActivation()
-        if (!isPlayerScreen && themeChangedSinceCreate()) { rebuildForTheme(); return }
+        if (!isPlayerScreen && themeChangedSinceCreate()) { onThemeEpochChanged(); return }
+        // STube / Stremio: telewizja wstrzymana; pozostałe ekrany menu: wstrzymany kanał gra dalej (odtwarzacz TV uruchamia własny)
+        when {
+            pausesLiveTv -> Playback.suspendForApp()
+            isPlayerScreen -> Playback.forgetSuspended()
+            else -> Playback.resumeAfterApp(this)
+        }
         if (::rootFrame.isInitialized && appliedVersion != Ui.version) applyTheme()
         updateVideo()
     }
+
+    /** Ekran aplikacji, przy którym telewizja na żywo nie gra (STube, Stremio) – nie obciąża słabszych urządzeń. */
+    protected open val pausesLiveTv = false
 
     /** Wersja zabezpieczona: bez aktywacji każdy ekran ustępuje ekranowi blokady. */
     private fun gateActivation() {
@@ -112,6 +164,12 @@ open class BaseActivity : AppCompatActivity() {
         rootFrame.addView(dim, FrameLayout.LayoutParams(mp, mp))
         rootFrame.addView(view, FrameLayout.LayoutParams(mp, mp))
         content = view
+        if (miniPlayer) miniBar = MiniPlayerBar(this).also { bar ->
+            bar.attachTo(rootFrame)
+            val base = view.paddingBottom
+            // miejsce pod treścią na pasek – nic nie chowa się pod nim
+            bar.onVisibilityChanged = { on -> view.setPadding(view.paddingLeft, view.paddingTop, view.paddingRight, base + if (on) Ui.dp(84) else 0) }
+        }
         setContentView(rootFrame)
         applyTheme()
     }
@@ -120,8 +178,11 @@ open class BaseActivity : AppCompatActivity() {
     open fun applyTheme() {
         appliedVersion = Ui.version
         // tło rysuje okno (jedna warstwa zamiast dwóch – mniej przerysowań całego ekranu na słabszych urządzeniach)
-        if (isPlayerScreen) rootFrame.background = Ui.bgDrawable()
+        // odtwarzacz: obraz zasłania tło – X25 bez rysowanego tła (pełnoekranowa grafika pod wideo w każdej klatce = przycięcia)
+        if (isPlayerScreen) rootFrame.background = if (X25Theme.active || Ps5Theme.active) android.graphics.drawable.ColorDrawable(Ui.bg) else Ui.bgDrawable()
         else { rootFrame.background = null; window.setBackgroundDrawable(Ui.bgDrawable()) }
+        // PS5: podpowiedzi przycisków na dole ekranów w stylu ustawień konsoli (inny motyw – pasek usuwany)
+        if (ps5Hints) Ps5Theme.attachScreenHints(rootFrame)
         window.statusBarColor = Ui.bg
         window.navigationBarColor = Ui.bg
         val f = Repository.bgImageFile

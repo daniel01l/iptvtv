@@ -298,22 +298,53 @@ object Scores {
     private val GENERIC = setOf("club", "football", "futbol", "calcio", "sport", "sports", "team", "the", "and", "fc", "cf", "sc", "ac", "afc", "ssc",
         "real", "united", "city", "town", "county", "rovers", "athletic", "atletico", "sporting", "olympique", "racing", "deportivo", "union", "borussia", "dynamo", "inter")
     /** Polskie nazwy używane w programie TV dla popularnych drużyn (EPG po polsku). */
-    private val ALIASES = mapOf("munich" to "monachium munchen", "milan" to "mediolan", "lisbon" to "lizbona", "madrid" to "madryt",
+    private val ALIASES by lazy { mapOf("munich" to "monachium munchen", "milan" to "mediolan", "lisbon" to "lizbona", "madrid" to "madryt",
         "rome" to "rzym", "turin" to "turyn", "naples" to "neapol", "cologne" to "kolonia", "paris saint germain" to "psg",
-        "spurs" to "tottenham", "man utd" to "manchester", "man city" to "manchester", "wolves" to "wolverhampton", "nottm" to "nottingham")
+        "spurs" to "tottenham", "man utd" to "manchester", "man city" to "manchester", "wolves" to "wolverhampton", "nottm" to "nottingham") + NATIONS }
+
+    /**
+     * Reprezentacje: ESPN / API-Football podają nazwy po angielsku („Poland”, „Netherlands”), a polski program TV –
+     * po polsku („Polska – Holandia”). Bez tego mecze reprezentacji znajdowały się tylko na stacjach zagranicznych.
+     */
+    private val NATIONS = mapOf(
+        "poland" to "polska", "netherlands" to "holandia niderlandy", "holland" to "holandia", "germany" to "niemcy", "england" to "anglia",
+        "spain" to "hiszpania", "france" to "francja", "italy" to "wlochy", "portugal" to "portugalia", "belgium" to "belgia",
+        "croatia" to "chorwacja", "czechia" to "czechy", "czech republic" to "czechy", "slovakia" to "slowacja", "switzerland" to "szwajcaria",
+        "scotland" to "szkocja", "wales" to "walia", "northern ireland" to "irlandia polnocna", "republic of ireland" to "irlandia", "ireland" to "irlandia",
+        "denmark" to "dania", "sweden" to "szwecja", "norway" to "norwegia", "finland" to "finlandia", "iceland" to "islandia",
+        "ukraine" to "ukraina", "hungary" to "wegry", "romania" to "rumunia", "serbia" to "serbia", "slovenia" to "slowenia",
+        "bosnia and herzegovina" to "bosnia hercegowina", "bosnia herzegovina" to "bosnia hercegowina", "montenegro" to "czarnogora",
+        "north macedonia" to "macedonia", "greece" to "grecja", "turkey" to "turcja", "turkiye" to "turcja", "georgia" to "gruzja",
+        "azerbaijan" to "azerbejdzan", "kazakhstan" to "kazachstan", "israel" to "izrael", "cyprus" to "cypr", "lithuania" to "litwa",
+        "latvia" to "lotwa", "belarus" to "bialorus", "moldova" to "moldawia", "russia" to "rosja", "luxembourg" to "luksemburg",
+        "faroe islands" to "wyspy owcze", "kosovo" to "kosowo", "brazil" to "brazylia", "argentina" to "argentyna", "uruguay" to "urugwaj",
+        "colombia" to "kolumbia", "mexico" to "meksyk", "united states" to "stany zjednoczone", "canada" to "kanada", "japan" to "japonia",
+        "south korea" to "korea poludniowa", "korea republic" to "korea poludniowa", "morocco" to "maroko", "egypt" to "egipt",
+        "cameroon" to "kamerun", "tunisia" to "tunezja", "algeria" to "algieria", "saudi arabia" to "arabia saudyjska", "ecuador" to "ekwador",
+        "paraguay" to "paragwaj", "costa rica" to "kostaryka", "qatar" to "katar", "ivory coast" to "wybrzeze kosci sloniowej",
+        "cote d ivoire" to "wybrzeze kosci sloniowej", "new zealand" to "nowa zelandia", "south africa" to "rpa",
+    )
 
     /** Słowa rozpoznające drużynę (bez ogólnych, min. 4 znaki; także polskie odpowiedniki). */
     fun teamKeys(vararg names: String): Set<String> {
         val out = HashSet<String>()
         for (n in names) {
             var f = fold(n); if (f.isBlank()) continue
-            ALIASES.forEach { (k, v) -> if (f.contains(k)) f += " $v" }
+            // całe słowa (np. „oman” nie może pasować do „romania”)
+            val base = " $f "
+            ALIASES.forEach { (k, v) -> if (base.contains(" $k ")) f += " $v" }
             f.split(' ').filter { it.length >= 4 && it !in GENERIC }.forEach { out += it }
         }
         return out
     }
 
-    private val SPORT = Regex("pilka|football|soccer|liga|league|premier|bundesliga|laliga|serie a|ligue|ekstraklasa|mecz|champions|uefa|puchar|cup|eredivisie|mundial|euro")
+    // także mecze reprezentacji: eliminacje, mistrzostwa, Liga Narodów, mecze towarzyskie
+    private val SPORT = Regex("pilka|football|soccer|liga|league|premier|bundesliga|laliga|serie a|ligue|ekstraklasa|mecz|champions|uefa|puchar|cup|eredivisie|mundial|euro" +
+        "|eliminacj|kwalifikac|reprezentac|mistrzostw|narodow|towarzysk|qualif|nations|fifa")
+
+    /** Kanał polski (nazwa / grupa): przy równym dopasowaniu przed stacjami zagranicznymi. */
+    private val PL_WORDS = setOf("pl", "polska", "polski", "polsat", "tvp", "tvn", "eleven", "canal")
+    private fun polish(ch: Channel): Boolean = fold(ch.name + " " + ch.group).split(' ').any { it in PL_WORDS }
 
     /** Wynik na żywo przy kanale z transmisją (lista kanałów, panel, lista po OK): klucz kanału -> „⚽ Leeds 1:0 Spurs 45'”. */
     @Volatile var liveByChannel: Map<String, String> = emptyMap(); private set
@@ -371,7 +402,8 @@ object Scores {
                 (h || a) && SPORT.containsMatchIn(text) -> out += Broadcast(ch, p, false)
             }
         }
-        return out.sortedByDescending { it.sure }.take(6)
+        // pewne dopasowania najpierw, wśród nich polskie stacje przed zagranicznymi
+        return out.sortedWith(compareByDescending<Broadcast> { it.sure }.thenByDescending { polish(it.channel) }).take(6)
     }
 
     /** Kanał z meczem (najpewniejsze dopasowanie). */

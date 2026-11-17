@@ -29,6 +29,7 @@ import pl.iptv.tv.reminders.ReminderScheduler
 
 /** Wyszukiwarka w programie TV (wszystkie kanały) + lista przypomnień. */
 class EpgSearchActivity : BaseActivity() {
+    override val x25Root = true
     companion object {
         const val EXTRA_QUERY = "query"
         const val EXTRA_TAB = "tab"

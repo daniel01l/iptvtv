@@ -52,16 +52,16 @@ class V57Test {
         Scores.Match(id, "eng.1", "🏴 Premier League", "Leeds", "Spurs", "1", "2", hs, aws, state, "45'", System.currentTimeMillis())
 
     @Test fun newThemesWithTextures() {
-        for (id in listOf("ios", "xbox")) assertTrue(id, Ui.PRESETS.any { it.id == id })
+        for (id in listOf(Ps5Theme.ID, "xbox")) assertTrue(id, Ui.PRESETS.any { it.id == id })
         Ui.applyPreset("xbox"); Ui.changed()
         assertEquals(Ui.S_XBOX, Ui.surface)
         assertTrue(Ui.bgDrawable() is TexturedDrawable)
         assertTrue(Ui.panelBg() is TexturedDrawable)
         assertTrue(Ui.dialogBg() is TexturedDrawable)
-        Ui.applyPreset("ios"); Ui.changed()
-        assertEquals(Ui.S_GLASS, Ui.surface)
+        Ui.applyPreset(Ps5Theme.ID); Ui.changed()
+        assertEquals(Ui.S_PS5, Ui.surface)
         assertTrue(Ui.surfaceBg() is TexturedDrawable)
-        assertEquals(22, Ui.preset.radius)
+        assertEquals(12, Ui.preset.radius)
         // własny kolor tła (gradient) ma pierwszeństwo przed fakturą
         Ui.setGradient("bg", 0xFF000000.toInt(), 0xFF202020.toInt())
         assertTrue(Ui.bgDrawable() is android.graphics.drawable.GradientDrawable)
@@ -69,7 +69,7 @@ class V57Test {
         assertEquals(Ui.S_FLAT, Ui.surface)
         assertTrue(Ui.panelBg() is android.graphics.drawable.GradientDrawable)
         // ekrany z nowymi motywami otwierają się bez błędów
-        for (id in listOf("ios", "xbox")) {
+        for (id in listOf(Ps5Theme.ID, "xbox")) {
             Ui.applyPreset(id); Ui.changed()
             val s = Robolectric.buildActivity(SettingsActivity::class.java, Intent().putExtra("tab", 1)).setup(); idle()
             val m = Robolectric.buildActivity(MainActivity::class.java).setup(); idle(400)

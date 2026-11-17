@@ -14,7 +14,8 @@ import pl.iptv.tv.data.StubeQueue
 import pl.iptv.tv.data.YtKeyless
 import pl.iptv.tv.data.YtVideo
 import pl.iptv.tv.ui.STubeActivity
-import pl.iptv.tv.ui.YtBackground
+import pl.iptv.tv.ui.YtEngine
+import pl.iptv.tv.data.YtChapters
 import pl.iptv.tv.ui.YtPlayerActivity
 import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
@@ -100,23 +101,20 @@ object StubeRemote {
 
     fun command(cmd: String, arg: String): JSONObject = when (cmd) {
         "toggle", "play", "pause", "seek", "chapter_next", "chapter_prev", "next", "stop" -> onMain {
-            val a = YtPlayerActivity.active?.get()?.takeIf { !it.isFinishing && !it.isDestroyed }
-            val bg = YtBackground.player
-            when {
-                a != null -> if (a.remote(cmd, arg.toLongOrNull() ?: 0)) ok("OK") else fail("Polecenie niedostępne dla tego filmu")
-                bg != null -> {
-                    when (cmd) {
-                        "toggle" -> bg.playWhenReady = !bg.playWhenReady
-                        "play" -> bg.playWhenReady = true
-                        "pause" -> bg.playWhenReady = false
-                        "seek" -> bg.seekTo((bg.currentPosition + (arg.toLongOrNull() ?: 0)).coerceAtLeast(0))
-                        "stop" -> YtBackground.stop(app)
-                        else -> return@onMain fail("Polecenie niedostępne w tle")
-                    }
-                    ok("OK (w tle)")
-                }
-                else -> fail("Nic nie jest odtwarzane w STube")
+            // odtwarzacz w usłudze – działa tak samo przy otwartym ekranie, w PiP i w tle
+            val p = YtEngine.player?.takeIf { YtEngine.active } ?: return@onMain fail("Nic nie jest odtwarzane w STube")
+            val chapters = YtEngine.playable?.chapters.orEmpty()
+            when (cmd) {
+                "toggle" -> p.playWhenReady = !p.playWhenReady
+                "play" -> p.playWhenReady = true
+                "pause" -> p.playWhenReady = false
+                "seek" -> p.seekTo((p.currentPosition + (arg.toLongOrNull() ?: 0)).coerceAtLeast(0))
+                "chapter_next" -> p.seekTo(YtChapters.nextStart(chapters, p.currentPosition) ?: return@onMain fail("Brak następnego rozdziału"))
+                "chapter_prev" -> p.seekTo(YtChapters.prevStart(chapters, p.currentPosition) ?: return@onMain fail("Ten film nie ma rozdziałów"))
+                "next" -> YtEngine.next()
+                "stop" -> YtEngine.stop()
             }
+            ok("OK")
         } ?: fail("Brak odpowiedzi odtwarzacza")
         "play_video" -> videoId(arg)?.let { id ->
             onMain { app.startActivity(YtPlayerActivity.intent(app, YtVideo(id, "", "")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
@@ -138,11 +136,13 @@ object StubeRemote {
     /** Stan dla telefonu: bieżący film (ekran lub tło) i kolejka. */
     fun status(): JSONObject {
         val now = onMain {
-            YtPlayerActivity.active?.get()?.takeIf { !it.isFinishing && !it.isDestroyed }?.remoteStatus()
-                ?: YtBackground.player?.let { p ->
-                    JSONObject().put("id", YtBackground.video?.id).put("title", YtBackground.video?.title).put("playing", p.isPlaying)
-                        .put("position", p.currentPosition).put("duration", p.duration.coerceAtLeast(0)).put("background", true)
-                }
+            YtEngine.player?.takeIf { YtEngine.active }?.let { p ->
+                val ch = YtEngine.playable?.chapters.orEmpty()
+                JSONObject().put("id", YtEngine.video?.id).put("title", YtEngine.playable?.title?.ifBlank { null } ?: YtEngine.video?.title)
+                    .put("playing", p.isPlaying).put("position", p.currentPosition).put("duration", p.duration.coerceAtLeast(0))
+                    .put("chapter", YtChapters.indexAt(ch, p.currentPosition).takeIf { it >= 0 }?.let { ch[it].title } ?: "")
+                    .put("background", YtPlayerActivity.active?.get()?.client == null)
+            }
         }
         val q = runBlocking { StubeQueue.items() }
         return JSONObject().put("ok", true).put("device", RemoteServer.deviceName).put("now", now ?: JSONObject.NULL)

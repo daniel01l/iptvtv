@@ -34,6 +34,13 @@ class HomeActivity : Activity() {
 
     private fun forward() {
         val first = runCatching { Prefs.init(this); firstSinceBoot(this) }.getOrDefault(false)
+        runCatching { pl.iptv.tv.ui.X25Theme.refreshLauncher(this) }
+        // kolejne HOME: od razu pulpit (X25 / ekran główny PS5) – bez przechodzenia przez listę kanałów (bez mignięcia)
+        if (!first && runCatching { pl.iptv.tv.ui.X25Theme.dashboardOn }.getOrDefault(false) && runCatching {
+                startActivity(pl.iptv.tv.ui.X25Theme.dashboardIntent(this).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }.isSuccess) {
+            finish(); @Suppress("DEPRECATION") overridePendingTransition(0, 0); return
+        }
         runCatching {
             startActivity(Intent(this, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)

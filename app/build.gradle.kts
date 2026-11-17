@@ -4,17 +4,18 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
     namespace = "pl.iptv.tv"
-    compileSdk = 34
+    compileSdk = 35
     defaultConfig {
         applicationId = "pl.iptv.tv"
         minSdk = 21
         targetSdk = 34
-        versionCode = 56
-        versionName = "6.3"
+        versionCode = 58
+        versionName = "6.5"
         // konto YouTube (OAuth 2.0 Device Flow): klient typu „TV i urządzenia z ograniczonym wejściem” z Google Cloud Console.
         // Plik keystore/youtube_oauth.properties (poza repozytorium): client_id=…, client_secret=…, api_key=… (klucz – trendy bez logowania).
         val yt = Properties().apply { rootProject.file("keystore/youtube_oauth.properties").takeIf { it.exists() }?.reader()?.use { load(it) } }
@@ -36,7 +37,7 @@ android {
             signingConfig = signingConfigs.getByName("iptvtv")
         }
     }
-    buildFeatures { buildConfig = true }
+    buildFeatures { buildConfig = true; compose = true }
     // full – Twoja wersja (bez zmian); secure – wersja dla testerów: aktywacja kodem urządzenia, blokada, ograniczona prywatność
     flavorDimensions += "edition"
     // klucz publiczny z aplikacji D-iptv Admin (plik poza repozytorium); lista aktywacji w publicznym repozytorium dplayer
@@ -94,7 +95,8 @@ android {
 ksp { arg("room.schemaLocation", "$projectDir/schemas") }
 
 dependencies {
-    val media3 = "1.4.1"
+    // Media3 1.5.0 – wersja zgodna z prebudowanym dekoderem FFmpeg (Jellyfin publikuje go tylko dla wybranych wersji Media3)
+    val media3 = "1.5.0"
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.recyclerview:recyclerview:1.3.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
@@ -106,8 +108,13 @@ dependencies {
     // STube: odtwarzanie w tle (MediaSessionService, powiadomienie multimediów)
     implementation("androidx.media3:media3-session:$media3")
     implementation("androidx.media3:media3-datasource-okhttp:$media3")
+    // Stremio: programowe dekodery dźwięku FFmpeg (AC3, E-AC3, DTS, DTS-HD, TrueHD…) jako zapas, gdy TV nie ma dekodera / passthrough.
+    // Prebudowany moduł Jellyfin (biblioteki natywne FFmpeg, licencja GPLv3 wg POM) – wersja musi odpowiadać Media3.
+    implementation("org.jellyfin.media3:media3-ffmpeg-decoder:$media3+1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.coil-kt:coil:2.7.0")
+    // pulpit X25: miniatury i logo w Compose (ten sam ImageLoader co widoki – IptvApp)
+    implementation("io.coil-kt:coil-compose:2.7.0")
     // tokeny konta YouTube szyfrowane kluczem z Android Keystore (1.1.0-alpha06: minSdk 21)
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     // STube: wbudowany odtwarzacz – adresy strumieni YouTube bez reklam (licencja GPLv3)
@@ -117,6 +124,11 @@ dependencies {
     implementation("androidx.room:room-runtime:$room")
     implementation("androidx.room:room-ktx:$room")
     ksp("androidx.room:room-compiler:$room")
+    // motyw X25: pulpit w Jetpack Compose (Compose 1.7 – minSdk 21); pozostałe ekrany na widokach z motywem z Ui
+    implementation(platform("androidx.compose:compose-bom:2024.09.03"))
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.foundation:foundation")
+    implementation("androidx.activity:activity-compose:1.9.2")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.5")
 
     testImplementation("junit:junit:4.13.2")

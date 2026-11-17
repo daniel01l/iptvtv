@@ -68,6 +68,7 @@ object Prefs {
     fun optInt(k: String): Int? = if (sp.contains(k)) sp.getInt(k, 0) else null
     fun setOptInt(k: String, v: Int?) = sp.edit().apply { if (v == null) remove(k) else putInt(k, v) }.apply()
     fun remove(vararg keys: String) = sp.edit().apply { keys.forEach { remove(it) } }.apply()
+    fun has(key: String) = sp.contains(key)
 
     // ---- YouTube (tokeny konta: YouTubeTokens – szyfrowane, poza kopią zapasową) ----
     /** Źródło filmów: 0 = spersonalizowane (konto), 1 = trendy publiczne. */
@@ -84,8 +85,9 @@ object Prefs {
     var stubeHistory: Boolean get() = bool("stube_history", true); set(v) = putBool("stube_history", v)
     /** STube: wznawianie filmu od zapisanej pozycji. */
     var stubeResume: Boolean get() = bool("stube_resume", true); set(v) = putBool("stube_resume", v)
-    /** Odtwarzacz STube: gra dalej w tle po HOME / przejściu do innej aplikacji (usługa z powiadomieniem). */
-    var ytBackground: Boolean get() = bool("yt_bg", false); set(v) = putBool("yt_bg", v)
+    /** Odtwarzacz STube: jakość (maks. wysokość obrazu, 0 = automatycznie) i język napisów (puste = wyłączone) – wybór w odtwarzaczu. */
+    var ytQuality: Int get() = int("yt_quality", 0); set(v) = putInt("yt_quality", v)
+    var ytSubLang: String get() = str("yt_sub_lang"); set(v) = put("yt_sub_lang", v)
     /** Wygaszacz odtwarzacza: po tylu minutach pauzy bez pilota (0 = wyłączony). */
     var ytAmbientMin: Int get() = int("yt_ambient", 5); set(v) = putInt("yt_ambient", v)
     /** Po końcu filmu – następna pozycja z kolejki (inaczej propozycje). */
@@ -129,6 +131,39 @@ object Prefs {
     // ---- wygląd ----
     var theme: String get() = str("theme", "modern"); set(v) = put("theme", v)
     var bgImageOn: Boolean get() = bool("bg_on", false); set(v) = putBool("bg_on", v)
+    // ---- Stremio ----
+    /** Synchronizacja historii z kontem Stremio: -1 nie pytano, 0 nie, 1 tak. */
+    var stremioSync: Int get() = int("stremio_sync", -1); set(v) = putInt("stremio_sync", v)
+    /** Przeglądanie bez konta (pominięty ekran logowania). */
+    var stremioGuest: Boolean get() = bool("stremio_guest", false); set(v) = putBool("stremio_guest", v)
+    /** Odtwarzacz: rozmiar napisów (indeks), kolor (indeks), opóźnienie (ms), dopasowanie obrazu, preferowany język napisów. */
+    var stremioSubSize: Int get() = int("stremio_sub_size", 1); set(v) = putInt("stremio_sub_size", v)
+    var stremioSubColor: Int get() = int("stremio_sub_color", 0); set(v) = putInt("stremio_sub_color", v)
+    var stremioSubDelay: Int get() = int("stremio_sub_delay", 0); set(v) = putInt("stremio_sub_delay", v)
+    var stremioAspect: Int get() = int("stremio_aspect", 0); set(v) = putInt("stremio_aspect", v)
+    var stremioSubLang: String get() = str("stremio_sub_lang", "pol"); set(v) = put("stremio_sub_lang", v)
+    // ---- motyw X25 ----
+    /** Pulpit X25 jako ekran startowy (gdy włączony motyw X25). */
+    var x25Dashboard: Boolean get() = bool("x25_dash", true); set(v) = putBool("x25_dash", v)
+    /** Menu i listy wyboru jako panel boczny „Guide”. */
+    var x25Guide: Boolean get() = bool("x25_guide", true); set(v) = putBool("x25_guide", v)
+    /** Dźwięki nawigacji pilotem. */
+    var x25Sounds: Boolean get() = bool("x25_sounds", true); set(v) = putBool("x25_sounds", v)
+    /** Motyw sprzed włączenia X25 (wyłączenie wraca do niego). */
+    var x25PrevTheme: String get() = str("x25_prev"); set(v) = put("x25_prev", v)
+    /** Kafelek Stremio dopisany do zapisanego układu pulpitu (raz – usunięty przez użytkownika nie wraca). */
+    var x25StremioTile: Boolean get() = bool("x25_stremio_tile", false); set(v) = putBool("x25_stremio_tile", v)
+    // ---- motyw PS5 ----
+    /** Ekran główny PS5 jako ekran startowy (gdy włączony motyw PS5). */
+    var ps5Home: Boolean get() = bool("ps5_home", true); set(v) = putBool("ps5_home", v)
+    /** Menu i listy wyboru jako panel ustawień PS5 (pionowa lista przy lewej krawędzi). */
+    var ps5Panel: Boolean get() = bool("ps5_panel", true); set(v) = putBool("ps5_panel", v)
+    /** Dźwięki nawigacji pilotem w motywie PS5. */
+    var ps5Sounds: Boolean get() = bool("ps5_sounds", true); set(v) = putBool("ps5_sounds", v)
+    /** Motyw sprzed włączenia PS5 (wyłączenie wraca do niego – także do X25). */
+    var ps5PrevTheme: String get() = str("ps5_prev"); set(v) = put("ps5_prev", v)
+    /** Aplikacje z urządzenia dodane do rzędu ekranu głównego PS5 (ComponentName.flattenToString). */
+    var ps5Apps: List<String> get() = list("ps5_apps"); set(v) = putList("ps5_apps", v)
 
     // ---- funkcje (można wyłączać) ----
     var showFavGroup: Boolean get() = bool("f_fav", true); set(v) = putBool("f_fav", v)

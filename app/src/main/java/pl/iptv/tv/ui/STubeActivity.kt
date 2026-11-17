@@ -29,6 +29,11 @@ import pl.iptv.tv.data.StubeHistory
  * ▼ z wyszukiwarki do pierwszego rzędu, ▲ z pierwszego rzędu do wyszukiwarki.
  */
 class STubeActivity : BaseActivity() {
+    override val pausesLiveTv = true
+    /** Wąski ekran (telefon w pionie) – zwarty pasek u góry. */
+    private val narrowHeader get() = resources.configuration.screenWidthDp < 600
+    override val x25Root = true
+    override val miniPlayer = true
     /** Wygląd, z którym zbudowano ekran (zmiana motywu STube w Ustawieniach → przebudowa). */
     private var builtLook = ""
 
@@ -37,6 +42,11 @@ class STubeActivity : BaseActivity() {
     companion object {
         /** Fraza do wyszukania od razu (polecenie z telefonu). */
         const val EXTRA_QUERY = "query"
+        /** Pulpit X25: rząd do zaznaczenia od razu (id z [STubeScreen], np. „library”, „subs”). */
+        const val EXTRA_ROW = "row"
+        /** Pulpit X25: playlista do otwarcia od razu (id jak w [STubeScreen.playlistRow]) i jej tytuł. */
+        const val EXTRA_PLAYLIST = "playlist"
+        const val EXTRA_PLAYLIST_TITLE = "playlist_title"
     }
 
     private lateinit var query: AutoCompleteTextView
@@ -63,14 +73,24 @@ class STubeActivity : BaseActivity() {
         rowsBox = findViewById(R.id.stRows)
         scroll = findViewById(R.id.stScroll)
         account = findViewById(R.id.stAccount)
-        if (resources.configuration.screenWidthDp < 600)
+        if (narrowHeader) {
             content.setPadding(Ui.dp(10), Ui.dp(12), Ui.dp(10), Ui.dp(8))
+            // wąski ekran (telefon w pionie): pasek bez tytułu, przyciski same ikony – pole wyszukiwania i ✕ mieszczą się w szerokości
+            findViewById<View>(R.id.stTitle).visibility = View.GONE
+            findViewById<TextView>(R.id.stSearch).text = "🔎"; findViewById<TextView>(R.id.stSmartTube).text = "▶"
+            for (id in listOf(R.id.stSearch, R.id.stAccount, R.id.stPhone, R.id.stSmartTube, R.id.stRefresh, R.id.stClose)) findViewById<View>(id).let { b ->
+                b.setPadding(Ui.dp(10), b.paddingTop, Ui.dp(10), b.paddingBottom)
+                (b.layoutParams as android.view.ViewGroup.MarginLayoutParams).marginStart = Ui.dp(4)
+            }
+        }
 
         findViewById<View>(R.id.stClose).setOnClickListener { finish() }
         findViewById<View>(R.id.stRefresh).setOnClickListener { YouTubeRepository.clearCache(); pl.iptv.tv.data.YtKeyless.clearCache(); build(force = true) }
         findViewById<View>(R.id.stSmartTube).setOnClickListener { SmartTubeIntegrationHelper.launch(this) }
         account.setOnClickListener { openAccount() }
         findViewById<View>(R.id.stSearch).setOnClickListener { search(query.text.toString()) }
+        // dotknięcie / OK na polu – klawiatura systemowa (na TV samo zaznaczenie pola jej nie pokazuje)
+        query.setOnClickListener { showKeyboard() }
         query.setOnEditorActionListener { _, id, ev ->
             if (id == EditorInfo.IME_ACTION_SEARCH || id == EditorInfo.IME_ACTION_DONE || ev?.keyCode == KeyEvent.KEYCODE_ENTER) {
                 search(query.text.toString()); true
@@ -81,11 +101,26 @@ class STubeActivity : BaseActivity() {
         findViewById<View>(R.id.stPhone).setOnClickListener { StubeRemoteUi.show(this) }
         setupSuggestions()
         // pierwszy fokus: pierwszy kafelek (wyszukiwarka jest o jedno ▲ wyżej, klawiatura nie wyskakuje od razu)
-        if (StubeHistory.cacheLoaded) { build(); focusRow(0, fallback = query) }
+        if (StubeHistory.cacheLoaded) { build(); focusRow(startRow(), fallback = query); openTarget(intent) }
         else lifecycleScope.launch {
             // postęp oglądania do pamięci (paski na kafelkach, rząd „Kontynuuj oglądanie”) – przed pierwszym układem rzędów
             StubeHistory.loadCache()
-            build(); focusRow(0, fallback = query)
+            build(); focusRow(startRow(), fallback = query); openTarget(intent)
+        }
+    }
+
+    /** Rząd z [EXTRA_ROW] (gdy jest na ekranie), inaczej pierwszy. */
+    private fun startRow(): Int = intent.getStringExtra(EXTRA_ROW)?.let { id -> rows.indexOfFirst { it.id == id } }?.takeIf { it >= 0 } ?: 0
+
+    /** Playlista z [EXTRA_PLAYLIST] otwierana pod Biblioteką (miks – najpierw lista miksów z historii). */
+    private fun openTarget(i: Intent) {
+        val id = i.getStringExtra(EXTRA_PLAYLIST)?.takeIf { it.isNotBlank() } ?: return
+        val title = i.getStringExtra(EXTRA_PLAYLIST_TITLE).orEmpty()
+        lifecycleScope.launch {
+            if (id.startsWith(STubeScreen.PL_MIX) && pl.iptv.tv.data.StubeMixes.byId(id.removePrefix(STubeScreen.PL_MIX)) == null)
+                runCatching { pl.iptv.tv.data.StubeMixes.current() }
+            val from = rows.firstOrNull { it.id == STubeScreen.ROW_LIBRARY } ?: rows.firstOrNull() ?: return@launch
+            openPlaylist(from, pl.iptv.tv.data.YtPlaylist(id, title))
         }
     }
 
@@ -108,7 +143,7 @@ class STubeActivity : BaseActivity() {
     }
 
     private fun stateKey() = "${YouTubeTokens.loggedIn}|${YouTubeRepository.source}|${pl.iptv.tv.data.Prefs.ytRegion}|${searchQuery.orEmpty()}|" +
-        "${StubeHistory.hasUnfinished}"
+        "${StubeHistory.hasUnfinished}|${StubeHistory.historyCount >= pl.iptv.tv.data.StubeMixes.MIN_HISTORY}"
 
     /**
      * Powrót z odtwarzacza: paski obejrzenia odświeżone w miejscu (payload – bez migania miniatur, fokus zostaje),
@@ -130,6 +165,31 @@ class STubeActivity : BaseActivity() {
         }
         watchLaterChanged()
     }
+
+    // ---------------- klawiatura ekranowa ----------------
+
+    /**
+     * Klawiatura systemowa dla pola wyszukiwania (Android TV nie pokazuje jej po samym zaznaczeniu pola pilotem):
+     * fokus na polu → kontroler okien (Android 11+) → InputMethodManager, z ponowieniem po rozmieszczeniu okna.
+     * Akcja „Szukaj” klawiatury (IME_ACTION_SEARCH) wyszukuje.
+     */
+    fun showKeyboard() {
+        suggestJob?.cancel(); query.dismissDropDown()
+        if (!query.hasFocus()) query.requestFocus()
+        query.setSelection(query.text.length)
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager
+        androidx.core.view.WindowCompat.getInsetsController(window, query).show(androidx.core.view.WindowInsetsCompat.Type.ime())
+        if (imm?.showSoftInput(query, InputMethodManager.SHOW_IMPLICIT) != true) {
+            query.postDelayed({
+                if (!query.hasFocus()) query.requestFocus()
+                @Suppress("DEPRECATION") if (imm?.showSoftInput(query, InputMethodManager.SHOW_IMPLICIT) != true) imm?.showSoftInput(query, InputMethodManager.SHOW_FORCED)
+            }, 150)
+        }
+        keyboardRequested = true
+    }
+
+    /** Klawiatura wywołana (testy). */
+    var keyboardRequested = false; private set
 
     // ---------------- podpowiedzi (historia wyszukiwania) ----------------
 
@@ -180,7 +240,7 @@ class STubeActivity : BaseActivity() {
 
     private fun search(q: String) {
         val t = q.trim()
-        if (t.isEmpty()) { toast("Wpisz frazę do wyszukania"); return }
+        if (t.isEmpty()) { showKeyboard(); return }   // pusta fraza – klawiatura do wpisania
         (getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager)?.hideSoftInputFromWindow(query.windowToken, 0)
         suppressSuggest = true; suggestJob?.cancel(); query.dismissDropDown()
         // fraza do historii (podpowiedzi przy kolejnym wyszukiwaniu) – zapis w tle
@@ -196,7 +256,8 @@ class STubeActivity : BaseActivity() {
     private fun build(force: Boolean = false) {
         jobs.forEach { it.cancel() }; jobs.clear()
         builtFor = stateKey()
-        account.text = if (YouTubeTokens.loggedIn) "👤 " + YouTubeTokens.accountName.ifBlank { "Konto" } else "👤 Zaloguj"
+        account.text = if (narrowHeader) "👤" else if (YouTubeTokens.loggedIn) "👤 " + YouTubeTokens.accountName.ifBlank { "Konto" } else "👤 Zaloguj"
+        account.contentDescription = if (YouTubeTokens.loggedIn) "Konto YouTube" else "Zaloguj do YouTube"
         info.visibility = View.GONE
         rows = STubeScreen.rows(searchQuery)
         rowViews.clear(); rowsBox.removeAllViews(); playlistParent = null
@@ -380,6 +441,11 @@ class STubeActivity : BaseActivity() {
                         lifecycleScope.launch { StubeHistory.clearProgress(); if (builtFor != stateKey()) build() else refreshProgress() }
                     }
                 })
+                p.id.startsWith(STubeScreen.PL_MIX) -> {
+                    // gotowy miks: od razu do odtwarzacza (pierwszy film), reszta – kolejka „Następne”
+                    add("▶ Odtwórz miks" to { playMix(p, playNow = true) })
+                    add("＋ Dodaj miks do kolejki" to { playMix(p, playNow = false) })
+                }
                 p.id == STubeScreen.PL_LIKED || p.id.startsWith(STubeScreen.PL_CHANNEL) -> Unit
                 else -> {
                     val url = "https://www.youtube.com/playlist?list=${p.id}"
@@ -388,6 +454,19 @@ class STubeActivity : BaseActivity() {
                 }
             }
         })
+    }
+
+    /** Miks [p]: filmy z YouTube → pierwszy od razu (gdy [playNow]), pozostałe do kolejki. */
+    private fun playMix(p: pl.iptv.tv.data.YtPlaylist, playNow: Boolean) {
+        val mix = pl.iptv.tv.data.StubeMixes.byId(p.id.removePrefix(STubeScreen.PL_MIX)) ?: return
+        toast("Przygotowanie miksu…")
+        lifecycleScope.launch {
+            val vids = pl.iptv.tv.data.StubeMixes.videos(mix)
+            if (vids.isEmpty()) { toast("Brak filmów dla tego miksu"); return@launch }
+            val rest = if (playNow) vids.drop(1) else vids
+            rest.forEach { pl.iptv.tv.data.StubeQueue.add(pl.iptv.tv.data.QueueItem.of(it)) }
+            if (playNow) playInApp(vids.first()) else toast("Dodano do kolejki: ${rest.size} filmów")
+        }
     }
 
     private fun videoMenu(v: pl.iptv.tv.data.YtVideo) {
@@ -447,6 +526,15 @@ class STubeActivity : BaseActivity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // OK / Enter na polu wyszukiwania – klawiatura ekranowa (chyba że wybrano podpowiedź z listy – wtedy wyszukanie)
+        if ((event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER || event.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) &&
+            window.decorView.findFocus() === query && !(query.isPopupShowing && query.listSelection != android.widget.ListView.INVALID_POSITION)) {
+            if (event.action == KeyEvent.ACTION_UP) showKeyboard()
+            return true
+        }
+        // pasek „Teraz odtwarzane”: ▲ wraca do ostatnio zaznaczonego rzędu, ◄► między przyciskami paska
+        window.decorView.findFocus()?.let { f -> if (miniBar?.isInside(f) == true && event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+            rows.indices.lastOrNull { rows[it].tiles.isNotEmpty() }?.let { focusRow(it) } ?: query.requestFocus(); return true } }
         // WSTECZ przy otwartej playliście / kanale – zamyka jej rząd i wraca na kafelek źródłowy (dopiero kolejne WSTECZ zamyka STube)
         if (event.keyCode == KeyEvent.KEYCODE_BACK && playlistRow != null && !query.isPopupShowing) {
             if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) closePlaylist()
@@ -464,7 +552,7 @@ class STubeActivity : BaseActivity() {
                     KeyEvent.KEYCODE_DPAD_RIGHT -> { if (pos >= 0 && pos < rows[ri].tiles.size - 1) rv.focusPosition(pos + 1); return true }
                     KeyEvent.KEYCODE_DPAD_DOWN -> {
                         val next = (ri + 1 until rows.size).firstOrNull { rows[it].tiles.isNotEmpty() }
-                        if (next != null) focusRow(next)
+                        if (next != null) focusRow(next) else if (miniBar?.shown == true) miniBar?.focusBar()   // ostatni rząd → pasek „Teraz odtwarzane”
                         return true
                     }
                     KeyEvent.KEYCODE_DPAD_UP -> {

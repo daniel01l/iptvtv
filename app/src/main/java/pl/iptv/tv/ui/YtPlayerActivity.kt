@@ -1,10 +1,15 @@
 package pl.iptv.tv.ui
 
+import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Bundle
+import android.util.Rational
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
@@ -15,40 +20,42 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.C
-import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
 import androidx.media3.ui.PlayerView
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import pl.iptv.tv.data.Prefs
+import pl.iptv.tv.data.QueueItem
 import pl.iptv.tv.data.SbSegment
 import pl.iptv.tv.data.SponsorBlock
-import pl.iptv.tv.data.YtPlayable
-import pl.iptv.tv.data.YtStreamException
-import pl.iptv.tv.data.YtStreams
-import pl.iptv.tv.data.StubeHistory
-import pl.iptv.tv.data.YtVideo
+import pl.iptv.tv.data.StubeQueue
 import pl.iptv.tv.data.YtChapter
 import pl.iptv.tv.data.YtChapters
+import pl.iptv.tv.data.YtPlayable
+import pl.iptv.tv.data.YtStreams
+import pl.iptv.tv.data.YtVideo
 
 /**
- * Wbudowany odtwarzacz STube (Media3): strumienie YouTube bez reklam ([YtStreams]), automatyczne pomijanie
- * segmentów SponsorBlock, sterowanie pilotem. Gdy film nie da się odtworzyć (blokada, błąd strumienia, brak odpowiedzi) –
- * od razu okno: „Odtwórz w SmartTube”, „Odtwórz w YouTube”, „Zamknij”.
+ * Odtwarzacz STube – ekran-klient: obraz i sterowanie przez [MediaController] połączony z [YtPlaybackService] ([YtEngine]).
+ * Ekran nie posiada odtwarzacza: przy WSTECZ / HOME odpina tylko powierzchnię wideo i zwalnia kontroler – dźwięk gra dalej
+ * (mini-player w STube i menu). Nakładka (10-foot UI): tytuł i kanał, rozdziały, „Co następuje”, przyciski: prędkość, jakość,
+ * audio, napisy, dźwięk (korektor), rozdziały, kolejka, obraz w obrazie (PiP).
+ * Pilot: OK przy ukrytym pasku – tylko pokazuje pasek (pauza: przycisk ⏯ na pasku lub Play/Pause na pilocie), ◄► 10 s,
+ * ▲▼ rozdziały, MENU – opcje. Błąd strumienia – okno: SmartTube / YouTube / Zamknij.
  */
 class YtPlayerActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_ID = "id"; const val EXTRA_TITLE = "title"
         const val EXTRA_CHANNEL = "channel"; const val EXTRA_THUMB = "thumb"; const val EXTRA_FROM_START = "from_start"
-        /** Bez gotowości odtwarzania po tylu ms od startu – strumień uznany za zablokowany. */
-        const val START_TIMEOUT_MS = 25_000L
+        /** Otwarcie bieżącego filmu silnika (mini-player, powiadomienie) – bez wczytywania od nowa. */
+        const val EXTRA_RESUME_CURRENT = "resume_current"
         const val SEEK_STEP_MS = 10_000L
-        /** Co ile ms zapisywać pozycję w historii oglądania ([StubeHistory]) – także przy nagłym wyłączeniu TV. */
-        const val SAVE_EVERY_MS = 10_000L
+        const val SAVE_EVERY_MS = YtEngine.SAVE_EVERY_MS
+        const val START_TIMEOUT_MS = YtEngine.START_TIMEOUT_MS
         const val TAB_RELATED = 0; const val TAB_QUEUE = 1
         const val AMBIENT_TICK_MS = 15_000L
         /** Bieżący ekran odtwarzacza (polecenia z telefonu). */
@@ -60,50 +67,59 @@ class YtPlayerActivity : AppCompatActivity() {
         /** Film z kafelka STube: dane do rzędu „Kontynuuj oglądanie”; [fromStart] – bez wznawiania od zapisanej pozycji. */
         fun intent(c: Context, v: YtVideo, fromStart: Boolean = false) = intent(c, v.id, v.title)
             .putExtra(EXTRA_CHANNEL, v.channel).putExtra(EXTRA_THUMB, v.thumb).putExtra(EXTRA_FROM_START, fromStart)
+
+        /** Powrót do filmu grającego w tle (pełny ekran z mini-playera). */
+        fun resumeIntent(c: Context) = Intent(c, YtPlayerActivity::class.java).putExtra(EXTRA_RESUME_CURRENT, true)
     }
 
     private lateinit var playerView: PlayerView
     private lateinit var status: TextView
     private lateinit var skipLabel: TextView
-    var player: ExoPlayer? = null; private set
-    /** Okno awaryjne (testy). */
-    var fallbackDialog: AlertDialog? = null; private set
-    var segments: List<SbSegment> = emptyList(); private set
-    /** Ostatnio pominięty segment (testy, komunikat). */
-    var lastSkipped: SbSegment? = null; private set
-
-    private val videoId get() = intent.getStringExtra(EXTRA_ID).orEmpty()
-    private val videoUrl get() = "https://www.youtube.com/watch?v=$videoId"
-    private var loadJob: Job? = null
-    private var reExtracted = false
-    private var resumeAt = 0L
-    /** Zapisana pozycja sprawdzona (raz na otwarcie – ponowna ekstrakcja / powrót z HOME używa [resumeAt]). */
-    private var resumeChecked = false
-    private var live = false
-    /** Koniec filmu (także pominięty segment końcowy SponsorBlock) – w historii jako obejrzany. */
-    private var ended = false
-    private var title = ""
-    private val video get() = YtVideo(videoId, title.ifBlank { intent.getStringExtra(EXTRA_TITLE).orEmpty() },
-        intent.getStringExtra(EXTRA_CHANNEL).orEmpty(), intent.getStringExtra(EXTRA_THUMB).orEmpty())
-    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
-
+    private lateinit var infoBox: LinearLayout
+    private lateinit var titleView: TextView
+    private lateinit var channelView: TextView
     private lateinit var chapterLabel: TextView
+    private lateinit var upNextLabel: TextView
     private lateinit var optionsBar: LinearLayout
+    private lateinit var optionsScroll: android.widget.HorizontalScrollView
     private lateinit var speedBtn: TextView
+    private lateinit var qualityBtn: TextView
+    private lateinit var audioBtn: TextView
+    private lateinit var subsBtn: TextView
     private lateinit var eqBtn: TextView
     private lateinit var chaptersBtn: TextView
     private lateinit var queueBtn: TextView
-    /** Rozdziały bieżącego filmu (oś czasu, ▲▼, lista). */
-    var chapters: List<YtChapter> = emptyList(); private set
-    /** Korektor na sesji audio odtwarzacza (null – brak odtwarzacza). */
-    var eq: YtEqSession? = null; private set
+    private lateinit var pipBtn: TextView
+
+    /** Klient usługi (MediaController); null – rozłączony (ekran schowany). */
+    var client: YtClient? = null; private set
+    private var connecting: com.google.common.util.concurrent.ListenableFuture<*>? = null
+    val player: Player? get() = client?.player
+    /** Okno awaryjne (testy). */
+    var fallbackDialog: AlertDialog? = null; private set
+    val segments: List<SbSegment> get() = if (YtEngine.video?.id == videoId) YtEngine.segments else emptyList()
+    val lastSkipped: SbSegment? get() = YtEngine.lastSkipped
+    val eq: YtEqSession? get() = YtEngine.eq
+    val chapters: List<YtChapter> get() = current?.chapters.orEmpty()
+    val related: List<YtVideo> get() = current?.related.orEmpty()
+    /** Dane bieżącego filmu (gdy silnik gra film tego ekranu). */
+    private val current: YtPlayable? get() = YtEngine.playable?.takeIf { YtEngine.video?.id == videoId }
+    private val live get() = current is YtPlayable.Live
+
+    private val videoId get() = (if (intent.getBooleanExtra(EXTRA_RESUME_CURRENT, false)) YtEngine.video?.id else null) ?: intent.getStringExtra(EXTRA_ID).orEmpty()
+    private val videoUrl get() = "https://www.youtube.com/watch?v=$videoId"
+    private val video get() = (if (intent.getBooleanExtra(EXTRA_RESUME_CURRENT, false)) YtEngine.video else null)
+        ?: YtVideo(videoId, intent.getStringExtra(EXTRA_TITLE).orEmpty(), intent.getStringExtra(EXTRA_CHANNEL).orEmpty(), intent.getStringExtra(EXTRA_THUMB).orEmpty())
+    /** „Od początku” – tylko pierwsze wczytanie tego ekranu. */
+    private var fromStartPending = false
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
 
     /** Przycisk paska opcji: duży, fokusowalny, zaznaczenie wg motywu ([Ui.style], tag „item”). */
     private fun barButton(text: String, onClick: () -> Unit) = TextView(this).apply {
-        this.text = text; tag = "item"; textSize = 18f; isFocusable = true; isClickable = true
-        setPadding(Ui.dp(18), Ui.dp(10), Ui.dp(18), Ui.dp(10)); gravity = Gravity.CENTER
+        this.text = text; tag = "item"; textSize = 16f; isFocusable = true; isClickable = true; maxLines = 1
+        setPadding(Ui.dp(14), Ui.dp(9), Ui.dp(14), Ui.dp(9)); gravity = Gravity.CENTER
         setOnClickListener { onClick() }
-        optionsBar.addView(this, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(10) })
+        optionsBar.addView(this, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = Ui.dp(8) })
     }
 
     override fun onResume() { super.onResume(); StubeTheme.enter() }
@@ -115,7 +131,7 @@ class YtPlayerActivity : AppCompatActivity() {
         StubeTheme.enter()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         // kanał IPTV (podgląd / tło menu) zatrzymany – dwa odtwarzacze naraz to brak dekoderów na wielu TV
-        Playback.stop()
+        Playback.suspendForApp()          // kanał wróci po wyjściu z odtwarzacza (resumeAfterApp w ekranach menu)
         val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         playerView = PlayerView(this).apply {
             useController = true; controllerShowTimeoutMs = 4000; setShowNextButton(false); setShowPreviousButton(false)
@@ -124,7 +140,7 @@ class YtPlayerActivity : AppCompatActivity() {
         root.addView(playerView, FrameLayout.LayoutParams(-1, -1))
         status = TextView(this).apply {
             setTextColor(Color.WHITE); textSize = 20f; gravity = Gravity.CENTER; setPadding(Ui.dp(24), Ui.dp(16), Ui.dp(24), Ui.dp(16))
-            text = intent.getStringExtra(EXTRA_TITLE)?.takeIf { it.isNotBlank() }?.let { "$it\n\nWczytywanie…" } ?: "Wczytywanie…"
+            setShadowLayer(6f, 0f, 2f, Color.BLACK)
         }
         root.addView(status, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
         // komunikat SponsorBlock – duży, w rogu, czytelny z kanapy
@@ -132,141 +148,177 @@ class YtPlayerActivity : AppCompatActivity() {
             setTextColor(Color.WHITE); textSize = 18f; visibility = View.GONE; setPadding(Ui.dp(18), Ui.dp(10), Ui.dp(18), Ui.dp(10))
             background = GradientDrawable().apply { setColor(0xD0101010.toInt()); cornerRadius = Ui.dp(22).toFloat(); setStroke(Ui.dp(2), Ui.accent) }
         }
-        root.addView(skipLabel, FrameLayout.LayoutParams(-2, -2, Gravity.END or Gravity.BOTTOM).apply { setMargins(0, 0, Ui.dp(40), Ui.dp(96)) })
-        // bieżący rozdział (lewy górny róg) i pasek opcji (prawy górny róg) – widoczne razem z paskiem odtwarzacza
-        chapterLabel = TextView(this).apply {
-            setTextColor(Color.WHITE); textSize = 18f; visibility = View.GONE; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
-            setPadding(Ui.dp(16), Ui.dp(8), Ui.dp(16), Ui.dp(8)); maxWidth = Ui.dp(560)
-            background = GradientDrawable().apply { setColor(0xC0101010.toInt()); cornerRadius = Ui.dp(18).toFloat() }
+        root.addView(skipLabel, FrameLayout.LayoutParams(-2, -2, Gravity.END or Gravity.BOTTOM).apply { setMargins(0, 0, Ui.dp(40), Ui.dp(150)) })
+
+        // u góry (z paskiem odtwarzania): tytuł i kanał (czytelne z ok. 3 m), rozdział, przyciski opcji
+        infoBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; visibility = View.GONE; setPadding(Ui.dp(32), Ui.dp(20), Ui.dp(32), Ui.dp(28))
+            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0xCC000000.toInt(), 0x00000000))
         }
-        root.addView(chapterLabel, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { setMargins(Ui.dp(32), Ui.dp(24), 0, 0) })
-        optionsBar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; visibility = View.GONE; gravity = Gravity.CENTER_VERTICAL }
+        titleView = TextView(this).apply {
+            setTextColor(Color.WHITE); textSize = 26f; setTypeface(typeface, android.graphics.Typeface.BOLD); maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END; setShadowLayer(6f, 0f, 2f, Color.BLACK)
+        }
+        channelView = TextView(this).apply { setTextColor(0xFFDDDDDD.toInt()); textSize = 17f; maxLines = 1; setShadowLayer(4f, 0f, 1f, Color.BLACK) }
+        chapterLabel = TextView(this).apply {
+            setTextColor(Color.WHITE); textSize = 16f; visibility = View.GONE; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+            setPadding(Ui.dp(14), Ui.dp(6), Ui.dp(14), Ui.dp(6))
+            background = GradientDrawable().apply { setColor(0xC0101010.toInt()); cornerRadius = Ui.dp(16).toFloat() }
+        }
+        optionsBar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         speedBtn = barButton("⏩ 1.0×") { speedMenu() }
+        qualityBtn = barButton("🎞 Auto") { qualityMenu() }
+        audioBtn = barButton("🔊 Audio") { audioMenu() }
+        subsBtn = barButton("💬 Napisy") { subtitlesMenu() }
         eqBtn = barButton("🎚 Dźwięk") { eqPanel() }
         chaptersBtn = barButton("☰ Rozdziały") { chaptersMenu() }.apply { visibility = View.GONE }
         queueBtn = barButton("📋 Następne") { openPanel(TAB_RELATED) }
-        root.addView(optionsBar, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, Ui.dp(20), Ui.dp(32), 0) })
+        pipBtn = barButton("⧉ Okno (PiP)") { enterPip() }
+        optionsScroll = android.widget.HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; isFocusable = false; addView(optionsBar) }
+        infoBox.addView(titleView); infoBox.addView(channelView)
+        infoBox.addView(chapterLabel, LinearLayout.LayoutParams(-2, -2).apply { topMargin = Ui.dp(8) })
+        infoBox.addView(optionsScroll, LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(12) })
+        root.addView(infoBox, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
+        // „Co następuje” – następna pozycja kolejki (film STube lub kanał TV), nad paskiem postępu
+        upNextLabel = TextView(this).apply {
+            setTextColor(Color.WHITE); textSize = 16f; visibility = View.GONE; maxLines = 2; maxWidth = Ui.dp(460)
+            ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(Ui.dp(16), Ui.dp(10), Ui.dp(16), Ui.dp(10))
+            background = GradientDrawable().apply { setColor(0xD0101010.toInt()); cornerRadius = Ui.dp(14).toFloat(); setStroke(Ui.dp(1), Ui.withAlpha(Ui.accent, 0xA0)) }
+        }
+        root.addView(upNextLabel, FrameLayout.LayoutParams(-2, -2, Gravity.END or Gravity.BOTTOM).apply { setMargins(0, 0, Ui.dp(32), Ui.dp(110)) })
         Ui.style(optionsBar)
         playerView.setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { v -> onControllerVisibility(v) })
         setContentView(root)
-        resumeAt = savedInstanceState?.getLong("pos") ?: 0L
-        resumeChecked = savedInstanceState != null || intent.getBooleanExtra(EXTRA_FROM_START, false)
+        fromStartPending = intent.getBooleanExtra(EXTRA_FROM_START, false) && savedInstanceState == null
         if (videoId.isBlank()) { finish(); return }
+        showTitle()
         handler.postDelayed(idleTick, AMBIENT_TICK_MS)
-        lifecycleScope.launch { pl.iptv.tv.data.StubeQueue.items(); updateButtons() }
+        lifecycleScope.launch { StubeQueue.items(); updateButtons() }
     }
 
     override fun onStart() {
         super.onStart()
         active = java.lang.ref.WeakReference(this)
-        if (player != null || fallbackDialog != null) return
-        // powrót z gry w tle (ten sam film) – odbiór odtwarzacza bez przerwy w dźwięku; inny film – tło zatrzymane
-        if (YtBackground.holds(videoId)) YtBackground.take(this)?.let { reclaim(it); return }
-        YtBackground.stop(this)
-        start()
+        uiStarted = true
+        YtEngine.listeners += engineListener
+        connect()
     }
 
+    /** Połączenie z usługą; film tego ekranu wczytywany tylko, gdy silnik gra coś innego (powrót z tła – bez przerwy). */
+    private fun connect() {
+        if (client != null || connecting != null) return
+        connecting = YtClients.connect(this) { c ->
+            connecting = null
+            if (!uiStarted) { c.release(); return@connect }
+            client = c
+            c.player.addListener(playerListener)
+            playerView.player = c.player
+            c.setBackground(false)
+            val same = YtEngine.video?.id == videoId
+            when {
+                same && YtEngine.error != null -> showFallback(YtEngine.error!!)
+                same -> syncUi()
+                else -> { status.visibility = View.VISIBLE; status.text = video.title.ifBlank { "Wczytywanie…" } + "\n\nWczytywanie…"
+                    c.load(video, fromStartPending); fromStartPending = false }
+            }
+        }
+    }
+
+    /**
+     * Ekran znika (WSTECZ, HOME, inna aplikacja): odpięcie powierzchni wideo i zwolnienie kontrolera – BEZ pauzy i zwalniania
+     * odtwarzacza (dźwięk gra dalej w usłudze, obraz wyłączony dla oszczędności dekodera).
+     */
     override fun onStop() {
         super.onStop()
-        val p = player
-        // HOME / inna aplikacja: gra w tle (Ustawienia) albo zwolnienie odtwarzacza i dekoderów (powrót – ta sama chwila)
-        if (p != null && Prefs.ytBackground && !isFinishing && !isChangingConfigurations && YtBackground.canHandOff(p)) {
-            handOffToBackground(p); return
-        }
-        p?.let { resumeAt = it.currentPosition }
-        release()
+        uiStarted = false
+        YtEngine.listeners -= engineListener
+        disconnect()
     }
 
-    /** Odtwarzacz przechodzi do usługi w tle; ekran nie trzyma już do niego odwołań. */
-    private fun handOffToBackground(p: ExoPlayer) {
-        saveProgress()
-        resumeAt = p.currentPosition
-        handler.removeCallbacks(startTimeout); handler.removeCallbacks(sbTick); handler.removeCallbacks(saveTick)
-        p.removeListener(listener)
-        playerView.player = null
-        YtBackground.handOff(applicationContext, p, video, eq, segments, lastPlayable)
-        player = null; eq = null
+    /** Ekran widoczny (między onStart i onStop) – odpowiedź kontrolera po onStop jest odrzucana. */
+    private var uiStarted = false
+
+    private fun disconnect() {
+        (connecting as? java.util.concurrent.Future<*>)?.cancel(true); connecting = null
+        val c = client ?: return
+        if (YtEngine.active) c.setBackground(true)
+        c.player.removeListener(playerListener)
+        playerView.player = null          // clearVideoSurface – obraz odpięty od odtwarzacza
+        c.release()                       // tylko kontroler; odtwarzacz w usłudze gra dalej
+        client = null
     }
 
-    /** Powrót do ekranu z gry w tle: ten sam odtwarzacz, korektor, rozdziały i propozycje. */
-    private fun reclaim(t: YtBackground.Taken) {
-        val exo = t.player
-        player = exo; eq = t.eq; segments = t.segments
-        t.playable?.let { lastPlayable = it; live = it is YtPlayable.Live; related = it.related; showChapters(it.chapters); if (it.title.isNotBlank()) title = it.title }
-        playerView.player = exo
-        exo.addListener(listener)
-        status.visibility = View.GONE
-        updateButtons(); keepScreen()
-        handler.removeCallbacks(sbTick); handler.postDelayed(sbTick, 500)
-        handler.removeCallbacks(saveTick); if (!live) handler.postDelayed(saveTick, SAVE_EVERY_MS)
+    override fun onNewIntent(i: Intent) {
+        super.onNewIntent(i)
+        setIntent(i)
+        if (i.getBooleanExtra(EXTRA_RESUME_CURRENT, false) || i.getStringExtra(EXTRA_ID) == YtEngine.video?.id) { syncUi(); return }
+        // inny film (STube, telefon) w tym samym oknie – także w trybie PiP
+        fromStartPending = i.getBooleanExtra(EXTRA_FROM_START, false)
+        showTitle()
+        client?.let { it.load(video, fromStartPending); fromStartPending = false }
     }
-
-    /** Ostatnio odtwarzany film (rozdziały, propozycje – także po powrocie z tła). */
-    private var lastPlayable: YtPlayable? = null
-    /** Propozycje bieżącego filmu (panel boczny). */
-    var related: List<pl.iptv.tv.data.YtVideo> = emptyList(); private set
-
-    override fun onSaveInstanceState(out: Bundle) { super.onSaveInstanceState(out); out.putLong("pos", player?.currentPosition ?: resumeAt) }
-
-    private fun start() {
-        loadJob?.cancel()
-        status.visibility = View.VISIBLE
-        loadJob = lifecycleScope.launch {
-            val sb = if (Prefs.sbEnabled) async { SponsorBlock.segments(videoId) } else null
-            val playable = try { YtStreams.resolve(videoId) } catch (e: YtStreamException) { showFallback(e.message ?: "Film niedostępny"); return@launch }
-            catch (e: Exception) { showFallback(YtStreams.message(e)); return@launch }
-            if (isFinishing || isDestroyed) return@launch
-            live = playable is YtPlayable.Live
-            if (!live) segments = sb?.await().orEmpty()
-            // wznowienie od miejsca, w którym oglądanie zostało przerwane (jak w YouTube; menu kafelka: „od początku”)
-            if (!resumeChecked) {
-                resumeChecked = true
-                if (!live && resumeAt == 0L && Prefs.stubeResume) resumeAt = StubeHistory.resumeFrom(StubeHistory.progress(videoId))
-                if (resumeAt > 0) resumedLabel = "Wznawianie od " + clock(resumeAt)
-            }
-            play(playable)
-        }
-    }
-
-    private fun play(p: YtPlayable) {
-        // ekran zakryty w trakcie pobierania adresów (HOME) – bez dźwięku w tle; onStart uruchomi film od nowa
-        if (!lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) return
-        release()
-        val exo = ExoPlayer.Builder(this, renderers()).build()
-        player = exo
-        playerView.player = exo
-        exo.addListener(listener)
-        exo.setMediaSource(YtMedia.source(this, p))
-        if (resumeAt > 0 && p !is YtPlayable.Live) exo.seekTo(resumeAt)
-        // prędkość zapamiętana (jak w SmartTube); transmisja na żywo – zawsze 1.0×
-        exo.setPlaybackSpeed(if (live) 1f else speed)
-        exo.playWhenReady = true
-        exo.prepare()
-        // korektor na sesji audio tego odtwarzacza (preset z Ustawień; nowa sesja → nowy korektor)
-        attachEq(exo.audioSessionId)
-        showChapters(p.chapters)
-        lastPlayable = p; related = p.related
-        updateButtons()
-        if (p.title.isNotBlank()) title = p.title
-        status.text = p.title.ifBlank { "Wczytywanie…" } + "\n\n" + (resumedLabel ?: "Wczytywanie…")
-        resumedLabel = null
-        handler.removeCallbacks(startTimeout); handler.postDelayed(startTimeout, START_TIMEOUT_MS)
-        handler.removeCallbacks(sbTick); handler.postDelayed(sbTick, 500)
-        handler.removeCallbacks(saveTick); if (!live) handler.postDelayed(saveTick, SAVE_EVERY_MS)
-    }
-
-    private var resumedLabel: String? = null
 
     private fun clock(ms: Long): String {
         val s = ms / 1000; val h = s / 3600
         return if (h > 0) "%d:%02d:%02d".format(h, (s % 3600) / 60, s % 60) else "%d:%02d".format(s / 60, s % 60)
     }
 
+    // ---------------- zdarzenia silnika i odtwarzacza ----------------
+
+    private val engineListener = object : YtEngine.Listener {
+        override fun onLoading(v: YtVideo) {
+            if (v.id != videoId) { setIntent(intent(this@YtPlayerActivity, v)) }   // następny z kolejki – ten sam ekran
+            showTitle()
+            status.visibility = View.VISIBLE; status.text = v.title.ifBlank { "Wczytywanie…" } + "\n\nWczytywanie…"
+        }
+        override fun onLoaded(p: YtPlayable) {
+            syncUi()
+            if (player?.playbackState != Player.STATE_READY) {
+                status.visibility = View.VISIBLE
+                status.text = p.title.ifBlank { "Wczytywanie…" } + "\n\n" + (YtEngine.resumedFrom.takeIf { it > 0 }?.let { "Wznawianie od " + clock(it) } ?: "Wczytywanie…")
+            }
+        }
+        override fun onError(reason: String): Boolean { showFallback(reason); return true }
+        override fun onSkipped(seg: SbSegment) {
+            skipLabel.text = "⏭  Pominięto: ${SponsorBlock.label(seg.category)}"
+            skipLabel.visibility = View.VISIBLE
+            handler.removeCallbacks(hideSkip); handler.postDelayed(hideSkip, 3000)
+        }
+        override fun onEnded(): Boolean {
+            if (related.isEmpty() || isFinishing || isInPip) return false
+            endedPanel = true; openPanel(TAB_RELATED); return true
+        }
+        override fun onQueueChannel(q: QueueItem): Boolean { QueueUi.play(this@YtPlayerActivity, q); finish(); return true }
+        override fun onStopped() { if (!isFinishing) finish() }
+    }
+
+    private val playerListener = object : Player.Listener {
+        override fun onPlaybackStateChanged(state: Int) { if (state == Player.STATE_READY) status.visibility = View.GONE }
+        override fun onIsPlayingChanged(isPlaying: Boolean) { keepScreen(); if (isPlaying) hideAmbient() }
+        override fun onTracksChanged(tracks: Tracks) = updateButtons()
+    }
+
+    /** Tytuł, kanał, rozdziały, przyciski i „Co następuje” wg bieżącego filmu. */
+    private fun syncUi() {
+        showTitle()
+        showChapters(chapters)
+        updateButtons()
+        keepScreen()
+        if (player?.playbackState == Player.STATE_READY) status.visibility = View.GONE
+    }
+
+    private fun showTitle() {
+        val p = current
+        titleView.text = p?.title?.ifBlank { null } ?: video.title.ifBlank { "STube" }
+        val ch = p?.channel?.ifBlank { null } ?: video.channel
+        channelView.text = listOfNotNull(ch.ifBlank { null }?.let { "📺 $it" }, if (live) "● NA ŻYWO" else null).joinToString("  •  ")
+        channelView.visibility = if (channelView.text.isNullOrBlank()) View.GONE else View.VISIBLE
+    }
+
     // ---------------- rozdziały ----------------
 
     /** Rozdziały na osi czasu: znaczniki na pasku postępu (kolor akcentu motywu) i przycisk listy. */
     private fun showChapters(list: List<YtChapter>) {
-        chapters = list
         val marks = list.drop(1).map { it.startMs }.toLongArray()
         playerView.setExtraAdGroupMarkers(marks, BooleanArray(marks.size))
         playerView.findViewById<androidx.media3.ui.DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress)?.apply {
@@ -282,7 +334,7 @@ class YtPlayerActivity : AppCompatActivity() {
     private fun updateChapterLabel() {
         val i = chapterIndex
         chapterLabel.text = if (i < 0) "" else "☰ ${i + 1}/${chapters.size}  ·  ${chapters[i].title}"
-        chapterLabel.visibility = if (i >= 0 && playerView.isControllerFullyVisible) View.VISIBLE else View.GONE
+        chapterLabel.visibility = if (i >= 0) View.VISIBLE else View.GONE
     }
 
     /** ▼ następny / ▲ poprzedni (albo początek bieżącego) rozdział; false – brak celu. */
@@ -307,9 +359,8 @@ class YtPlayerActivity : AppCompatActivity() {
     // ---------------- prędkość ----------------
 
     /** Dostępne prędkości (procent). */
-    val SPEEDS = listOf(50, 100, 125, 150, 200)
-    private val speed get() = (Prefs.ytSpeedPct.takeIf { it in SPEEDS } ?: 100) / 100f
-    private fun speedLabel(pct: Int) = (if (pct % 100 == 0) "%.1f×" else if (pct % 10 == 0) "%.1f×" else "%.2f×").format(java.util.Locale.US, pct / 100f)
+    val SPEEDS = YtEngine.SPEEDS
+    private fun speedLabel(pct: Int) = (if (pct % 10 == 0) "%.1f×" else "%.2f×").format(java.util.Locale.US, pct / 100f)
 
     fun setSpeed(pct: Int) {
         Prefs.ytSpeedPct = pct
@@ -325,18 +376,121 @@ class YtPlayerActivity : AppCompatActivity() {
         })
     }
 
+    // ---------------- jakość, ścieżki dźwięku, napisy (TrackSelectionParameters) ----------------
+
+    /** Grupy ścieżek danego typu z bieżących ścieżek odtwarzacza. */
+    private fun groups(type: Int): List<Tracks.Group> = player?.currentTracks?.groups.orEmpty().filter { it.type == type && it.length > 0 }
+
+    /** Dostępne wysokości obrazu (od najwyższej) – menu jakości. */
+    fun qualities(): List<Int> = groups(C.TRACK_TYPE_VIDEO).flatMap { g -> (0 until g.length).map { g.getTrackFormat(it).height } }
+        .filter { it > 0 }.distinct().sortedDescending()
+
+    /** Bieżąca wysokość obrazu (wybrana ścieżka). */
+    private fun playingHeight(): Int = groups(C.TRACK_TYPE_VIDEO).firstNotNullOfOrNull { g -> (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { g.getTrackFormat(it).height } } ?: 0
+
+    /** Jakość: 0 = automatycznie (do limitu z Ustawień), inaczej maks. wysokość – odtwarzacz wybiera najlepszą ścieżkę ≤ [h]. */
+    fun setQuality(h: Int) {
+        Prefs.ytQuality = h
+        val p = player ?: return
+        p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
+            .setMaxVideoSize(Int.MAX_VALUE, if (h > 0) h else YtStreams.maxHeight).build()
+        updateButtons()
+    }
+
+    private fun qualityMenu() {
+        val qs = qualities()
+        if (qs.isEmpty()) { toast("Jakość niedostępna dla tego filmu"); return }
+        val cur = Prefs.ytQuality
+        Dialogs.menu(this, "Jakość obrazu", listOf((if (cur == 0) "✔  " else "     ") + "Automatycznie" + (playingHeight().takeIf { it > 0 }?.let { " (teraz ${it}p)" } ?: "") to { setQuality(0) }) +
+            qs.map { h -> ((if (cur == h) "✔  " else "     ") + "${h}p" + if (h >= 2160) " 4K" else if (h >= 1080) " HD" else "") to { setQuality(h) } })
+    }
+
+    /** Opis ścieżki: nazwa z manifestu, język albo numer. */
+    private fun label(f: androidx.media3.common.Format, i: Int): String =
+        f.label?.ifBlank { null } ?: f.language?.takeIf { it.isNotBlank() && it != "und" }?.let { java.util.Locale.forLanguageTag(it).getDisplayName(java.util.Locale("pl")) } ?: "Ścieżka ${i + 1}"
+
+    /** Wybór ścieżki [type] z grupy [g] (null – wyłączenie, tylko napisy). */
+    fun selectTrack(type: Int, g: Tracks.Group?, index: Int = 0) {
+        val p = player ?: return
+        val b = p.trackSelectionParameters.buildUpon().clearOverridesOfType(type)
+        if (g == null) b.setTrackTypeDisabled(type, true)
+        else b.setTrackTypeDisabled(type, false).setOverrideForType(TrackSelectionOverride(g.mediaTrackGroup, index))
+        if (type == C.TRACK_TYPE_TEXT) Prefs.ytSubLang = g?.getTrackFormat(index)?.language.orEmpty()
+        p.trackSelectionParameters = b.build()
+        updateButtons()
+    }
+
+    private fun audioMenu() {
+        val gs = groups(C.TRACK_TYPE_AUDIO)
+        if (gs.size < 2) { toast("Ten film ma jedną ścieżkę dźwięku" + (gs.firstOrNull()?.let { " (${label(it.getTrackFormat(0), 0)})" } ?: "")); return }
+        Dialogs.menu(this, "Ścieżka dźwięku", gs.mapIndexed { i, g ->
+            ((if (g.isSelected) "✔  " else "     ") + label(g.getTrackFormat(0), i)) to { selectTrack(C.TRACK_TYPE_AUDIO, g) }
+        })
+    }
+
+    private fun subtitlesMenu() {
+        val gs = groups(C.TRACK_TYPE_TEXT)
+        if (gs.isEmpty()) { toast("Brak napisów dla tego filmu"); return }
+        val anyOn = gs.any { it.isSelected }
+        Dialogs.menu(this, "Napisy", listOf((if (!anyOn) "✔  " else "     ") + "Wyłączone" to { selectTrack(C.TRACK_TYPE_TEXT, null) }) +
+            gs.mapIndexed { i, g -> ((if (g.isSelected) "✔  " else "     ") + label(g.getTrackFormat(0), i)) to { selectTrack(C.TRACK_TYPE_TEXT, g) } })
+    }
+
     private fun updateButtons() {
         speedBtn.text = "⏩ " + speedLabel(if (live) 100 else Prefs.ytSpeedPct.takeIf { it in SPEEDS } ?: 100)
+        val h = playingHeight()
+        qualityBtn.text = "🎞 " + (if (Prefs.ytQuality > 0) "${Prefs.ytQuality}p" else "Auto" + (h.takeIf { it > 0 }?.let { " ${it}p" } ?: ""))
+        audioBtn.visibility = if (groups(C.TRACK_TYPE_AUDIO).size > 1) View.VISIBLE else View.GONE
+        val subs = groups(C.TRACK_TYPE_TEXT)
+        subsBtn.visibility = if (subs.isEmpty()) View.GONE else View.VISIBLE
+        subsBtn.text = "💬 " + (subs.firstOrNull { it.isSelected }?.let { label(it.getTrackFormat(0), 0) } ?: "Napisy")
         eqBtn.text = "🎚 " + if (Prefs.ytEqPreset == YtEq.FLAT) "Dźwięk" else YtEq.PRESETS.getOrElse(Prefs.ytEqPreset) { "Dźwięk" }
-        queueBtn.text = "📋 Następne" + pl.iptv.tv.data.StubeQueue.cached.size.takeIf { it > 0 }?.let { " ($it)" }.orEmpty()
+        queueBtn.text = "📋 Następne" + StubeQueue.cached.size.takeIf { it > 0 }?.let { " ($it)" }.orEmpty()
+        pipBtn.visibility = if (pipSupported) View.VISIBLE else View.GONE
+        updateUpNext()
+    }
+
+    /** „Co następuje”: pierwsza pozycja kolejki (film / kanał TV), a bez kolejki – pierwsza propozycja. */
+    private fun updateUpNext() {
+        val q = StubeQueue.cached.firstOrNull { !(it.isVideo && it.ref == videoId) }
+        val text = when {
+            q != null && q.isVideo -> "⏭ Co następuje:  ▶ ${q.title}" + q.subtitle.ifBlank { null }?.let { "\n$it" }.orEmpty()
+            q != null -> {
+                val prog = pl.iptv.tv.data.Repository.byKey(q.ref)?.let { pl.iptv.tv.data.Repository.current(it) }
+                "⏭ Co następuje:  📺 ${q.title}" + (prog?.let { "\n${it.title} • do ${Fmt.time(it.end)}" } ?: "")
+            }
+            related.isNotEmpty() -> "Proponowane:  ▶ ${related.first().title}"
+            else -> ""
+        }
+        upNextLabel.text = text
+        upNextLabel.visibility = if (text.isNotEmpty() && playerView.isControllerFullyVisible && !isInPip) View.VISIBLE else View.GONE
+    }
+
+    // ---------------- obraz w obrazie (PiP) ----------------
+
+    val pipSupported: Boolean get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+        packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+    private val isInPip get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode
+
+    /** Pływające okno w rogu: film gra dalej, a menu IPTV / STube można przeglądać pod spodem. */
+    fun enterPip(): Boolean {
+        if (!pipSupported) { toast("Obraz w obrazie niedostępny na tym urządzeniu"); return false }
+        playerView.hideController()
+        val ratio = player?.videoSize?.let { v -> if (v.width > 0 && v.height > 0) Rational(v.width, v.height) else null } ?: Rational(16, 9)
+        val safe = ratio.toFloat().let { if (it > 2.39f) Rational(239, 100) else if (it < 1 / 2.39f) Rational(100, 239) else ratio }
+        return runCatching { enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(safe).build()) }.getOrDefault(false)
+    }
+
+    override fun onPictureInPictureModeChanged(inPip: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(inPip, newConfig)
+        // w oknie PiP: sam obraz (bez paska i nakładek); powrót – pełny odtwarzacz
+        playerView.useController = !inPip
+        if (inPip) { infoBox.visibility = View.GONE; upNextLabel.visibility = View.GONE; panel?.close(); hideAmbient() }
+        // okno PiP zamknięte (✕) – koniec odtwarzania; rozwinięte – ekran wraca do zwykłego trybu
+        else if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) { YtEngine.stop(); finish() }
     }
 
     // ---------------- korektor ----------------
-
-    private fun attachEq(sessionId: Int) {
-        eq?.release()
-        eq = YtEqSession.create(sessionId).also { it.apply() }
-    }
 
     /**
      * Panel dźwięku: presety (rząd przycisków) i suwaki pasm – ▲▼ między elementami, ◄► zmienia pasmo o 1 dB
@@ -414,35 +568,27 @@ class YtPlayerActivity : AppCompatActivity() {
     /** Okno korektora (testy). */
     var eqDialog: AlertDialog? = null; private set
 
-    /** Opcje odtwarzania (MENU na pilocie): prędkość, dźwięk, rozdziały, SponsorBlock. */
+    /** Opcje odtwarzania (MENU na pilocie). */
     private fun optionsMenu() {
         Dialogs.menu(this, "Opcje odtwarzania", buildList {
             add("⏩ Prędkość: " + speedLabel(if (live) 100 else Prefs.ytSpeedPct) to { speedMenu() })
+            add("🎞 Jakość: " + (if (Prefs.ytQuality > 0) "${Prefs.ytQuality}p" else "automatycznie") to { qualityMenu() })
+            if (groups(C.TRACK_TYPE_AUDIO).size > 1) add("🔊 Ścieżka dźwięku" to { audioMenu() })
+            if (groups(C.TRACK_TYPE_TEXT).isNotEmpty()) add("💬 Napisy" to { subtitlesMenu() })
             add("🎚 Dźwięk: " + YtEq.PRESETS.getOrElse(Prefs.ytEqPreset) { "Płaski" } to { eqPanel(); Unit })
             if (chapters.isNotEmpty()) add("☰ Rozdziały (${chapters.size})" to { chaptersMenu() })
             add("📋 Propozycje i kolejka" to { openPanel(TAB_RELATED) })
+            if (pipSupported) add("⧉ Obraz w obrazie (PiP)" to { enterPip(); Unit })
             add("📺 Wygaszacz teraz" to { showAmbient() })
+            add("⏹ Zatrzymaj odtwarzanie" to { YtEngine.stop(); finish() })
             add("⏭ SponsorBlock: " + (if (Prefs.sbEnabled) "włączony" else "wyłączony") to {
                 Prefs.sbEnabled = !Prefs.sbEnabled
-                if (!Prefs.sbEnabled) segments = emptyList()
-                toast("SponsorBlock " + if (Prefs.sbEnabled) "włączony (od następnego filmu)" else "wyłączony")
+                toast("SponsorBlock " + if (Prefs.sbEnabled) "włączony (od następnego filmu)" else "wyłączony (od następnego filmu)")
             })
         })
     }
 
     // ---------------- koniec filmu, kolejka, panel boczny ----------------
-
-    /**
-     * Koniec filmu: następna pozycja kolejki (film lub kanał TV – Ustawienia: autoodtwarzanie), a bez kolejki – panel
-     * „Propozycje” (jak ekran końcowy YouTube); bez propozycji – zamknięcie.
-     */
-    private fun onEnded() {
-        lifecycleScope.launch {
-            val next = if (Prefs.queueAutoplay) pl.iptv.tv.data.StubeQueue.pop(skipRef = videoId) else null
-            if (next != null) { QueueUi.play(this@YtPlayerActivity, next); finish(); return@launch }
-            if (related.isNotEmpty() && !isFinishing) { endedPanel = true; openPanel(TAB_RELATED) } else finish()
-        }
-    }
 
     /** Panel otwarty po końcu filmu – jego zamknięcie zamyka odtwarzacz. */
     private var endedPanel = false
@@ -453,18 +599,26 @@ class YtPlayerActivity : AppCompatActivity() {
         val p = panel ?: SidePanel(this, listOf(
             SidePanel.Tab("▶ Propozycje", "Brak propozycji dla tego filmu") { related.map { v -> QueueUi.videoEntry(this, v, { panel?.reload(); updateButtons() }) { playNow(it) } } },
             SidePanel.Tab("☰ Kolejka", "Kolejka jest pusta – długie OK na filmie (STube, propozycje) lub kanale (TV) → „Dodaj do kolejki”") {
-                QueueUi.entries(this, { panel?.reload(); updateButtons() }) { q -> lifecycleScope.launch { pl.iptv.tv.data.StubeQueue.remove(q.id); QueueUi.play(this@YtPlayerActivity, q); finish() } }
+                QueueUi.entries(this, { panel?.reload(); updateButtons() }) { q ->
+                    lifecycleScope.launch {
+                        StubeQueue.remove(q.id)
+                        if (q.isVideo) { panel?.close(); playNow(q.toVideo()) } else { QueueUi.play(this@YtPlayerActivity, q); YtEngine.stop(); finish() }
+                    }
+                }
             },
-        )) { if (endedPanel) finish() }.also { panel = it }
+        )) { if (endedPanel) { endedPanel = false; YtEngine.stop(); finish() } }.also { panel = it }
         playerView.hideController()
         p.open(tab)
     }
 
-    /** Film z propozycji / pilota teraz – w miejsce bieżącego (pozycja zapisana w historii). */
-    fun playNow(v: pl.iptv.tv.data.YtVideo) {
-        saveProgress()
-        lifecycleScope.launch { pl.iptv.tv.data.StubeQueue.removeRef(pl.iptv.tv.data.QueueItem.KIND_YT, v.id) }
-        startActivity(intent(this, v)); finish()
+    /** Film z propozycji / kolejki / telefonu teraz – w tym samym oknie (pozycja bieżącego zapisana w historii). */
+    fun playNow(v: YtVideo) {
+        endedPanel = false
+        panel?.close()
+        lifecycleScope.launch { StubeQueue.removeRef(QueueItem.KIND_YT, v.id) }
+        setIntent(intent(this, v))
+        showTitle()
+        client?.load(v, false) ?: YtEngine.load(this, v)
     }
 
     // ---------------- wygaszacz (tryb ambient) ----------------
@@ -484,13 +638,12 @@ class YtPlayerActivity : AppCompatActivity() {
      * co minutę – bez wypalania matrycy OLED). Dowolny klawisz wraca do odtwarzacza.
      */
     fun showAmbient() {
-        if (ambient != null || isFinishing) return
+        if (ambient != null || isFinishing || isInPip) return
         val root = findViewById<ViewGroup>(android.R.id.content)
         val box = FrameLayout(this).apply { setBackgroundColor(Color.BLACK); isClickable = true; setOnClickListener { hideAmbient() } }
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; alpha = 0.55f; gravity = Gravity.CENTER_HORIZONTAL }
-        val clockView = TextView(this).apply { setTextColor(Color.WHITE); textSize = 64f; tag = "clock" }
-        col.addView(clockView)
-        col.addView(TextView(this).apply { setTextColor(Color.WHITE); textSize = 20f; text = title.ifBlank { "STube" }; maxLines = 2; gravity = Gravity.CENTER; maxWidth = Ui.dp(640) })
+        col.addView(TextView(this).apply { setTextColor(Color.WHITE); textSize = 64f; tag = "clock" })
+        col.addView(TextView(this).apply { setTextColor(Color.WHITE); textSize = 20f; text = titleView.text.ifBlank { "STube" }; maxLines = 2; gravity = Gravity.CENTER; maxWidth = Ui.dp(640) })
         col.addView(TextView(this).apply { setTextColor(0xFFAAAAAA.toInt()); textSize = 15f; text = "⏸ Wstrzymano  •  dowolny klawisz – powrót"; setPadding(0, Ui.dp(10), 0, 0) })
         box.addView(col, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
         root.addView(box, FrameLayout.LayoutParams(-1, -1))
@@ -523,6 +676,7 @@ class YtPlayerActivity : AppCompatActivity() {
             if (ambient != null) updateAmbient()
             else if (p != null && min > 0 && !p.playWhenReady && panel?.isOpen != true && fallbackDialog?.isShowing != true &&
                 android.os.SystemClock.uptimeMillis() - lastInput >= min * 60_000L) showAmbient()
+            if (playerView.isControllerFullyVisible) { updateChapterLabel(); updateUpNext() }
             handler.postDelayed(this, AMBIENT_TICK_MS)
         }
     }
@@ -540,8 +694,8 @@ class YtPlayerActivity : AppCompatActivity() {
             "seek" -> p?.let { it.seekTo((it.currentPosition + arg).coerceAtLeast(0)) } ?: return false
             "chapter_next" -> return jumpChapter(true)
             "chapter_prev" -> return jumpChapter(false)
-            "next" -> { ended = false; saveProgress(); onEnded() }
-            "stop" -> finish()
+            "next" -> YtEngine.next()
+            "stop" -> { YtEngine.stop(); finish() }
             else -> return false
         }
         playerView.showController()
@@ -551,121 +705,43 @@ class YtPlayerActivity : AppCompatActivity() {
     /** Stan dla telefonu. */
     fun remoteStatus(): org.json.JSONObject = org.json.JSONObject().apply {
         val p = player
-        put("id", videoId); put("title", title.ifBlank { intent.getStringExtra(EXTRA_TITLE).orEmpty() })
+        put("id", videoId); put("title", titleView.text.toString())
         put("playing", p?.isPlaying == true); put("position", p?.currentPosition ?: 0)
         put("duration", p?.duration?.takeIf { it != C.TIME_UNSET } ?: 0); put("live", live)
         put("chapter", chapterIndex.takeIf { it >= 0 }?.let { chapters[it].title } ?: "")
     }
 
     private fun onControllerVisibility(v: Int) {
-        optionsBar.visibility = v
-        updateChapterLabel()
+        infoBox.visibility = if (isInPip) View.GONE else v
+        updateChapterLabel(); updateUpNext()
     }
 
     private fun toast(s: String) = android.widget.Toast.makeText(this, s, android.widget.Toast.LENGTH_SHORT).show()
 
-    /** Pozycja do historii oglądania (pasek na kafelku STube, wznawianie); transmisje na żywo pomijane. */
-    fun saveProgress(): pl.iptv.tv.data.WatchProgress? {
-        val p = player ?: return null
-        if (live || p.isCurrentMediaItemLive) return null
-        val dur = p.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: return null
-        return StubeHistory.savePosition(video, if (ended) dur else p.currentPosition, dur)
-    }
+    /** Pozycja do historii oglądania (pasek na kafelku STube, wznawianie) – zapis w silniku. */
+    fun saveProgress() = YtEngine.saveProgress()
 
-    private val saveTick = object : Runnable {
-        override fun run() {
-            if (player?.isPlaying == true) saveProgress()
-            handler.postDelayed(this, SAVE_EVERY_MS)
-        }
-    }
-
-    /** Dekodery jak w odtwarzaczu kanałów (ustawienia silnika, zapasowy dekoder, tryb zgodności). */
-    private fun renderers() = androidx.media3.exoplayer.DefaultRenderersFactory(applicationContext).apply {
-        setMediaCodecSelector(Playback.codecSelector(software = Playback.softwareDecoding))
-        setEnableDecoderFallback(Prefs.decoderFallback || Playback.softwareDecoding)
-        setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
-    }
-
-    private val listener = object : Player.Listener {
-        override fun onPlaybackStateChanged(state: Int) {
-            if (state == Player.STATE_READY) { handler.removeCallbacks(startTimeout); status.visibility = View.GONE }
-            if (state == Player.STATE_ENDED) { ended = true; saveProgress(); onEnded() }
-        }
-        override fun onIsPlayingChanged(isPlaying: Boolean) {
-            keepScreen()
-            if (isPlaying) hideAmbient()
-        }
-        override fun onAudioSessionIdChanged(audioSessionId: Int) { attachEq(audioSessionId) }
-        override fun onPlayerError(error: PlaybackException) {
-            android.util.Log.w("YtPlayer", "błąd ${error.errorCodeName}", error)
-            val http = (error.cause as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)?.responseCode ?: 0
-            // adres strumienia wygasł lub został odrzucony (403/410) – raz ponowna ekstrakcja od tej samej chwili
-            if (!reExtracted && (http == 403 || http == 410 || error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
-                    error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED)) {
-                reExtracted = true; resumeAt = player?.currentPosition ?: resumeAt
-                release(); start(); return
-            }
-            showFallback(errorMessage(error, http))
-        }
-    }
-
-    private val startTimeout = Runnable {
-        if (player?.playbackState != Player.STATE_READY) showFallback("Strumień nie odpowiada (YouTube mógł zablokować odtwarzanie w tej aplikacji)")
-    }
-
-    /** SponsorBlock: segment pod bieżącą pozycją → przeskok na jego koniec i komunikat. */
-    private val sbTick = object : Runnable {
-        override fun run() {
-            val p = player ?: return
-            if (p.isPlaying || p.playbackState == Player.STATE_BUFFERING) skipIfNeeded(p.currentPosition)
-            if (playerView.isControllerFullyVisible) updateChapterLabel()
-            handler.postDelayed(this, 500)
-        }
-    }
-
-    /** Pominięcie segmentu w [posMs] (wywoływane co 0,5 s i w testach). */
-    fun skipIfNeeded(posMs: Long): Boolean {
-        val p = player ?: return false
-        val seg = SponsorBlock.at(segments, posMs) ?: return false
-        val dur = p.duration
-        // segment do samego końca filmu – koniec odtwarzania zamiast przeskoku w pustkę
-        if (dur != C.TIME_UNSET && seg.endMs >= dur - 1000) { lastSkipped = seg; ended = true; saveProgress(); p.playWhenReady = false; onEnded(); return true }
-        p.seekTo(seg.endMs)
-        lastSkipped = seg
-        skipLabel.text = "⏭  Pominięto: ${SponsorBlock.label(seg.category)}"
-        skipLabel.visibility = View.VISIBLE
-        handler.removeCallbacks(hideSkip); handler.postDelayed(hideSkip, 3000)
-        return true
-    }
+    /** Pominięcie segmentu SponsorBlock (silnik; testy). */
+    fun skipIfNeeded(posMs: Long) = YtEngine.skipIfNeeded(posMs)
     private val hideSkip = Runnable { skipLabel.visibility = View.GONE }
 
-    fun errorMessage(e: PlaybackException, http: Int = 0): String = when {
-        http == 403 || http == 410 -> "YouTube odrzucił strumień (HTTP $http)"
-        http == 429 -> "YouTube ograniczył odtwarzanie (zbyt wiele zapytań)"
-        e.errorCode in listOf(PlaybackException.ERROR_CODE_DECODER_INIT_FAILED, PlaybackException.ERROR_CODE_DECODING_FAILED,
-            PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED, PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES) ->
-            "Urządzenie nie obsługuje formatu tego filmu"
-        e.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED || e.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ->
-            "Brak połączenia z serwerem wideo YouTube"
-        else -> "Błąd odtwarzania (${e.errorCodeName})"
-    }
+    fun errorMessage(e: androidx.media3.common.PlaybackException, http: Int = 0) = YtEngine.errorMessage(e, http)
 
     /** Okno awaryjne – czytelne na TV, fokus od razu na „Odtwórz w SmartTube”. */
     fun showFallback(reason: String) {
         if (isFinishing || isDestroyed || fallbackDialog?.isShowing == true) return
-        handler.removeCallbacks(startTimeout)
-        resumeAt = player?.currentPosition?.takeIf { it > 0 } ?: resumeAt
-        release()
         status.visibility = View.GONE
         // kolejność przycisków na TV (układ pionowy): SmartTube → YouTube → Zamknij
+        val url = videoUrl
         val d = Ui.dialog(this).setTitle("Nie można odtworzyć filmu")
             .setMessage("$reason\n\nWybierz inny sposób odtwarzania:")
             .setPositiveButton("Odtwórz w SmartTube") { _, _ ->
-                if (SmartTubeIntegrationHelper.play(this, videoUrl) { finish() }) finish()
+                YtEngine.stop()
+                if (SmartTubeIntegrationHelper.play(this, url) { finish() }) finish()
             }
-            .setNegativeButton("Odtwórz w YouTube") { _, _ -> SmartTubeIntegrationHelper.playInYouTube(this, videoUrl); finish() }
-            .setNeutralButton("Zamknij") { _, _ -> finish() }
-            .setOnCancelListener { finish() }
+            .setNegativeButton("Odtwórz w YouTube") { _, _ -> YtEngine.stop(); SmartTubeIntegrationHelper.playInYouTube(this, url); finish() }
+            .setNeutralButton("Zamknij") { _, _ -> YtEngine.stop(); finish() }
+            .setOnCancelListener { YtEngine.stop(); finish() }
             .create()
         fallbackDialog = d
         d.show()
@@ -674,6 +750,10 @@ class YtPlayerActivity : AppCompatActivity() {
 
     // ---------------- pilot ----------------
 
+    /**
+     * Klawisze (odpowiednik onPreviewKeyEvent): OK przy ukrytym pasku tylko pokazuje pasek (z fokusem na ⏯) – nie pauzuje;
+     * pauza: przycisk ⏯ na pasku albo Play/Pause na pilocie. ◄► 10 s, ▲▼ rozdziały, MENU – opcje.
+     */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val p = player
         if (event.action == KeyEvent.ACTION_DOWN) lastInput = android.os.SystemClock.uptimeMillis()
@@ -682,17 +762,36 @@ class YtPlayerActivity : AppCompatActivity() {
         // panel boczny prowadzi nawigację sam (fokus nie wychodzi do kontrolek pod spodem)
         if (panel?.onKey(event) == true) return true
         if (panel?.isOpen == true) return super.dispatchKeyEvent(event)
-        // MENU na pilocie – opcje odtwarzania (prędkość, dźwięk, rozdziały, SponsorBlock); bez MENU: ▲ z paska do przycisków u góry
         if (event.keyCode == KeyEvent.KEYCODE_MENU) { if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) optionsMenu(); return true }
-        if (event.action == KeyEvent.ACTION_DOWN && p != null && !playerView.isControllerFullyVisible) {
+        if (event.keyCode == KeyEvent.KEYCODE_WINDOW) { if (event.action == KeyEvent.ACTION_DOWN) enterPip(); return true }
+        val hidden = !playerView.isControllerFullyVisible
+        if (hidden && (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER || event.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER)) {
+            // OK: wyłącznie pokazanie paska (oba zdarzenia pochłonięte – puszczenie OK nie „klika” przycisku ⏯)
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) showControllerOk = true
+            if (event.action == KeyEvent.ACTION_UP && showControllerOk) { showControllerOk = false; playerView.showController() }
+            return true
+        }
+        if (event.action == KeyEvent.ACTION_UP && showControllerOk && (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)) {
+            showControllerOk = false; return true
+        }
+        if (event.action == KeyEvent.ACTION_DOWN && p != null && hidden) {
             when (event.keyCode) {
-                // pasek ukryty: ◄► przewija o 10 s (jak w aplikacjach YouTube na TV), OK – pauza/wznowienie
+                // pasek ukryty: ◄► przewija o 10 s (jak w aplikacjach YouTube na TV)
                 KeyEvent.KEYCODE_DPAD_LEFT -> { p.seekTo((p.currentPosition - SEEK_STEP_MS).coerceAtLeast(0)); playerView.showController(); return true }
                 KeyEvent.KEYCODE_DPAD_RIGHT -> { if (!p.isCurrentMediaItemLive) p.seekTo(p.currentPosition + SEEK_STEP_MS); playerView.showController(); return true }
-                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> { p.playWhenReady = !p.playWhenReady; playerView.showController(); return true }
-                // ▲▼ przy ukrytym pasku: poprzedni / następny rozdział (bez rozdziałów – pokazanie paska jak dotąd)
+                // ▲▼ przy ukrytym pasku: poprzedni / następny rozdział (bez rozdziałów – pokazanie paska)
                 KeyEvent.KEYCODE_DPAD_UP -> if (chapters.isNotEmpty()) { jumpChapter(next = false); return true }
                 KeyEvent.KEYCODE_DPAD_DOWN -> if (chapters.isNotEmpty()) { if (!jumpChapter(next = true)) playerView.showController(); return true }
+            }
+        }
+        // pasek widoczny: ▲ z kontrolek odtwarzacza → przyciski opcji u góry, ▼ z przycisków → ⏯ (PlayerView sam tam nie prowadzi)
+        if (event.action == KeyEvent.ACTION_DOWN && !hidden && !isInPip) {
+            val f = window.decorView.findFocus()
+            if (event.keyCode == KeyEvent.KEYCODE_DPAD_UP && f != null && f.id in centerControls) {
+                (0 until optionsBar.childCount).map(optionsBar::getChildAt).firstOrNull { it.visibility == View.VISIBLE }?.let { it.requestFocus(); playerView.showController(); return true }
+            }
+            if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && f != null && isInside(f, optionsBar)) {
+                playerView.findViewById<View>(androidx.media3.ui.R.id.exo_play_pause)?.let { it.requestFocus(); playerView.showController(); return true }
             }
         }
         if (event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_BACK && playerView.isControllerFullyVisible && p != null) {
@@ -701,19 +800,24 @@ class YtPlayerActivity : AppCompatActivity() {
         return playerView.dispatchKeyEvent(event) || super.dispatchKeyEvent(event)
     }
 
-    private fun release() {
-        // HOME, okno awaryjne, ponowna ekstrakcja, zamknięcie – ostatnia pozycja do historii (tylko gdy film już grał)
-        if (player?.playbackState == Player.STATE_READY || player?.playbackState == Player.STATE_BUFFERING || ended) saveProgress()
-        handler.removeCallbacks(startTimeout); handler.removeCallbacks(sbTick); handler.removeCallbacks(saveTick)
-        eq?.release(); eq = null
-        player?.let { it.removeListener(listener); runCatching { it.release() } }
-        player = null
-        playerView.player = null
+    /** Kontrolki środkowe paska (⏪ ⏯ ⏩) – z nich ▲ przechodzi do przycisków opcji (z osi czasu ▲ idzie do ⏯). */
+    private val centerControls = setOf(androidx.media3.ui.R.id.exo_play_pause, androidx.media3.ui.R.id.exo_rew_with_amount,
+        androidx.media3.ui.R.id.exo_ffwd_with_amount, androidx.media3.ui.R.id.exo_prev, androidx.media3.ui.R.id.exo_next)
+
+    private fun isInside(v: View, parent: View): Boolean {
+        var x: View? = v
+        while (x != null) { if (x === parent) return true; x = x.parent as? View }
+        return false
     }
 
+    /** OK wciśnięte przy ukrytym pasku – pokazanie paska po puszczeniu. */
+    private var showControllerOk = false
+
     override fun onDestroy() {
-        super.onDestroy(); handler.removeCallbacksAndMessages(null); loadJob?.cancel()
+        super.onDestroy(); handler.removeCallbacksAndMessages(null)
         panel?.close()
+        YtEngine.listeners -= engineListener
+        disconnect()
         if (active?.get() === this) active = null
     }
 }

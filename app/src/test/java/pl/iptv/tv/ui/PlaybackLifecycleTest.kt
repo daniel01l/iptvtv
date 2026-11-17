@@ -11,6 +11,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.*
+import org.robolectric.Robolectric
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -211,5 +212,57 @@ class PlaybackLifecycleTest {
         assertFalse("bez zawieszenia – bez restartu", Playback.play(ctx, ch, ch.url))
         assertFalse(Playback.stalledFor(Playback.SAME_URL_STALL_MS))
         assertTrue(Playback.SAME_URL_STALL_MS < Playback.STALL_MS)
+    }
+}
+
+
+/** Telewizja wstrzymana w STube / Stremio i wznawiana po powrocie do pozostałych ekranów. */
+@RunWith(AndroidJUnit4::class)
+@Config(sdk = [34], qualifiers = "w960dp-h540dp-land-television-xhdpi")
+@LooperMode(LooperMode.Mode.PAUSED)
+class LiveTvSuspendTest {
+    private val ctx get() = ApplicationProvider.getApplicationContext<android.app.Application>()
+    private fun idle(ms: Long = 300) = shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ms))
+
+    @Before fun setup() {
+        Playback.stop(); Playback.forgetSuspended()
+        Prefs.permissionsAsked = true; Prefs.setupDone = true; Prefs.playlistsJson = "[]"; Prefs.mainPreview = false
+        val f = File(ctx.filesDir, "susp.m3u").apply { writeText((1..2).joinToString("", "#EXTM3U\n") {
+            "#EXTINF:-1 tvg-id=\"s$it\" group-title=\"G\",Kanał $it\nhttp://127.0.0.1:9/live/$it.ts\n" }) }
+        Repository.resetAllEdits(); runBlocking { Repository.loadPlaylist(f.absolutePath) }
+    }
+
+    @After fun tearDown() { Playback.stop(); Playback.forgetSuspended() }
+
+    @Test fun suspendStopsDecodersAndResumeRestartsSameChannel() {
+        val ch = Repository.channels[1]
+        Playback.play(ctx, ch, ch.url); idle()
+        assertTrue(Playback.active)
+        Playback.suspendForApp()
+        assertFalse("odtwarzacz zwolniony", Playback.active); assertNull(Playback.player)
+        assertEquals(ch.key, Playback.suspended!!.first.key)
+        // gra film STube w tle – kanał czeka
+        assertFalse(Playback.resumeAfterApp(ctx, ytPlaying = true)); assertNotNull(Playback.suspended)
+        assertTrue(Playback.resumeAfterApp(ctx, ytPlaying = false)); idle()
+        assertTrue(Playback.active); assertEquals(ch.url, Playback.url); assertNull(Playback.suspended)
+        // nic nie grało – nie ma czego wznawiać
+        Playback.stop(); Playback.suspendForApp()
+        assertNull(Playback.suspended); assertFalse(Playback.resumeAfterApp(ctx, ytPlaying = false))
+    }
+
+    @Test fun stubeAndStremioPauseLiveTvMenusResumeIt() {
+        val ch = Repository.channels[0]
+        Playback.play(ctx, ch, ch.url); idle()
+        for (cls in listOf(STubeActivity::class.java, StremioActivity::class.java)) {
+            if (!Playback.active) { Playback.play(ctx, ch, ch.url); idle() }
+            val c = Robolectric.buildActivity(cls).setup(); idle()
+            assertFalse("${cls.simpleName}: telewizja zatrzymana", Playback.active)
+            assertNotNull(Playback.suspended)
+            c.pause().stop().destroy()
+            // powrót do ekranu menu (ustawienia – zwykły ekran BaseActivity) – kanał gra dalej
+            val s = Robolectric.buildActivity(SettingsActivity::class.java).setup(); idle()
+            assertTrue("${cls.simpleName}: wznowiono", Playback.active); assertEquals(ch.url, Playback.url)
+            s.pause().stop().destroy()
+        }
     }
 }

@@ -8,6 +8,7 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
@@ -25,10 +26,13 @@ import pl.iptv.tv.data.Repository
 import pl.iptv.tv.data.StartActions
 
 class MainActivity : BaseActivity() {
+    override val miniPlayer = true
     companion object {
         const val EXTRA_FROM_BOOT = "from_boot"
         /** Ustawiane przez launcher przy kolejnych naciśnięciach HOME. */
         const val EXTRA_SKIP_START = "skip_start"
+        /** Otwarta z pulpitu (X25 / PS5) przyciskiem „Live TV” – bez powrotu na pulpit i bez akcji startowej. */
+        const val EXTRA_FROM_DASHBOARD = "from_dashboard"
         const val EDIT_GROUPS = "✎ Edytuj"
     }
 
@@ -229,6 +233,7 @@ class MainActivity : BaseActivity() {
         }
         findViewById<View>(R.id.btnApps).setOnClickListener { SystemTools.showApps(this) }
         findViewById<View>(R.id.btnSTube).setOnClickListener { startActivity(Intent(this, STubeActivity::class.java)) }
+        findViewById<View>(R.id.btnStremio).setOnClickListener { startActivity(Intent(this, StremioActivity::class.java)) }
         findViewById<View>(R.id.searchClose).setOnClickListener { closeSearch() }
         searchField.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
@@ -243,12 +248,19 @@ class MainActivity : BaseActivity() {
             override fun handleOnBackPressed() {
                 when {
                     searching -> closeSearch()
+                    // motyw X25: lista kanałów wraca na pulpit
+                    X25Theme.dashboardOn -> X25Theme.openDashboard(this@MainActivity)
                     // jako launcher nie można „wyjść” – zamiast tego menu systemowe
                     SystemTools.isLauncherEnabled(this@MainActivity) && SystemTools.isDefaultHome(this@MainActivity) -> launcherMenu()
                     else -> { isEnabled = false; onBackPressedDispatcher.onBackPressed(); isEnabled = true }
                 }
             }
         })
+        // motyw X25: pulpit nad listą kanałów – przed akcją startową (uruchomiony kanał / przewodnik jest nad pulpitem, WSTECZ wraca na pulpit);
+        // nie przy pierwszym uruchomieniu (kreator i okna uprawnień są na tym ekranie)
+        // (lista otwarta z pulpitu – „Live TV” – zostaje na wierzchu: pulpit mógł startować pierwszy, np. HOME w trybie launchera)
+        if (savedInstanceState == null && X25Theme.dashboardOn && Prefs.permissionsAsked && Prefs.setupDone && !intent.getBooleanExtra(EXTRA_FROM_DASHBOARD, false))
+            X25Theme.openDashboard(this)
         // akcja startowa tylko przy świeżym uruchomieniu (nie po obrocie / odtworzeniu)
         initialLoad(runStartAction = savedInstanceState == null && !intent.getBooleanExtra(EXTRA_SKIP_START, false))
     }
@@ -283,11 +295,15 @@ class MainActivity : BaseActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (intent.getBooleanExtra(EXTRA_FROM_BOOT, false) && initialLoadDone) runStartAction()
+        // HOME (launcher) przy motywie X25 – pulpit
+        else if (intent.getBooleanExtra(EXTRA_SKIP_START, false) && X25Theme.dashboardOn) X25Theme.openDashboard(this)
     }
 
     override fun onResume() {
         super.onResume()
         isResumedNow = true
+        // właśnie włączony motyw X25 (Ustawienia) – od razu pulpit
+        if (X25Theme.consumeJustEnabled() && X25Theme.dashboardOn) X25Theme.openDashboard(this)
         wizard?.onResume()
         applyMainLayout()
         findViewById<View>(R.id.previewBox).visibility = if (Prefs.mainPreview) View.VISIBLE else View.GONE
@@ -355,6 +371,8 @@ class MainActivity : BaseActivity() {
 
     /** Jawna nawigacja pilotem między kolumnami (kategorie ↔ kanały ↔ program). */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // ▼ z najniższego elementu kolumny – pasek „Teraz odtwarzane” (film STube w tle)
+        if (miniBar?.handleKey(event) == true) return true
         if (event.action == KeyEvent.ACTION_DOWN && !searching) {
             val f = window.decorView.findFocus()
             val chIdx = channelAdapter.indexOfKey(focusedChannel?.key).coerceAtLeast(0)
@@ -428,6 +446,8 @@ class MainActivity : BaseActivity() {
         val ch = shownEpgFor ?: return
         // tylko na widocznym menu (inaczej podgląd przejąłby odtwarzacz uruchomiony akcją startową)
         if (!Prefs.mainPreview || isFinishing || !isResumedNow) return
+        // film STube gra w tle (pasek „Teraz odtwarzane”) – bez podglądu kanału (dwa dźwięki naraz)
+        if (YtEngine.active) return
         if (pl.iptv.tv.data.Parental.needsPin(ch)) { findViewById<TextView>(R.id.previewHint).text = "🔒"; return }
         findViewById<TextView>(R.id.previewHint).text = ""
         Playback.play(this, ch, ch.url)
@@ -454,9 +474,36 @@ class MainActivity : BaseActivity() {
         }
     }
 
+    /**
+     * Niski ekran (telefon w poziomie): przyciski menu bocznego nie mieszczą się w kolumnie – same ikony (podpis zostaje
+     * w opisie dostępności), a skróty aplikacji, które dalej się nie mieszczą, są ukrywane. Na TV kolumna mieści wszystko – bez zmian.
+     */
+    private fun fitSideNav() {
+        if (sideNav.orientation != android.widget.LinearLayout.VERTICAL) return
+        sideNav.post {
+            val avail = sideNav.height - sideNav.paddingTop - sideNav.paddingBottom
+            fun visible() = (0 until sideNav.childCount).map { sideNav.getChildAt(it) }.filter { it.visibility == View.VISIBLE }
+            fun need() = visible().sumOf { it.measuredHeight + (it.layoutParams as ViewGroup.MarginLayoutParams).let { lp -> lp.topMargin + lp.bottomMargin } }
+            if (avail <= 0 || need() <= avail) return@post
+            visible().filterIsInstance<TextView>().forEach { b ->
+                if (b.text.isNotEmpty()) { b.contentDescription = b.text; b.text = "" }
+                b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 1f)          // pusta linia tekstu bez wysokości
+                // mniejsza ikona i odstępy, bez minimalnej wysokości stylu przycisku
+                b.compoundDrawables[1]?.let { d -> d.setBounds(0, 0, Ui.dp(22), Ui.dp(22)); b.setCompoundDrawables(null, d, null, null) }
+                b.compoundDrawablePadding = 0; b.minHeight = 0; b.minimumHeight = 0
+                b.setPadding(b.paddingLeft, Ui.dp(5), b.paddingRight, Ui.dp(5))
+                (b.layoutParams as ViewGroup.MarginLayoutParams).bottomMargin = Ui.dp(3)
+            }
+            sideNav.measure(View.MeasureSpec.makeMeasureSpec(sideNav.width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(sideNav.height, View.MeasureSpec.EXACTLY))
+            // dalej za mało miejsca – ostatnie skróty aplikacji ukryte (dostępne w ◄◄ odtwarzacza i w Aplikacjach)
+            while (need() > avail) visible().lastOrNull { it.getTag(R.id.row_key) == "app" }?.let { it.visibility = View.GONE } ?: break
+            sideNav.requestLayout()
+        }
+    }
+
     private fun styleSideNav() {
         mapOf(R.id.btnEpgSearch to R.drawable.ic_n_epg, R.id.btnSearch to R.drawable.ic_n_search, R.id.btnEditor to R.drawable.ic_n_edit,
-            R.id.btnSettings to R.drawable.ic_n_settings, R.id.btnApps to R.drawable.ic_n_apps, R.id.btnSTube to R.drawable.ic_n_stube)
+            R.id.btnSettings to R.drawable.ic_n_settings, R.id.btnApps to R.drawable.ic_n_apps, R.id.btnSTube to R.drawable.ic_n_stube, R.id.btnStremio to R.drawable.ic_n_stremio)
             .forEach { (id, ic) -> findViewById<TextView>(id)?.let { Ui.iconOnTop(it, ic) } }
     }
 
@@ -552,7 +599,9 @@ class MainActivity : BaseActivity() {
         findViewById<View>(R.id.btnApps).visibility = if (SystemTools.isLauncherEnabled(this)) View.VISIBLE else View.GONE
         // STube tylko w wersji pełnej (wersja testowa dla testerów – bez YouTube)
         findViewById<View>(R.id.btnSTube).visibility = if (pl.iptv.tv.BuildConfig.FULL_EDITION) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.btnStremio).visibility = if (pl.iptv.tv.BuildConfig.FULL_EDITION) View.VISIBLE else View.GONE
         appShortcuts()
+        fitSideNav()
         if (!Prefs.searchEnabled && searching) closeSearch()
         val chs = Repository.channels
         empty.visibility = if (chs.isEmpty()) View.VISIBLE else View.GONE
@@ -569,6 +618,8 @@ class MainActivity : BaseActivity() {
 
     /** Wykonuje akcję wybraną w Ustawienia → Funkcje → Po włączeniu aplikacji. */
     private fun runStartAction() {
+        // film STube gra w tle – powrót do menu bez przełączania na telewizję (dźwięk gra dalej, pasek „Teraz odtwarzane”)
+        if (YtEngine.active && YtEngine.player?.playWhenReady == true && Prefs.startAction in listOf(StartActions.LAST_CHANNEL, StartActions.CHANNEL)) return
         val chs = Repository.channels
         fun channel(key: String) = Repository.byKey(key)?.takeIf { !it.hidden }
         when (Prefs.startAction) {

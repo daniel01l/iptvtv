@@ -73,14 +73,39 @@ object YtMedia {
         Repository.http.newBuilder().connectTimeout(10, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build()
     }
 
+    /**
+     * Źródło filmu: obraz (wybrana jakość + inne rozdzielczości – osobne grupy ścieżek, wybór przez TrackSelectionParameters),
+     * dźwięk (oryginał + inne języki) i napisy WebVTT (domyślnie wyłączone). Nieużywane grupy nie pobierają danych.
+     */
     fun source(c: Context, p: YtPlayable): MediaSource = when (p) {
-        is YtPlayable.Split -> MergingMediaSource(true, false, stream(p.video, p.durationS), stream(p.audio, p.durationS))
-        is YtPlayable.Muxed -> progressive(p.stream.url)
+        is YtPlayable.Split -> MergingMediaSource(true, false,
+            *(listOf(stream(p.video, p.durationS)) + p.videoAlts.map { stream(it, p.durationS) } +
+                stream(p.audio, p.durationS) + p.audioAlts.map { stream(it, p.durationS) } + subtitles(p)).toTypedArray())
+        is YtPlayable.Muxed -> if (p.subtitles.isEmpty()) progressive(p.stream.url)
+            else MergingMediaSource(true, false, *(listOf(progressive(p.stream.url)) + subtitles(p)).toTypedArray())
         is YtPlayable.Live -> {
             val ds = OkHttpDataSource.Factory(liveHttp).setUserAgent(YtStreams.USER_AGENT)
             if (p.hlsUrl != null) HlsMediaSource.Factory(ds).createMediaSource(MediaItem.fromUri(p.hlsUrl))
             else DashMediaSource.Factory(ds).createMediaSource(MediaItem.fromUri(p.dashUrl!!))
         }
+    }
+
+    /** Język i nazwa ścieżki dźwięku w manifeście (lista „Audio” w odtwarzaczu). Czysta funkcja – testy. */
+    fun withLanguage(mpd: String, c: YtCandidate): String {
+        if (c.videoOnly || (c.lang.isBlank() && c.label.isBlank())) return mpd
+        val attrs = (if (c.lang.isNotBlank()) " lang=\"${esc(c.lang)}\"" else "")
+        val label = (c.label.ifBlank { c.lang } + if (c.original) " (oryginał)" else "").let { "<Label>${esc(it)}</Label>" }
+        val m = Regex("<AdaptationSet([^>]*)>").find(mpd) ?: return mpd
+        return mpd.replaceRange(m.range, "<AdaptationSet${m.groupValues[1]}$attrs>$label")
+    }
+    private fun esc(s: String) = s.replace("&", "&amp;").replace("\"", "&quot;").replace("<", "&lt;").replace(">", "&gt;")
+
+    /** Napisy jako osobne źródła (wybór w menu „Napisy”, bez automatycznego włączania). */
+    private fun subtitles(p: YtPlayable): List<MediaSource> = p.subtitles.map { s ->
+        val cfg = MediaItem.SubtitleConfiguration.Builder(Uri.parse(s.url)).setMimeType(androidx.media3.common.MimeTypes.TEXT_VTT)
+            .setLanguage(s.lang).setLabel(s.label).setSelectionFlags(0).build()
+        androidx.media3.exoplayer.source.SingleSampleMediaSource.Factory(OkHttpDataSource.Factory(liveHttp).setUserAgent(YtStreams.USER_AGENT))
+            .setTreatLoadErrorsAsEndOfStream(true).createMediaSource(cfg, androidx.media3.common.C.TIME_UNSET)
     }
 
     private fun vodFactory() = OkHttpDataSource.Factory(vodHttp)
@@ -92,6 +117,7 @@ object YtMedia {
         val itag = c.itag ?: return progressive(c.url)
         return runCatching {
             val mpd = YoutubeProgressiveDashManifestCreator.fromProgressiveStreamingUrl(c.url, itag, durationS)
+                .let { withLanguage(it, c) }
             val manifest = DashManifestParser().parse(Uri.parse(c.url), mpd.byteInputStream())
             DashMediaSource.Factory(vodFactory()).createMediaSource(manifest, MediaItem.Builder().setUri(c.url).setMimeType("application/dash+xml").build())
         }.getOrElse {

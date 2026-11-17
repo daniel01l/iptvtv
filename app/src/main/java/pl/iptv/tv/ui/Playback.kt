@@ -471,6 +471,35 @@ object Playback {
     /** Liczba otwartych połączeń bieżącego strumienia (diagnostyka i testy). */
     val openCalls: Int get() = calls?.open ?: 0
 
+    /** Kanał wstrzymany na czas STube / Stremio (kanał, adres, typ) – wznawiany po powrocie do pozostałych ekranów. */
+    var suspended: Triple<Channel, String, String?>? = null; private set
+
+    /**
+     * Wejście do STube / Stremio: telewizja na żywo całkowicie zatrzymana (dekodery i połączenia zwolnione – nie obciąża
+     * urządzenia), z zapamiętanym kanałem do [resumeAfterApp].
+     */
+    fun suspendForApp() {
+        val ch = lastChannel; val u = url
+        if (player != null && ch != null && u != null) suspended = Triple(ch, u, lastMime)
+        if (player != null) stop()
+    }
+
+    /**
+     * Powrót z STube / Stremio: wstrzymany kanał gra dalej (w tle menu / podglądzie). Nie, gdy gra film STube w tle
+     * (pasek „Teraz odtwarzane”) – wtedy kanał czeka na następny powrót. Zwraca true, gdy wznowiono.
+     */
+    fun resumeAfterApp(c: Context, ytPlaying: Boolean = runCatching { YtEngine.player?.let { it.playWhenReady && it.playbackState != androidx.media3.common.Player.STATE_IDLE && it.playbackState != androidx.media3.common.Player.STATE_ENDED } == true }.getOrDefault(false)): Boolean {
+        val s = suspended ?: return false
+        if (ytPlaying) return false
+        suspended = null
+        if (active) return false                                 // w międzyczasie uruchomiono inny kanał
+        play(c, s.first, s.second, mime = s.third)
+        return true
+    }
+
+    /** Uruchomiony inny kanał (odtwarzacz TV) – wstrzymany nie jest już wznawiany. */
+    fun forgetSuspended() { suspended = null }
+
     /** Całkowite zatrzymanie: odtwarzacz, dekodery, wątki ładowania i połączenia zwolnione (zmiana silnika, wyjście). */
     fun stop() {
         releasePlayer()

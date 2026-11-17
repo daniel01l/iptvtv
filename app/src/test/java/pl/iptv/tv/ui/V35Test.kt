@@ -65,6 +65,7 @@ class V35Test {
         key(a, KeyEvent.KEYCODE_DPAD_LEFT); assertEquals(R.id.btnEpgSearch, a.window.decorView.findFocus()?.id)
         key(a, KeyEvent.KEYCODE_DPAD_DOWN); assertEquals(R.id.btnSearch, a.window.decorView.findFocus()?.id)
         key(a, KeyEvent.KEYCODE_DPAD_DOWN); assertEquals(R.id.btnSTube, a.window.decorView.findFocus()?.id)
+        key(a, KeyEvent.KEYCODE_DPAD_DOWN); assertEquals(R.id.btnStremio, a.window.decorView.findFocus()?.id)
         key(a, KeyEvent.KEYCODE_DPAD_DOWN); key(a, KeyEvent.KEYCODE_DPAD_DOWN); assertEquals(R.id.btnSettings, a.window.decorView.findFocus()?.id)
         key(a, KeyEvent.KEYCODE_DPAD_DOWN); assertEquals(R.id.btnSettings, a.window.decorView.findFocus()?.id)   // koniec kolumny
         key(a, KeyEvent.KEYCODE_DPAD_LEFT); assertEquals(R.id.btnSettings, a.window.decorView.findFocus()?.id)

@@ -78,11 +78,18 @@ class IptvApp : Application(), coil.ImageLoaderFactory {
         Repository.init(this)
         pl.iptv.tv.data.YouTubeTokens.init(this)
         pl.iptv.tv.data.StubeHistory.init(this)
+        pl.iptv.tv.data.StremioAccount.init(this)
         pl.iptv.tv.remote.RemoteServer.init(this)
         if (Repository.epgCrashed()) android.util.Log.w("IptvApp", "Poprzednie wczytywanie EPG przerwane – tryb dla słabszych urządzeń")
         pl.iptv.tv.data.Activation.init(this)
         if (pl.iptv.tv.data.Activation.enabled) activationLoop()
         pl.iptv.tv.ui.Ui.init(this)
+        // świeża instalacja (nie aktualizacja): motyw PS5 jako domyślny; pomijane w testach Robolectric (motyw ustawiają same testy)
+        if (android.os.Build.FINGERPRINT != "robolectric") runCatching {
+            val pi = packageManager.getPackageInfo(packageName, 0)
+            pl.iptv.tv.ui.Ui.applyFirstRunTheme(pi.firstInstallTime == pi.lastUpdateTime)
+        }
+        pl.iptv.tv.ui.X25Theme.refreshLauncher(this)
         ReminderScheduler.schedule(this)
         if (pl.iptv.tv.data.Prefs.remoteOn || pl.iptv.tv.data.Prefs.stubeRemote) pl.iptv.tv.remote.RemoteServer.start(this)
         if (pl.iptv.tv.data.Prefs.relayOn) pl.iptv.tv.remote.RemoteRelay.start(this)

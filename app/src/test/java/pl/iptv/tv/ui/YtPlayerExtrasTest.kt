@@ -68,7 +68,7 @@ class YtPlayerExtrasTest {
         YtEqSession.factory = { YtEqSession(fake) }
     }
 
-    @After fun tearDown() { YtStreams.resolverOverride = null; YtEqSession.factory = null; server.shutdown(); Prefs.ytSpeedPct = 100; Prefs.ytEqPreset = 0 }
+    @After fun tearDown() { YtStreams.resolverOverride = null; YtEngine.releasePlayer(); YtEngine.listeners.clear(); YtEqSession.factory = null; server.shutdown(); Prefs.ytSpeedPct = 100; Prefs.ytEqPreset = 0 }
 
     // ---------------- rozdziały ----------------
 
@@ -129,7 +129,7 @@ class YtPlayerExtrasTest {
     private fun open(chapters: List<YtChapter>): YtPlayerActivity {
         YtStreams.resolverOverride = { YtPlayable.Muxed("Film", 300, YtCandidate(server.url("/v.mp4").toString(), 360), chapters) }
         val a = Robolectric.buildActivity(YtPlayerActivity::class.java, YtPlayerActivity.intent(ctx, "abcdefghijk", "Film")).setup().get()
-        waitFor { a.player != null }
+        waitFor { a.player != null && YtEngine.playable != null }
         return a
     }
 
@@ -200,8 +200,9 @@ class YtPlayerExtrasTest {
 
     @Test fun eqReleasedWithPlayer() {
         val a = open(emptyList())
-        // zwolnienie odtwarzacza (onStop, okno awaryjne, ponowna ekstrakcja) zwalnia też korektor
-        YtPlayerActivity::class.java.getDeclaredMethod("release").apply { isAccessible = true }.invoke(a)
-        assertTrue(fake.released); assertNull(a.eq); assertNull(a.player)
+        // korektor należy do silnika w usłudze: zamknięcie ekranu go nie zwalnia, koniec usługi – tak
+        assertNotNull(a.eq); a.finish(); idle(); assertFalse(fake.released)
+        YtEngine.releasePlayer()
+        assertTrue(fake.released); assertNull(YtEngine.eq); assertNull(YtEngine.player)
     }
 }

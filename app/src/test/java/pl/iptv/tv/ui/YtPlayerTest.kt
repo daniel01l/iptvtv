@@ -61,7 +61,7 @@ class YtPlayerTest {
         Prefs.permissionsAsked = true; Prefs.setupDone = true
     }
 
-    @After fun tearDown() { YtStreams.resolverOverride = null; server.shutdown() }
+    @After fun tearDown() { YtStreams.resolverOverride = null; YtEngine.releasePlayer(); YtEngine.listeners.clear(); server.shutdown() }
 
     // ---------------- wybór strumieni ----------------
 
@@ -156,7 +156,7 @@ class YtPlayerTest {
         assertEquals("Odtwórz w YouTube", d.getButton(AlertDialog.BUTTON_NEGATIVE).text.toString())
         assertEquals("Zamknij", d.getButton(AlertDialog.BUTTON_NEUTRAL).text.toString())
         assertTrue(d.getButton(AlertDialog.BUTTON_POSITIVE).isFocusable)
-        assertNull(a.player)                              // odtwarzacz zwolniony
+        assertFalse(YtEngine.player?.isPlaying == true)   // odtwarzacz w usłudze zatrzymany (nie gra w tle)
         // „Odtwórz w YouTube” – link do filmu (aplikacja YouTube lub przeglądarka)
         val yt = SmartTubeIntegrationHelper.PKG_YT_TV
         val spm = shadowOf(ctx.packageManager)
@@ -187,7 +187,7 @@ class YtPlayerTest {
         assertEquals("sponsor", a.lastSkipped!!.category)
         assertFalse(a.skipIfNeeded(31_000))
         // błąd strumienia (404) → po jednej ponownej próbie okno awaryjne
-        waitFor { a.fallbackDialog?.isShowing == true }
+        repeat(5) { if (a.fallbackDialog?.isShowing != true) { waitFor { a.fallbackDialog?.isShowing == true }; Thread.sleep(200) } }
         assertTrue(a.fallbackDialog!!.isShowing)
     }
 
