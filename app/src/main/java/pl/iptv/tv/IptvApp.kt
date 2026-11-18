@@ -79,6 +79,8 @@ class IptvApp : Application(), coil.ImageLoaderFactory {
         pl.iptv.tv.data.YouTubeTokens.init(this)
         pl.iptv.tv.data.StubeHistory.init(this)
         pl.iptv.tv.data.ChannelEngines.loadAsync()          // dobrane silniki kanałów – do pamięci w tle
+        // odtwarzacz rozgrzany w tle (dekodery, klasy silnika, rozpoznane HLS) – płynne kanały od pierwszego przełączenia
+        if (android.os.Build.FINGERPRINT != "robolectric") pl.iptv.tv.ui.Playback.warmUp(this)
         pl.iptv.tv.data.StremioAccount.init(this)
         pl.iptv.tv.remote.RemoteServer.init(this)
         if (Repository.epgCrashed()) android.util.Log.w("IptvApp", "Poprzednie wczytywanie EPG przerwane – tryb dla słabszych urządzeń")

@@ -223,6 +223,8 @@ class ModernHomeActivity : BaseActivity() {
         }
     }
 
+    override val navRepeatMs get() = COMPOSE_NAV_REPEAT_MS
+
     override fun dispatchKeyEvent(event: NativeKey): Boolean {
         if (event.keyCode == NativeKey.KEYCODE_MENU) {
             if (event.action == NativeKey.ACTION_UP) { if (options) closeOptions() else openOptions() }
@@ -378,12 +380,13 @@ class ModernHomeActivity : BaseActivity() {
             2 -> videos.firstOrNull()?.let { videoFeature(it) }
             3 -> titles.firstOrNull()?.let { titleFeature(it) }
             4 -> null
-            else -> {
+            // (7.3) Start: zawsze ostatni kanał telewizji; film / tytuł tylko, gdy żadnego kanału jeszcze nie oglądano
+            else -> lastCh?.let { channelFeature(it) } ?: run {
                 val v = videos.firstOrNull(); val t = titles.firstOrNull()
                 when {
                     v != null && (t == null || v.updatedAt >= t.updatedAt) -> videoFeature(v)
                     t != null -> titleFeature(t)
-                    else -> lastCh?.let { channelFeature(it) }
+                    else -> null
                 }
             }
         } ?: when (s) {
@@ -826,7 +829,7 @@ class ModernHomeActivity : BaseActivity() {
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 class ShelfScroll(private val header: Float) : androidx.compose.foundation.gestures.BringIntoViewSpec {
     override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> =
-        androidx.compose.animation.core.tween(260, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+        androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = SCROLL_STIFFNESS)      // (7.3) jak [SmoothScroll]
 
     /**
      * Rząd w pełni widoczny razem z nagłówkiem: wychodzi u góry – przewinięcie, aż nagłówek będzie widoczny; wychodzi u dołu –

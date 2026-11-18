@@ -17,6 +17,7 @@ import org.robolectric.Robolectric
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.LooperMode
+import pl.iptv.tv.data.Repository
 import pl.iptv.tv.data.Prefs
 import pl.iptv.tv.data.StubeDatabase
 import pl.iptv.tv.data.StubeHistory
@@ -182,6 +183,38 @@ class ModernTest {
         assertEquals("nav:s1", a.focusedKey)
         a.onBackPressedDispatcher.onBackPressed(); idle()
         assertTrue(a.isFinishing)
+    }
+
+    @Test fun startHeroIsAlwaysLastLiveChannel() {
+        // 7.3: Start – zawsze ostatni kanał telewizji, nawet gdy później oglądano film STube / Stremio
+        val f = java.io.File(ctx.filesDir, "modern73.m3u").apply { writeText("#EXTM3U\n#EXTINF:-1 group-title=\"G\",Kanał Ostatni\nhttp://127.0.0.1:9/live/1.ts\n") }
+        Prefs.playlistsJson = "[]"; Repository.resetAllEdits(); runBlocking { Repository.loadPlaylist(f.absolutePath) }
+        Prefs.lastChannel = Repository.channels[0].key
+        runBlocking { StubeHistory.flush(WatchProgress("v9", "Film 9", "Kanał", positionMs = 300_000, durationMs = 1_200_000, updatedAt = System.currentTimeMillis())) }
+        val a = home()
+        waitFor { "continue" in a.shelfIds }
+        assertEquals("Kanał Ostatni", a.featureTitle)
+        // próg „Ostatnio oglądane”: 10 s w motywie Nowoczesnym, 1 min w pozostałych
+        assertEquals(10_000L, PlayerActivity.recentAfterMs())
+        Ui.applyPreset("classic"); assertEquals(60_000L, PlayerActivity.recentAfterMs())
+        Ui.applyPreset(ModernTheme.ID)
+    }
+
+    @Test fun heldArrowMovesFocusAtSteadyPace() {
+        // 7.3: przytrzymana strzałka – równe tempo (powtórzenia pilota co 20 ms nie zalewają przewijania)
+        val a = home()
+        val t = android.os.SystemClock.uptimeMillis()
+        // naciśnięcie + 10 powtórzeń co 20 ms (200 ms): przechodzą tylko te co ≥ 85 ms (2), reszta pominięta
+        a.dispatchKeyEvent(KeyEvent(t, t, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN, 0))
+        for (i in 1..10) a.dispatchKeyEvent(KeyEvent(t, t + i * 20L, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN, i))
+        a.dispatchKeyEvent(KeyEvent(t, t + 220, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_DOWN, 0)); idle()
+        assertEquals(8, a.navRepeatsDropped)
+        assertNotNull("fokus nie zgubiony", a.focusedKey)
+        // pojedyncze naciśnięcia – bez opóźnień
+        val t2 = t + 1000
+        a.dispatchKeyEvent(KeyEvent(t2, t2, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_UP, 0))
+        a.dispatchKeyEvent(KeyEvent(t2, t2 + 10, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_UP, 0)); idle()
+        assertEquals(8, a.navRepeatsDropped)
     }
 
     @Test fun heroButtonsAndTilesOpenExistingScreens() {

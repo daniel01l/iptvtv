@@ -1,0 +1,25 @@
+# (7.3) Profil bazowy: kod odtwarzania kanałów kompilowany z wyprzedzeniem (ProfileInstaller) – po aktualizacji
+# i po wymuszonym zatrzymaniu przełączanie kanałów jest płynne od razu, bez „rozgrzewania się” aplikacji.
+HSPLpl/iptv/tv/ui/Playback;->**(**)**
+HSPLpl/iptv/tv/ui/Playback$**;->**(**)**
+HSPLpl/iptv/tv/ui/PlayerActivity;->**(**)**
+HSPLpl/iptv/tv/ui/PlayerActivity$**;->**(**)**
+HSPLpl/iptv/tv/ui/ChannelEngineOptimizer;->**(**)**
+HSPLpl/iptv/tv/data/ChannelEngines;->**(**)**
+HSPLpl/iptv/tv/data/Prefs;->**(**)**
+HSPLandroidx/media3/exoplayer/**->**(**)**
+HSPLandroidx/media3/extractor/ts/**->**(**)**
+HSPLandroidx/media3/extractor/**->**(**)**
+HSPLandroidx/media3/common/**->**(**)**
+HSPLandroidx/media3/datasource/**->**(**)**
+HSPLandroidx/media3/ui/**->**(**)**
+HSPLokhttp3/**->**(**)**
+HSPLokio/**->**(**)**
+Lpl/iptv/tv/ui/Playback;
+Landroidx/media3/exoplayer/**;
+Landroidx/media3/extractor/**;
+Landroidx/media3/common/**;
+Landroidx/media3/datasource/**;
+Landroidx/media3/ui/**;
+Lokhttp3/**;
+Lokio/**;

@@ -207,6 +207,33 @@ class EngineOptimizerTest {
         assertEquals(EngineProfile(software = true), ChannelEngines.profileFor("k5"))
     }
 
+    @Test fun singleFormatErrorRetriesQuicklyWithoutProbing() {
+        // 7.3: jednorazowy błąd formatu – zwykłe, szybkie ponowienie; dobór dopiero, gdy błąd się powtórzy; dekoder – od razu
+        assertFalse(Playback.optimizeOnError(decoder = false, retriesSoFar = 0))
+        assertTrue(Playback.optimizeOnError(decoder = false, retriesSoFar = 1))
+        assertTrue(Playback.optimizeOnError(decoder = true, retriesSoFar = 0))
+        assertTrue(Playback.FORMAT_RETRY_MS < Playback.retryDelayMs(true, 1))
+    }
+
+    @Test fun containerOnlyProfileKeepsSamePlayer() {
+        // 7.3: profil zmieniający tylko rodzaj strumienia nie przebudowuje odtwarzacza przy przełączaniu
+        assertTrue(Playback.sameEngine(null, EngineProfile(container = 1)))
+        assertTrue(Playback.sameEngine(EngineProfile(), null))
+        assertFalse(Playback.sameEngine(null, EngineProfile(ffmpeg = true)))
+        ChannelEngines.save("k7", "http://127.0.0.1:9/live/7", EngineProfile(container = 1))
+        val a = ch("http://127.0.0.1:9/live/6.ts", "k6"); val b = ch("http://127.0.0.1:9/live/7", "k7")
+        Playback.play(ctx, a, a.url); idle()
+        val first = Playback.get(ctx)
+        Playback.play(ctx, b, b.url); idle()
+        assertSame(first, Playback.get(ctx))
+        assertEquals(EngineProfile(container = 1), Playback.profile)
+        // profil dekodera – nowy odtwarzacz
+        ChannelEngines.save("k8", "http://127.0.0.1:9/live/8.ts", EngineProfile(ffmpeg = true))
+        val d = ch("http://127.0.0.1:9/live/8.ts", "k8")
+        Playback.play(ctx, d, d.url); idle()
+        assertNotSame(first, Playback.get(ctx))
+    }
+
     @Test fun entityKeepsUrlAndFlag() {
         val e = ChannelEngine("k", "http://u", EngineProfile(container = 1).encode())
         assertEquals(EngineProfile(container = 1), e.profile)

@@ -121,7 +121,8 @@ fun TileImage(url: String, fallback: String, modifier: Modifier, contentScale: a
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 object SmoothScroll : androidx.compose.foundation.gestures.BringIntoViewSpec {
     override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> =
-        androidx.compose.animation.core.tween(240, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+        // (7.3) sprężyna bez odbicia: kolejny krok przejmuje prędkość poprzedniego – ciągły, płynny ruch przy przytrzymaniu strzałki
+        androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = SCROLL_STIFFNESS)
 
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
         val margin = Ui.dp(28).toFloat()
@@ -145,3 +146,6 @@ fun initialsOf(s: String) = s.split(' ').filter { it.isNotBlank() }.take(2).join
 
 /** Pozycja panelu opcji PS5 ([switch] = przełącznik po prawej, null – zwykła pozycja). */
 class Ps5Option(val label: String, val sub: String = "", val switch: Boolean? = null, val action: () -> Unit)
+
+/** (7.3) Sztywność sprężyny przewijania list na pulpitach (ok. 250–300 ms do zatrzymania, bez odbicia). */
+const val SCROLL_STIFFNESS = 450f

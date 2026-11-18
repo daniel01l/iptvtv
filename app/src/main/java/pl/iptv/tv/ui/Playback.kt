@@ -99,7 +99,7 @@ object Playback {
             // adres bez rozszerzenia, a serwer podaje listę HLS (np. Xtream „…/123”) – druga próba jako HLS (jak zewnętrzne odtwarzacze)
             if (e.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED && guessMime(url ?: "") == null && url !in hlsUrls) {
                 val c = lastCtx; val ch = lastChannel; val u = url
-                if (c != null && ch != null && u != null) { hlsUrls += u; main.post { if (url == u) play(c, ch, u, force = true) }; return }
+                if (c != null && ch != null && u != null) { rememberHls(u); main.post { if (url == u) play(c, ch, u, force = true) }; return }
             }
             // wypadnięcie poza okno transmisji na żywo – powrót do bieżącego miejsca (bez liczenia jako błąd)
             if (e.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
@@ -124,9 +124,13 @@ object Playback {
                 androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED, androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED,
                 androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED)
             val ch = lastChannel; val c = lastCtx; val u = url
-            if (engineIssue && !reachedReady && ch != null && c != null && u != null && u == ch.url &&
+            if (engineIssue && optimizeOnError(decoder, retries) && !reachedReady && ch != null && c != null && u != null && u == ch.url &&
                 ChannelEngineOptimizer.onStartFailed(c, ch, u, e.errorCodeName, decoderError = decoder)) return
-            if (retries < max) { retries++; main.removeCallbacks(retry); main.postDelayed(retry, retryDelayMs(source, retries)) }
+            if (retries < max) {
+                retries++; main.removeCallbacks(retry)
+                // (7.3) pierwszy błąd formatu (np. wejście w środek strumienia na żywo) – szybkie ponowienie zamiast 2 s
+                main.postDelayed(retry, if (engineIssue && !decoder && retries == 1) FORMAT_RETRY_MS else retryDelayMs(source, retries))
+            }
             else { p.stop(); calls?.cancelActive(); onFatal?.invoke(e) }   // stop = zwolnienie dekoderów (słabsze urządzenia nie zacinają kolejnych kanałów)
         }
         override fun onPlaybackStateChanged(s: Int) {
@@ -150,7 +154,9 @@ object Playback {
                 recover("buforowanie ${(p.totalBufferedDuration / 1000)} s zapasu")
             }
             // tunelowanie: klatki wyświetla sprzęt poza licznikiem odtwarzacza – bez sprawdzania (inaczej fałszywe alarmy)
-            if (p.isPlaying && p.videoFormat != null && (p.trackSelector as? androidx.media3.exoplayer.trackselection.DefaultTrackSelector)?.parameters?.tunnelingEnabled != true) {
+            val view = target
+            if (p.isPlaying && p.videoFormat != null && canJudgeFreeze(view != null && view.player === p, view?.isAttachedToWindow == true, view?.isShown == true) &&
+                (p.trackSelector as? androidx.media3.exoplayer.trackselection.DefaultTrackSelector)?.parameters?.tunnelingEnabled != true) {
                 val frames = p.videoDecoderCounters?.renderedOutputBufferCount ?: -1
                 val pos = p.currentPosition
                 stuck = if (frames == lastFrames && pos != lastPos) stuck + 1 else 0     // obraz stoi, a czas (dźwięk) płynie
@@ -172,7 +178,7 @@ object Playback {
         val c = lastCtx
         if (!softwareDecoding && pl.iptv.tv.data.Prefs.freezeFallback && c != null) {
             android.util.Log.w(TAG, "zamrożony obraz na dekoderze sprzętowym – przejście na programowy • ${diagnostics()}")
-            sessionSoftware = true
+            sessionSoftware = true; softwareChannel = channelKey
             rebuild(c)
             onDecoderFallback?.invoke()
         } else recover("zamrożony obraz")
@@ -180,6 +186,21 @@ object Playback {
 
     /** Tylko testy: zgłoszenie zamrożonego obrazu jak przez strażnika. */
     fun simulateFreeze() = onFrozen()
+
+    /**
+     * (7.3) Dobór silnika po błędzie: dekoder – od razu; błąd formatu – dopiero gdy powtórzył się po zwykłym ponowieniu.
+     * W 7.2 jednorazowy błąd formatu na starcie (częsty przy wejściu w strumień na żywo) zatrzymywał kanał na testy
+     * (4–5 s), a dobrany „na zapas” profil zostawał zapisany – każde przełączenie na ten kanał przebudowywało odtwarzacz.
+     */
+    fun optimizeOnError(decoder: Boolean, retriesSoFar: Int): Boolean = decoder || retriesSoFar >= 1
+    /** Pierwsze ponowienie po błędzie formatu (zamiast 2 s). */
+    const val FORMAT_RETRY_MS = 300L
+
+    /** Ten sam odtwarzacz (dekodery / kolejka); sam rodzaj strumienia (HLS / TS) zmienia tylko źródło. */
+    fun sameEngine(a: pl.iptv.tv.data.EngineProfile?, b: pl.iptv.tv.data.EngineProfile?): Boolean {
+        val none = pl.iptv.tv.data.EngineProfile()
+        return (a?.copy(container = 0) ?: none) == (b?.copy(container = 0) ?: none)
+    }
 
     /** Opóźnienie kolejnej próby po błędzie: dostawca – 2, 4, 6, 8 s; sieć – 2, 4, 8, 16 s. */
     fun retryDelayMs(source: Boolean, attempt: Int): Long = if (source) 2000L * attempt else 1000L shl minOf(attempt, 4)
@@ -245,6 +266,15 @@ object Playback {
      * zerowane przez [stop] (zamknięcie aplikacji, ręczna zmiana silnika lub akceleracji).
      */
     @Volatile var sessionSoftware = false; private set
+    /**
+     * (7.3) Kanał, na którym obraz zamarzł – dekoder programowy tylko dla niego. Dawniej do końca sesji dla wszystkich
+     * kanałów: fałszywy alarm (np. obraz bez powierzchni przy przebudowie ekranów po zmianie motywu albo zaraz po zimnym
+     * starcie) zostawiał klatkujący dekoder programowy, aż aplikacja została zamknięta.
+     */
+    @Volatile var softwareChannel: String? = null; private set
+
+    /** Strażnik liczy zamrożenie tylko, gdy obraz ma widoczną powierzchnię (bez niej dekoder nie wyświetla klatek). */
+    fun canJudgeFreeze(hasTarget: Boolean, attached: Boolean, shown: Boolean) = hasTarget && attached && shown
     /** Po automatycznym przejściu na dekoder programowy (komunikat na ekranie). */
     var onDecoderFallback: (() -> Unit)? = null
     /** Co ile ms strażnik sprawdza obraz. */
@@ -432,7 +462,51 @@ object Playback {
     private var lastCtx: Context? = null
     private var lastChannel: Channel? = null
     /** Adresy bez rozszerzenia rozpoznane jako HLS (po nierozpoznanym formacie) – kolejne włączenia od razu jako HLS. */
-    val hlsUrls: MutableSet<String> = java.util.Collections.synchronizedSet(HashSet())
+    val hlsUrls: MutableSet<String> = java.util.Collections.synchronizedSet(LinkedHashSet())
+    const val HLS_REMEMBER = 400
+
+    /**
+     * (7.3) Rozpoznany HLS zapamiętany także po ponownym uruchomieniu (aktualizacja, wymuszone zatrzymanie): dawniej po
+     * każdym zimnym starcie pierwsze włączenie takiego kanału kończyło się błędem formatu i drugim startem.
+     */
+    fun rememberHls(u: String) {
+        hlsUrls += u
+        val list = synchronized(hlsUrls) { hlsUrls.toList() }.takeLast(HLS_REMEMBER)
+        runCatching { pl.iptv.tv.data.Prefs.hlsStreams = list.joinToString("\n") }
+    }
+
+    fun loadRememberedHls() {
+        runCatching { pl.iptv.tv.data.Prefs.hlsStreams.split('\n').filter { it.isNotBlank() } }.getOrNull()?.let { hlsUrls.addAll(it) }
+    }
+
+    /** Typy strumieni na żywo, których dekodery są sprawdzane przy rozgrzewaniu. */
+    val WARM_MIMES = listOf(MimeTypes.VIDEO_H264, MimeTypes.VIDEO_H265, MimeTypes.VIDEO_MPEG2, MimeTypes.AUDIO_AAC,
+        MimeTypes.AUDIO_AC3, MimeTypes.AUDIO_E_AC3, MimeTypes.AUDIO_MPEG, MimeTypes.AUDIO_MPEG_L2)
+    @Volatile var warmed = false; private set
+
+    /**
+     * (7.3) Rozgrzanie po zimnym starcie (aktualizacja, wymuszone zatrzymanie, nowy proces): lista dekoderów urządzenia
+     * (pierwsze zapytanie trwa na TV nawet sekundę i dawniej przypadało na start pierwszego kanału) i jednorazowe
+     * zbudowanie / zwolnienie odtwarzacza na wątku w tle (wczytanie klas silnika, FFmpeg) – bez dźwięku, bez dekoderów,
+     * bez połączeń. Kanały od razu przełączają się płynnie, zamiast „budzić się” po dłuższej chwili.
+     */
+    fun warmUp(c: Context) {
+        val app = c.applicationContext
+        Thread({
+            runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND) }
+            loadRememberedHls()
+            WARM_MIMES.forEach { m -> runCatching { androidx.media3.exoplayer.mediacodec.MediaCodecUtil.getDecoderInfos(m, false, false) } }
+            runCatching {
+                android.os.Looper.prepare()
+                val looper = android.os.Looper.myLooper()!!
+                val p = buildPlayer(app, null, looper)
+                p.release()
+                streamHttp               // klient strumieni (pula połączeń, dyspozytor) gotowy przed pierwszym kanałem
+                looper.quitSafely()
+            }
+            warmed = true
+        }, "PlaybackWarmUp").start()
+    }
 
     /** Odtwarza [streamUrl]; ten sam adres nie jest uruchamiany ponownie. Zwraca true, gdy rozpoczęto nowe odtwarzanie. */
     fun play(c: Context, ch: Channel, streamUrl: String, force: Boolean = false, mime: String? = null): Boolean {
@@ -440,11 +514,16 @@ object Playback {
         ChannelEngineOptimizer.cancelUnless(streamUrl)
         // zapamiętany profil silnika kanału (Room, odczyt z pamięci); rodzaj strumienia tylko dla adresu, dla którego go dobrano
         val want = ChannelEngines.get(ch.key)?.let { e -> e.profile?.let { if (e.streamUrl == streamUrl) it else it.copy(container = 0) } }
-        if (want != profile) {
+        // (7.3) awaryjny dekoder programowy tylko dla kanału, na którym obraz zamarzł – inny kanał znów na sprzętowym
+        val leaveSoftware = sessionSoftware && softwareChannel != null && softwareChannel != ch.key
+        if (leaveSoftware) { sessionSoftware = false; softwareChannel = null }
+        if (want != profile || (leaveSoftware && player != null)) {
             // inne ustawienia silnika – nowy odtwarzacz (stary całkowicie zwolniony), obraz na tym samym widoku
+            // (7.3) sam rodzaj strumienia (HLS / TS) – ten sam odtwarzacz, bez przebudowy (płynne przełączanie)
             val view = target
+            val rebuild = !sameEngine(want, profile) || leaveSoftware
             profile = want
-            if (player != null) {
+            if (player != null && rebuild) {
                 releasePlayer(); url = null
                 val np = create(c)
                 view?.let { it.player = np; target = it }
@@ -554,6 +633,7 @@ object Playback {
         if (target == null && p.playbackState != androidx.media3.common.Player.STATE_IDLE && p.videoFormat != null) headless = true
         PlayerView.switchTargetView(p, target, view)
         target = view
+        stuck = 0; lastFrames = -1; lastPos = -1          // nowa powierzchnia – licznik zamrożenia od zera
     }
 
     /** Ponowne podłączenie powierzchni obrazu (po powrocie z innego ekranu – bez czarnego obrazu). */
@@ -632,7 +712,7 @@ object Playback {
         releasePlayer()
         profile = null
         hadError = false; retries = 0; recoveries = 0; recoveryWindow = 0
-        sessionSoftware = false          // ręczna zmiana silnika / wyjście – znowu ustawienia użytkownika
+        sessionSoftware = false; softwareChannel = null          // ręczna zmiana silnika / wyjście – znowu ustawienia użytkownika
         url = null; channelKey = null; target = null; lastMime = null
     }
 }

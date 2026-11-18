@@ -260,6 +260,8 @@ class Ps5HomeActivity : BaseActivity() {
         }
     }
 
+    override val navRepeatMs get() = COMPOSE_NAV_REPEAT_MS
+
     override fun dispatchKeyEvent(event: NativeKey): Boolean {
         if (event.keyCode == NativeKey.KEYCODE_MENU) {
             if (event.action == NativeKey.ACTION_UP) { if (options) closeOptions() else openOptions() }

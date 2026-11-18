@@ -66,7 +66,7 @@ object ChannelEngines {
     /** Po tym czasie kanał oznaczony jako niedziałający może być przetestowany ponownie (serwer mógł wrócić). */
     const val RETEST_MS = 24 * 3_600_000L
     /** Wersja zasad doboru – starsze zapisane profile są usuwane przy starcie ([load]). */
-    const val PROFILES_VERSION = 2
+    const val PROFILES_VERSION = 3   // 3 (7.3): profile dobrane w 7.2 po jednorazowym błędzie formatu (zbędne, spowalniały przełączanie)
 
     private val mem = ConcurrentHashMap<String, ChannelEngine>()
     @Volatile var loaded = false; private set
@@ -89,7 +89,8 @@ object ChannelEngines {
         loaded = true
     }
 
-    fun loadAsync() { StubeHistory.scope.launch { load() } }
+    private var loadJob: kotlinx.coroutines.Job? = null
+    fun loadAsync() { loadJob = StubeHistory.scope.launch { load() } }
 
     fun get(channelKey: String): ChannelEngine? = mem[channelKey]
 
@@ -122,5 +123,6 @@ object ChannelEngines {
     }
 
     /** Testy: tylko pamięć (bez czekania na zapis). */
-    fun resetForTest() { mem.clear(); loaded = false }
+    /** Testy: czekanie na wczytywanie z [loadAsync] (start aplikacji) – inaczej mogło dopisać wiersze w trakcie testu. */
+    fun resetForTest() { loadJob?.let { j -> kotlinx.coroutines.runBlocking { j.join() } }; loadJob = null; mem.clear(); loaded = false }
 }

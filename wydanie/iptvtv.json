@@ -1,6 +1,6 @@
 {
-  "versionCode": 62,
-  "versionName": "7.2",
+  "versionCode": 63,
+  "versionName": "7.3",
   "apk": "D-iptv-Player.apk",
-  "notes": "Naprawione zacinanie kanalow we wszystkich motywach (od 7.0): dobor silnika nie zatrzymuje juz wolniej startujacych kanalow i nie zapisuje dla nich dekodera programowego; bledne ustawienia z 7.0 i 7.1 usuwane automatycznie"
+  "notes": "Szybsze przelaczanie kanalow: jednorazowy blad formatu na starcie nie zatrzymuje juz kanalu na dobor silnika (start od razu zamiast po 4-5 s); zbedne ustawienia kanalow z 7.2 usuwane automatycznie"
 }

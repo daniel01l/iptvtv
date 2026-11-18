@@ -221,6 +221,8 @@ class X25DashboardActivity : BaseActivity() {
         }
     }
 
+    override val navRepeatMs get() = COMPOSE_NAV_REPEAT_MS
+
     override fun dispatchKeyEvent(event: NativeKey): Boolean {
         // MENU poza kafelkiem funkcji (pasek, ostatnio oglądane) – opcje pulpitu
         if (event.keyCode == NativeKey.KEYCODE_MENU && flyout.isEmpty() && lastFocus?.startsWith("t:") != true) {

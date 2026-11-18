@@ -57,6 +57,9 @@ class PlayerActivity : BaseActivity() {
         const val EXTRA_START = "start"
         const val EXTRA_END = "end"
         private const val RECENT_AFTER_MS = 60_000L
+        /** (7.3) Motyw Nowoczesny: kanał w „Ostatnio oglądanych” już po 10 s oglądania. */
+        const val RECENT_AFTER_MODERN_MS = 10_000L
+        fun recentAfterMs() = if (ModernTheme.active) RECENT_AFTER_MODERN_MS else RECENT_AFTER_MS
         private const val PANEL_TIMEOUT_MS = 30_000L
     }
 
@@ -335,7 +338,7 @@ class PlayerActivity : BaseActivity() {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
                     errorTv.visibility = View.GONE; retries = 0
-                    if (!recentScheduled) { recentScheduled = true; handler.postDelayed(addRecent, RECENT_AFTER_MS) }
+                    if (!recentScheduled) { recentScheduled = true; handler.postDelayed(addRecent, recentAfterMs()) }
                 }
                 if (state == Player.STATE_ENDED && isCatchup) archiveEnded()
             }

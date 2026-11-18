@@ -195,6 +195,37 @@ class PlaybackLifecycleTest {
         Playback.onDecoderFallback = null
     }
 
+    @Test fun freezeFallbackOnlyForFrozenChannelAndVisibleSurface() {
+        // 7.3: dekoder programowy tylko dla kanału, który zamarzł – następny kanał znów na sprzętowym (nowy odtwarzacz)
+        Prefs.playerEngine = Playback.ENGINE_HARDWARE; Prefs.hwAccel = true; Prefs.freezeFallback = true
+        val a = Repository.channels[0]; val b = Repository.channels[1]
+        val view = PlayerView(ctx)
+        Playback.play(ctx, a, a.url); Playback.attach(view); idle()
+        Playback.simulateFreeze(); idle()
+        assertTrue(Playback.softwareDecoding); assertEquals(a.key, Playback.softwareChannel)
+        val sw = Playback.player
+        Playback.play(ctx, b, b.url); idle()
+        assertFalse(Playback.softwareDecoding); assertNull(Playback.softwareChannel)
+        assertNotSame(sw, Playback.player); assertSame(Playback.player, view.player)
+        // bez widocznej powierzchni (przebudowa ekranu po zmianie motywu, ekran za innym) – strażnik nie ocenia zamrożenia
+        assertFalse(Playback.canJudgeFreeze(hasTarget = false, attached = false, shown = false))
+        assertFalse(Playback.canJudgeFreeze(hasTarget = true, attached = false, shown = false))
+        assertFalse(Playback.canJudgeFreeze(hasTarget = true, attached = true, shown = false))
+        assertTrue(Playback.canJudgeFreeze(hasTarget = true, attached = true, shown = true))
+    }
+
+    @Test fun recognizedHlsSurvivesRestart() {
+        // 7.3: adres rozpoznany jako HLS pamiętany po zimnym starcie (bez pierwszego, nieudanego startu)
+        Prefs.hlsStreams = ""
+        Playback.hlsUrls.clear()
+        Playback.rememberHls("http://srv/live/77")
+        Playback.hlsUrls.clear()
+        Playback.loadRememberedHls()
+        assertTrue("http://srv/live/77" in Playback.hlsUrls)
+        assertEquals(androidx.media3.common.MimeTypes.APPLICATION_M3U8, Playback.mimeFor("http://srv/live/77", null, null))
+        Playback.hlsUrls.clear(); Prefs.hlsStreams = ""
+    }
+
     @Test fun freezeFallbackCanBeDisabled() {
         Prefs.playerEngine = Playback.ENGINE_HARDWARE; Prefs.hwAccel = true; Prefs.freezeFallback = false
         try {

@@ -90,8 +90,28 @@ open class BaseActivity : AppCompatActivity() {
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
         // PS5: podpowiedzi przycisków wg ostatnio użytego urządzenia (pilot / pad)
         Ps5Input.onKey(event)
+        if (throttledRepeat(event)) return true
         if (miniBar?.handleKey(event) == true) return true
         return super.dispatchKeyEvent(event)
+    }
+
+    /**
+     * (7.3) Pulpity Compose (Nowoczesny, PS5, X25): przytrzymana strzałka przesuwa fokus w równym tempie [navRepeatMs]
+     * zamiast tempa powtórzeń pilota (często 20–50 ms) – przewijanie nadąża płynnie, bez szarpania i gubienia klatek.
+     */
+    protected open val navRepeatMs = 0L
+    private var lastNavRepeat = 0L
+
+    /** Pominięte powtórzenia strzałek (testy). */
+    internal var navRepeatsDropped = 0; private set
+
+    private fun throttledRepeat(e: android.view.KeyEvent): Boolean {
+        if (navRepeatMs <= 0 || e.action != android.view.KeyEvent.ACTION_DOWN || e.keyCode !in NAV_KEYS) return false
+        val now = e.eventTime
+        if (e.repeatCount == 0) { lastNavRepeat = now; return false }        // pierwsze naciśnięcie – zawsze od razu
+        if (now - lastNavRepeat < navRepeatMs) { navRepeatsDropped++; return true }
+        lastNavRepeat = now
+        return false
     }
 
     /** Dotknięcie ekranu (nie mysz) – podpowiedzi przycisków PS5 ukryte. */
@@ -210,3 +230,10 @@ open class BaseActivity : AppCompatActivity() {
 
     override fun finish() { super.finish(); Ui.closeTransition(this) }
 }
+
+/** Strzałki nawigacji (tempo przytrzymania – [BaseActivity.navRepeatMs]). */
+internal val NAV_KEYS = setOf(android.view.KeyEvent.KEYCODE_DPAD_LEFT, android.view.KeyEvent.KEYCODE_DPAD_RIGHT,
+    android.view.KeyEvent.KEYCODE_DPAD_UP, android.view.KeyEvent.KEYCODE_DPAD_DOWN)
+
+/** (7.3) Tempo przytrzymanej strzałki na pulpitach Compose (ms na krok). */
+const val COMPOSE_NAV_REPEAT_MS = 85L
