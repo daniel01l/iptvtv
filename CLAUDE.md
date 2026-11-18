@@ -5,7 +5,7 @@
 - Kod: `IptvTv-source.tar.gz` (Gradle 8.14.3, AGP 8.7.3, Kotlin 2.0.21, Media3 1.5.0 + FFmpeg (Jellyfin), compileSdk 35, OkHttp, Coil 2.7, Robolectric 4.13).
 - Moduły: `:app` (pl.iptv.tv), `:admin` (pl.iptv.admin); wspólny kod `shared/pl/iptv/shared/` (RelayCrypto.kt, ActivationFormat.kt).
 - Flavory app: `full` (pl.iptv.tv, plik D-iptv-Player.apk, iptvtv.json, repo github daniel01l/iptvtv) i `secure` (pl.iptv.dplayer, wersja TEST, DPlayer.apk, dplayer.json, repo daniel01l/dplayer). Zmiany robimy tylko w `full`.
-- Aktualna wersja: Player 7.2 (versionCode 62, wydana na GitHubie 18.11.2026; poprzednia 7.1 / 61), Admin 2.4 (versionCode 10), TEST 1.2 (versionCode 3).
+- Aktualna wersja: Player 7.3 (versionCode 63, wydana na GitHubie 18.11.2026; poprzednia 7.2 / 62), Admin 2.4 (versionCode 10), TEST 1.2 (versionCode 3).
 - Zależności YouTube (6.2): NewPipeExtractor v0.27.1 z JitPack (repo ograniczone do grupy com.github.TeamNewPipe w `settings.gradle.kts`, licencja GPLv3; YouTube często psuje ekstrakcję – przy problemach podbić wersję), desugaring `desugar_jdk_libs_nio`, `security-crypto` 1.1.0-alpha06. Klient OAuth/klucz API: `keystore/youtube_oauth.properties` (client_id, client_secret, api_key) – opcjonalnie, poza repo.
 
 ## Podpis i aktywacja
@@ -27,7 +27,7 @@ Na Windows: `JAVA_HOME=C:\Users\dkier\.jdks\jbr-21.0.11`.
 3. Zbudować, sprawdzić podpis (`apksigner verify --print-certs`, SHA-256 041b543f…).
 4. Zaktualizować `iptvtv.json` (versionCode, versionName, apk, notes) i wgrać wydanie na GitHub (daniel01l/iptvtv).
 
-## Zmiany 7.3 (versionCode 63, APK zbudowany, niewydany)
+## Zmiany 7.3 (release v7.3)
 Wolniejsze przełączanie w 7.2: błąd formatu na starcie od razu uruchamiał dobór silnika (stop + próby 4–5 s, zbędny profil zapisany). Teraz `Playback.optimizeOnError(decoder, retriesSoFar)` – formatu dopiero po powtórzeniu, pierwsze ponowienie `FORMAT_RETRY_MS` 300; `sameEngine` – profil różniący się tylko `container` nie przebudowuje odtwarzacza; `PROFILES_VERSION` 3. Zimny start / zmiana motywu: strażnik `canJudgeFreeze` (widoczna powierzchnia `target`), `attach` zeruje `stuck`; `softwareChannel` – awaryjny programowy tylko dla zamrożonego kanału (`play` innego kanału → `leaveSoftware`, nowy odtwarzacz); `rememberHls`/`loadRememberedHls` (`Prefs.hlsStreams`, `HLS_REMEMBER` 400); `Playback.warmUp` (w `IptvApp`, poza Robolectric: `MediaCodecUtil` dla `WARM_MIMES`, build/release odtwarzacza na wątku „PlaybackWarmUp”); `app/src/main/baseline-prof.txt` (Playback, Media3, OkHttp). `ChannelEngines.resetForTest` czeka na `loadAsync` (niestabilny test). Nowoczesny: `defaultFeature` sekcji Start = ostatni kanał (`Prefs.lastChannel`), film/tytuł tylko bez kanału; `PlayerActivity.recentAfterMs()` – 10 s w Nowoczesnym, 60 s w innych. Nawigacja: `BaseActivity.navRepeatMs`/`throttledRepeat` (`COMPOSE_NAV_REPEAT_MS` 85 w Modern/PS5/X25, `navRepeatsDropped`), `SmoothScroll`/`ShelfScroll` – `spring(1f, SCROLL_STIFFNESS 450)`. Testy: `EngineOptimizerTest` (`singleFormatErrorRetriesQuicklyWithoutProbing`, `containerOnlyProfileKeepsSamePlayer`), `PlaybackLifecycleTest` (`freezeFallbackOnlyForFrozenChannelAndVisibleSurface`, `recognizedHlsSurvivesRestart`), `ModernTest` (`startHeroIsAlwaysLastLiveChannel`, `heldArrowMovesFocusAtSteadyPace`). Uwaga: X25Test bywa niestabilny w pełnym przebiegu (osobno przechodzi).
 
 ## Zmiany 7.2 – zacinanie kanałów (release v7.2)
