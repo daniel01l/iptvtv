@@ -51,6 +51,8 @@ object Prefs {
     var freezeFallback: Boolean get() = bool("freeze_fallback", true); set(v) = putBool("freeze_fallback", v)
     /** Dobór silnika dla kanałów, które nie ruszają (ChannelEngineOptimizer) – testy w tle, wynik zapamiętany w bazie. */
     var engineOptimizer: Boolean get() = bool("engine_optimizer", true); set(v) = putBool("engine_optimizer", v)
+    /** Wersja zasad doboru silnika, z którą zapisano profile kanałów (starsze usuwane – [pl.iptv.tv.data.ChannelEngines.load]). */
+    var engineProfilesVersion: Int get() = int("engine_profiles_v", 0); set(v) = putInt("engine_profiles_v", v)
     /** Akceleracja sprzętowa obrazu: wyłączona = dekoder programowy (zgodność), niezależnie od silnika. */
     var hwAccel: Boolean get() = bool("hw_accel", true); set(v) = putBool("hw_accel", v)
     /** Przytrzymanie OK w odtwarzaczu: 0 = od razu menu odtwarzania (silnik, akceleracja), 1 = szybkie menu ikon z kafelkiem „Silnik i akceleracja” (domyślnie). */

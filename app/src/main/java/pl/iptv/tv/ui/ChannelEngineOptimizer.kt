@@ -68,19 +68,23 @@ object ChannelEngineOptimizer {
      * Ustawienia do sprawdzenia, po kolei – od najczęściej pomagających, bez profilu, który właśnie zawiódł ([failed]).
      * Wymuszenie HLS / TS tylko, gdy adres nie mówi jednoznacznie, czym jest strumień.
      */
-    fun candidates(url: String, failed: EngineProfile?): List<EngineProfile> {
+    fun candidates(url: String, failed: EngineProfile?, allowSoftware: Boolean = true): List<EngineProfile> {
         val mime = Playback.guessMime(url)
         val ts = url.lowercase().substringBefore('?').substringBefore('#').endsWith(".ts")
         val unknown = mime == null && !ts
         val hls = mime == androidx.media3.common.MimeTypes.APPLICATION_M3U8
+        // (7.2) najpierw ustawienia, które nie pogarszają obrazu (dekoder sprzętowy zostaje); dekoder programowy – na końcu
+        // i tylko przy błędzie dekodera: na wielu TV klatkuje obraz HD, a w 7.0 bywał zapisywany dla dobrych kanałów
         return buildList {
             if (unknown) add(EngineProfile(container = 1))                    // adres bez rozszerzenia, a serwer podaje HLS
-            add(EngineProfile(software = true))                               // dekoder sprzętowy nie obsługuje profilu obrazu
             add(EngineProfile(ffmpeg = true))                                 // dźwięk AC-3 / E-AC-3 / DTS / MP2 bez dekodera systemu
             add(EngineProfile(async = 2))                                     // kolejka asynchroniczna zawiesza dekoder części TV
-            add(EngineProfile(software = true, ffmpeg = true))
-            if (unknown) add(EngineProfile(software = true, container = 1))
             if (hls || unknown) add(EngineProfile(container = 2))             // „.m3u8”, który jest zwykłym strumieniem TS
+            if (allowSoftware) {
+                add(EngineProfile(software = true))                           // dekoder sprzętowy nie obsługuje profilu obrazu
+                add(EngineProfile(software = true, ffmpeg = true))
+                if (unknown) add(EngineProfile(software = true, container = 1))
+            }
         }.distinct().filter { it != (failed ?: EngineProfile()) }
     }
 
@@ -88,7 +92,7 @@ object ChannelEngineOptimizer {
      * Kanał nie ruszył. true – dobór uruchomiony (albo już trwa) i kanał czeka na wynik; false – zwykła obsługa błędu
      * (dobór wyłączony, kanał niedawno oznaczony jako niedziałający, dobór dla niego był już w tej sesji).
      */
-    fun onStartFailed(c: Context, ch: Channel, url: String, reason: String): Boolean {
+    fun onStartFailed(c: Context, ch: Channel, url: String, reason: String, decoderError: Boolean = false): Boolean {
         if (runningUrl == url && running) return true
         if (!runCatching { Prefs.engineOptimizer }.getOrDefault(true)) return false
         if (ChannelEngines.blocked(ch.key)) return false
@@ -97,7 +101,7 @@ object ChannelEngineOptimizer {
         // zapamiętany profil przestał działać – zapomniany, dobór od nowa
         if (failed != null) ChannelEngines.forget(ch.key)
         android.util.Log.w("EngineOptimizer", "dobór silnika: ${ch.name} ($reason)")
-        start(c.applicationContext, ch, url, candidates(url, failed))
+        start(c.applicationContext, ch, url, candidates(url, failed, allowSoftware = decoderError))
         return true
     }
 

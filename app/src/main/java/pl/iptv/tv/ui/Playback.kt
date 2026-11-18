@@ -125,7 +125,7 @@ object Playback {
                 androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED)
             val ch = lastChannel; val c = lastCtx; val u = url
             if (engineIssue && !reachedReady && ch != null && c != null && u != null && u == ch.url &&
-                ChannelEngineOptimizer.onStartFailed(c, ch, u, e.errorCodeName)) return
+                ChannelEngineOptimizer.onStartFailed(c, ch, u, e.errorCodeName, decoderError = decoder)) return
             if (retries < max) { retries++; main.removeCallbacks(retry); main.postDelayed(retry, retryDelayMs(source, retries)) }
             else { p.stop(); calls?.cancelActive(); onFatal?.invoke(e) }   // stop = zwolnienie dekoderów (słabsze urządzenia nie zacinają kolejnych kanałów)
         }
@@ -479,7 +479,7 @@ object Playback {
         // po błędzie: świeża powierzchnia obrazu (to samo, co wcześniej dawało dopiero otwarcie menu)
         if (clean) main.post { target?.let { v -> if (v.player === p) { v.player = null; v.player = p } } }
         // kanał na żywo: kontrola startu (pierwsze klatki w [START_CHECK_MS]) – inaczej dobór silnika w tle
-        startedAt = android.os.SystemClock.uptimeMillis(); lastBuffered = -1
+        startedAt = android.os.SystemClock.uptimeMillis()
         main.removeCallbacks(startCheck)
         if (streamUrl == ch.url) main.postDelayed(startCheck, START_CHECK_MS)
         return true
@@ -500,16 +500,34 @@ object Playback {
             val ch = lastChannel ?: return; val u = url ?: return; val c = lastCtx ?: return
             if (reachedReady || !p.playWhenReady || p.playerError != null || u != ch.url) return
             val elapsed = android.os.SystemClock.uptimeMillis() - startedAt
-            // dane płyną (zapas rośnie, ale za mały do startu) – to łącze, nie silnik: jeszcze chwila
-            if (p.totalBufferedDuration < START_BUFFER_MS && p.totalBufferedDuration > lastBuffered && elapsed < START_GIVE_UP_MS) {
-                lastBuffered = p.totalBufferedDuration; main.postDelayed(this, 2_000); return
+            when (startDecision(elapsed, p.videoFormat != null, p.totalBufferedDuration, isPlayingNow)) {
+                StartDecision.WAIT -> main.postDelayed(this, 2_000)
+                StartDecision.NONE -> {}
+                StartDecision.OPTIMIZE -> {
+                    android.util.Log.w(TAG, "dekoder nie ruszył w ${elapsed / 1000} s mimo danych • ${diagnostics()}")
+                    ChannelEngineOptimizer.onStartFailed(c, ch, u, "brak obrazu po ${elapsed / 1000} s", decoderError = false)
+                }
             }
-            lastBuffered = -1
-            android.util.Log.w(TAG, "kanał nie ruszył w ${elapsed / 1000} s • ${diagnostics()}")
-            ChannelEngineOptimizer.onStartFailed(c, ch, u, "brak obrazu po ${elapsed / 1000} s")
         }
     }
-    private var lastBuffered = -1L
+
+    enum class StartDecision { WAIT, NONE, OPTIMIZE }
+
+    /**
+     * (7.2) Kontrola startu bez fałszywych alarmów. W 7.0 kanał bez obrazu po 5 s był od razu „niedziałający” – wolniej
+     * startujące, ale dobre kanały były zatrzymywane na czas testów, a dekoder programowy zapisywany na stałe (zacinanie
+     * we wszystkich motywach). Teraz dobór tylko, gdy **dekoder stoi mimo danych**: znany format obrazu, pełny zapas startowy
+     * i nadal brak obrazu po [START_STUCK_MS]. Brak danych / formatu to łącze lub serwer – zwykłe ponowienia, bez doboru.
+     */
+    fun startDecision(elapsedMs: Long, hasVideoFormat: Boolean, bufferedMs: Long, playing: Boolean): StartDecision = when {
+        playing -> StartDecision.NONE
+        !hasVideoFormat -> if (elapsedMs < START_GIVE_UP_MS) StartDecision.WAIT else StartDecision.NONE
+        bufferedMs < START_BUFFER_MS || elapsedMs < START_STUCK_MS -> if (elapsedMs < START_GIVE_UP_MS) StartDecision.WAIT else StartDecision.NONE
+        else -> StartDecision.OPTIMIZE
+    }
+
+    /** Dekoder uznany za zawieszony dopiero po tym czasie (dane i format są, obrazu nie ma). */
+    const val START_STUCK_MS = 10_000L
 
     /**
      * Dobór silnika: zatrzymanie odtwarzania kanału na czas testów (dekodery i połączenia zwolnione – testowy odtwarzacz nie

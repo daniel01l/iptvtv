@@ -103,6 +103,9 @@
 
 Kanał trafia do „ostatnio oglądanych” po co najmniej 1 minucie odtwarzania.
 
+**v7.2** (18.11.2026):
+- **Kanały zacinały się we wszystkich motywach od 7.0** – przyczyną był nowy dobór silnika: kanał bez obrazu po 5 s (także dobry, tylko wolniej startujący) był zatrzymywany na czas testów, a pierwsze działające ustawienie – często dekoder programowy, który na wielu TV klatkuje obraz HD – zapisywane na stałe dla kanału. Teraz: dobór tylko przy błędzie dekodera / formatu albo gdy dekoder stoi mimo danych (format obrazu znany, pełny zapas, brak obrazu po 10 s); brak danych to łącze lub serwer – zwykłe ponowienia, kanał nigdy nie jest zatrzymywany na testy. Najpierw ustawienia bez pogorszenia obrazu (dźwięk FFmpeg, kolejka dekodera, HLS / TS), dekoder programowy na końcu i tylko przy błędzie dekodera. Profile zapisane przez 7.0 i 7.1 są jednorazowo usuwane przy pierwszym uruchomieniu.
+
 **v7.1** (18.11.2026):
 - **Zacinanie kanału po wejściu z ekranu głównego Nowoczesny** (pomagała dopiero zmiana silnika): ekran główny wstrzymuje telewizję (jak STube i Stremio) – kanał nie jest już dekodowany „na ślepo” bez obrazu, a wybrany kanał startuje na świeżym dekoderze; jeśli kanał mimo to grał bez żadnej powierzchni obrazu, odtwarzacz robi czysty start zamiast przejmować taki dekoder. Pod obrazem w odtwarzaczu jednolity kolor zamiast pełnoekranowego tła motywu (rysowanego przy każdej klatce nakładek).
 - **Motyw Nowoczesny – płynność i wygląd**: nowe przejście między ekranami „Nowoczesny – płynne przenikanie” (przenikanie z lekkim przybliżeniem, 240 ms, ekran pod spodem nieruchomy); tło z dwiema poświatami i winietą (nadal same cieniowania, bez bitmap), ekran główny z tym samym tłem, kafelki z delikatnym światłem u góry, cieniem u dołu i jasną krawędzią; płynniejsze powiększanie zaznaczonego kafelka; obraz w podglądzie dekodowany w połowie rozdzielczości i zmieniany po krótkiej przerwie w przewijaniu (mniej obciążenia przy nawigacji).

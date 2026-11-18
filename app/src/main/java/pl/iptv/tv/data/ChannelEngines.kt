@@ -65,6 +65,8 @@ interface ChannelEngineDao {
 object ChannelEngines {
     /** Po tym czasie kanał oznaczony jako niedziałający może być przetestowany ponownie (serwer mógł wrócić). */
     const val RETEST_MS = 24 * 3_600_000L
+    /** Wersja zasad doboru – starsze zapisane profile są usuwane przy starcie ([load]). */
+    const val PROFILES_VERSION = 2
 
     private val mem = ConcurrentHashMap<String, ChannelEngine>()
     @Volatile var loaded = false; private set
@@ -73,6 +75,14 @@ object ChannelEngines {
 
     /** Wczytanie zapisanych wyników (start aplikacji, w tle). */
     suspend fun load() {
+        // (7.2) profile zapisane przez 7.0 / 7.1 bywały błędne (dobry, wolniej startujący kanał dostawał dekoder programowy –
+        // zacinanie obrazu): jednorazowo usunięte, kanały dobierane od nowa wg nowych, bezpiecznych zasad
+        if (runCatching { Prefs.engineProfilesVersion }.getOrDefault(PROFILES_VERSION) < PROFILES_VERSION) {
+            // tylko stare wiersze bazy; wyniki zapisane już w tej sesji (pamięć – nowe zasady) zostają i wracają do bazy
+            runCatching { dao()?.clear() }
+            mem.values.forEach { e -> runCatching { dao()?.upsert(e) } }
+            Prefs.engineProfilesVersion = PROFILES_VERSION
+        }
         val l = runCatching { dao()?.all() }.getOrNull() ?: emptyList()
         // scalanie (bez czyszczenia): wynik zapisany tuż po starcie, zanim baza zdążyła się wczytać, zostaje
         l.forEach { mem.putIfAbsent(it.channelKey, it) }

@@ -1,6 +1,6 @@
 {
-  "versionCode": 61,
-  "versionName": "7.1",
+  "versionCode": 62,
+  "versionName": "7.2",
   "apk": "D-iptv-Player.apk",
-  "notes": "Naprawione zacinanie kanalu po wejsciu z ekranu glownego Nowoczesny; plynniejsze przejscia i nowe tekstury motywu Nowoczesny; Stremio: zrodla P2P (torrent) przez TorrServer lub serwer Stremio, filmy 4K maja juz obraz; STube: logowanie z konfiguracja i kodem QR"
+  "notes": "Naprawione zacinanie kanalow we wszystkich motywach (od 7.0): dobor silnika nie zatrzymuje juz wolniej startujacych kanalow i nie zapisuje dla nich dekodera programowego; bledne ustawienia z 7.0 i 7.1 usuwane automatycznie"
 }

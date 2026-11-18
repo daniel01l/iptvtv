@@ -47,7 +47,7 @@ class EngineOptimizerTest {
         db = Room.inMemoryDatabaseBuilder(ctx, StubeDatabase::class.java).allowMainThreadQueries().build()
         StubeHistory.useDatabase(db)
         ChannelEngines.resetForTest(); ChannelEngineOptimizer.resetSession()
-        Prefs.engineOptimizer = true
+        Prefs.engineOptimizer = true; Prefs.engineProfilesVersion = ChannelEngines.PROFILES_VERSION
         ChannelEngineOptimizer.onStatus = { statuses += it }
     }
 
@@ -69,8 +69,11 @@ class EngineOptimizerTest {
         assertEquals(EngineProfile(container = 1), unknown.first())
         val ts = ChannelEngineOptimizer.candidates("http://srv/live/1.ts", null)
         assertTrue(ts.none { it.container != 0 })
-        assertEquals(EngineProfile(software = true), ts.first())
-        assertEquals(EngineProfile(container = 2), ChannelEngineOptimizer.candidates("http://srv/a.m3u8", null).last())
+        // 7.2: najpierw ustawienia bez pogorszenia obrazu, dekoder programowy na końcu i tylko przy błędzie dekodera
+        assertEquals(EngineProfile(ffmpeg = true), ts.first())
+        assertTrue(ts.last().software)
+        assertTrue(ChannelEngineOptimizer.candidates("http://srv/1.ts", null, allowSoftware = false).none { it.software })
+        assertTrue(EngineProfile(container = 2) in ChannelEngineOptimizer.candidates("http://srv/a.m3u8", null))
         // profil, który właśnie zawiódł, nie jest próbowany ponownie
         assertFalse(EngineProfile(software = true) in ChannelEngineOptimizer.candidates("http://srv/1.ts", EngineProfile(software = true)))
     }
@@ -97,7 +100,7 @@ class EngineOptimizerTest {
         ChannelEngineOptimizer.probeOverride = { it.ffmpeg }                     // działa dopiero z dźwiękiem FFmpeg
         assertTrue(ChannelEngineOptimizer.onStartFailed(ctx, c, c.url, "test"))
         waitFor { !ChannelEngineOptimizer.running && statuses.any { it is ChannelEngineOptimizer.Status.Found } }
-        assertEquals(listOf(EngineProfile(software = true), EngineProfile(ffmpeg = true)), ChannelEngineOptimizer.lastTried)
+        assertEquals(listOf(EngineProfile(ffmpeg = true)), ChannelEngineOptimizer.lastTried)
         assertEquals(EngineProfile(ffmpeg = true), ChannelEngines.profileFor("k1"))
         assertTrue(statuses.first() is ChannelEngineOptimizer.Status.Testing)
         // kanał od nowa z dobranym profilem (nowy odtwarzacz), ten sam adres
@@ -122,7 +125,7 @@ class EngineOptimizerTest {
         assertTrue(ChannelEngineOptimizer.onStartFailed(ctx, c, c.url, "test"))
         waitFor { !ChannelEngineOptimizer.running && statuses.any { it is ChannelEngineOptimizer.Status.Failed } }
         assertEquals(1, maxActive.get())                                                     // ściśle po kolei
-        assertEquals(ChannelEngineOptimizer.candidates(c.url, null), ChannelEngineOptimizer.lastTried)
+        assertEquals(ChannelEngineOptimizer.candidates(c.url, null, allowSoftware = false), ChannelEngineOptimizer.lastTried)   // bez błędu dekodera – bez dekodera programowego
         assertTrue(ChannelEngines.get("k2")!!.testedFailed); assertTrue(ChannelEngines.blocked("k2"))
         // kanał gra dalej ze zwykłymi ustawieniami (ponowienia), bez nowego doboru – także w nowej sesji (flaga w bazie)
         waitFor { Playback.url == c.url && Playback.profile == null }
@@ -131,7 +134,7 @@ class EngineOptimizerTest {
         // wyłączony dobór – zwykła obsługa błędu
         Prefs.engineOptimizer = false
         assertFalse(ChannelEngineOptimizer.onStartFailed(ctx, ch("http://127.0.0.1:9/x.ts", "k3"), "http://127.0.0.1:9/x.ts", "test"))
-        Prefs.engineOptimizer = true
+        Prefs.engineOptimizer = true; Prefs.engineProfilesVersion = ChannelEngines.PROFILES_VERSION
     }
 
     @Test fun channelChangeCancelsProbing() {
@@ -153,18 +156,55 @@ class EngineOptimizerTest {
         assertFalse(ok)
     }
 
-    @Test fun startTimeoutWithoutFramesStartsOptimizer() {
-        // serwer odbiera połączenie, ale nie wysyła danych (strumień bez obrazu)
+    @Test fun slowOrSilentChannelIsNeverStoppedForProbing() {
+        // 7.2: serwer odbiera połączenie, ale nie wysyła danych (łącze / serwer) – kanał NIE jest zatrzymywany na testy
+        // (w 7.0 takie i wolno startujące kanały dostawały dekoder programowy – zacinanie we wszystkich motywach)
         val srv = MockWebServer().apply { enqueue(MockResponse().setBody("x".repeat(64)).setBodyDelay(60, TimeUnit.SECONDS)); start() }
         try {
             val c = ch(srv.url("/live/9.ts").toString(), "k9")
-            ChannelEngineOptimizer.probeOverride = { false }
+            ChannelEngineOptimizer.probeOverride = { true }
             Playback.play(ctx, c, c.url)
-            repeat(30) { idle(500); Thread.sleep(5); if (statuses.isNotEmpty()) return@repeat }
-            assertTrue("kontrola startu uruchomiła dobór", statuses.any { it is ChannelEngineOptimizer.Status.Testing })
-            waitFor { ChannelEngines.get("k9") != null }
-            assertTrue(ChannelEngines.get("k9")!!.testedFailed)
+            repeat(40) { idle(500); Thread.sleep(5) }
+            assertTrue(statuses.isEmpty()); assertFalse(ChannelEngineOptimizer.running)
+            assertNull(ChannelEngines.get("k9")); assertNull(Playback.profile)
         } finally { Playback.stop(); runCatching { srv.shutdown() } }      // zawieszona odpowiedź – serwer zamykany „na siłę”
+    }
+
+    @Test fun startDecisionOnlyForStuckDecoder() {
+        // dźwięk / obraz już gra – nic; brak formatu (brak danych) – czekanie, potem nic (łącze, nie silnik)
+        assertEquals(Playback.StartDecision.NONE, Playback.startDecision(20_000, true, 5_000, playing = true))
+        assertEquals(Playback.StartDecision.WAIT, Playback.startDecision(5_000, false, 0, false))
+        assertEquals(Playback.StartDecision.NONE, Playback.startDecision(Playback.START_GIVE_UP_MS, false, 0, false))
+        // format znany, zapas rośnie – jeszcze chwila; dopiero po START_STUCK_MS z pełnym zapasem: dekoder stoi → dobór
+        assertEquals(Playback.StartDecision.WAIT, Playback.startDecision(6_000, true, 800, false))
+        assertEquals(Playback.StartDecision.WAIT, Playback.startDecision(6_000, true, 3_000, false))
+        assertEquals(Playback.StartDecision.OPTIMIZE, Playback.startDecision(Playback.START_STUCK_MS, true, 3_000, false))
+        assertEquals(Playback.StartDecision.NONE, Playback.startDecision(Playback.START_GIVE_UP_MS, true, 800, false))
+    }
+
+    @Test fun profilesFromOlderRulesAreClearedOnce() = runBlocking {
+        // profil zapisany przez 7.0 / 7.1 (np. dekoder programowy dla dobrego kanału) – usunięty przy pierwszym starcie 7.2
+        db.channelEngines().upsert(ChannelEngine("old", "http://a/1.ts", EngineProfile(software = true).encode()))
+        Prefs.engineProfilesVersion = 0
+        ChannelEngines.resetForTest(); ChannelEngines.load()
+        assertNull(ChannelEngines.get("old")); assertTrue(db.channelEngines().all().isEmpty())
+        assertEquals(ChannelEngines.PROFILES_VERSION, Prefs.engineProfilesVersion)
+        // kolejne starty – zapisane profile zostają
+        db.channelEngines().upsert(ChannelEngine("new", "http://a/2.ts", EngineProfile(ffmpeg = true).encode()))
+        ChannelEngines.resetForTest(); ChannelEngines.load()
+        assertEquals(EngineProfile(ffmpeg = true), ChannelEngines.profileFor("new"))
+    }
+
+    @Test fun decoderErrorAllowsSoftwareAsLastResort() {
+        val c = ch("http://127.0.0.1:9/live/5.ts", "k5")
+        Playback.play(ctx, c, c.url); idle()
+        ChannelEngineOptimizer.probeOverride = { it.software }
+        assertTrue(ChannelEngineOptimizer.onStartFailed(ctx, c, c.url, "ERROR_CODE_DECODER_INIT_FAILED", decoderError = true))
+        waitFor { !ChannelEngineOptimizer.running && statuses.any { it is ChannelEngineOptimizer.Status.Found } }
+        // najpierw wszystkie ustawienia sprzętowe, dekoder programowy dopiero po nich
+        val tried = ChannelEngineOptimizer.lastTried
+        assertTrue(tried.last().software); assertTrue(tried.dropLast(1).none { it.software })
+        assertEquals(EngineProfile(software = true), ChannelEngines.profileFor("k5"))
     }
 
     @Test fun entityKeepsUrlAndFlag() {
