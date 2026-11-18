@@ -92,6 +92,36 @@ fun Modifier.modernScrim(bg: Color): Modifier = drawWithCache {
     }
 }
 
+/**
+ * Tło ekranu głównego (7.1): czerń z niebieską poświatą u góry, chłodnym blaskiem przy dolnym rogu i winietą – jak
+ * [ModernBackdrop] na widokach. Pędzle tworzone raz na rozmiar (drawWithCache), rysowane jako jedna warstwa.
+ */
+fun Modifier.modernBackdrop(bg: Color, accent: Color): Modifier = drawWithCache {
+    val w = size.width; val h = size.height; val r = maxOf(w, h)
+    val base = Brush.verticalGradient(listOf(androidx.compose.ui.graphics.lerp(bg, accent, 0.08f), bg, androidx.compose.ui.graphics.lerp(bg, Color.Black, 0.55f)))
+    val glow = Brush.radialGradient(listOf(accent.copy(alpha = 0.19f), accent.copy(alpha = 0.05f), Color.Transparent), Offset(w * 0.85f, h * 0.05f), r * 0.6f)
+    val cool = Brush.radialGradient(listOf(Color(0xFF5B3BD6).copy(alpha = 0.11f), Color.Transparent), Offset(w * 0.05f, h * 0.95f), r * 0.45f)
+    val vignette = Brush.radialGradient(0f to Color.Transparent, 0.6f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.38f), center = Offset(w / 2, h / 2), radius = r * 0.75f)
+    onDrawBehind { drawRect(base); drawRect(glow); drawRect(cool); drawRect(vignette) }
+}
+
+/**
+ * Faktura kafelka: delikatne światło u góry (jasna krawędź) i przyciemnienie dołu – kafelki wyglądają na „wypukłe” na czarnym
+ * tle. Gradienty rysowane raz na rozmiar, bez dodatkowego układu.
+ */
+fun Modifier.modernTileSheen(radius: Dp): Modifier = drawWithCache {
+    val r = CornerRadius(radius.toPx())
+    val top = Brush.verticalGradient(0f to Color.White.copy(alpha = 0.10f), 0.35f to Color.Transparent)
+    val bottom = Brush.verticalGradient(0.6f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.35f))
+    val edge = Stroke(1.dp.toPx())
+    onDrawWithContent {
+        drawContent()
+        drawRoundRect(bottom, cornerRadius = r)
+        drawRoundRect(top, cornerRadius = r)
+        drawRoundRect(Color.White.copy(alpha = 0.08f), cornerRadius = r, style = edge)
+    }
+}
+
 /** Pozycja panelu opcji ([switch] = przełącznik po prawej, null – zwykła pozycja). */
 class ModernOption(val label: String, val sub: String = "", val switch: Boolean? = null, val action: () -> Unit)
 

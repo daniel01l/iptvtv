@@ -175,7 +175,7 @@ class StremioPlayerActivity : AppCompatActivity() {
         externalSub = null; lines = emptyList(); addonSubs = stream.subtitles; subView.setCues(emptyList())
         audioWarned = false; langApplied = false; langManual = false; polishAudio = null; subsOff = false
         val http = OkHttpDataSource.Factory(Repository.http).setDefaultRequestProperties(stream.headers)
-        val p = StremioDecoders.player(this, decoderStage, DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http)))
+        val p = StremioDecoders.player(this, decoderStage, DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http)), forceVideo)
         player = p
         playerView.player = p
         val item = MediaItem.Builder().setUri(Uri.parse(stream.url)).apply {
@@ -191,7 +191,7 @@ class StremioPlayerActivity : AppCompatActivity() {
                 val pos = p.currentPosition
                 handler.post { if (player === p) onError(error, pos) }
             }
-            override fun onTracksChanged(tracks: androidx.media3.common.Tracks) { warnUnsupportedAudio(tracks); autoLanguage(p, tracks) }
+            override fun onTracksChanged(tracks: androidx.media3.common.Tracks) { if (checkVideo(tracks)) return; warnUnsupportedAudio(tracks); autoLanguage(p, tracks) }
         })
         if (atMs > 0) p.seekTo(atMs)
         p.prepare(); p.playWhenReady = true
@@ -221,6 +221,31 @@ class StremioPlayerActivity : AppCompatActivity() {
     private fun showEmbeddedCues(cues: List<Cue>) {
         if (subsOff) { subView.setCues(emptyList()); return }
         if (subDelayMs > 0) handler.postDelayed({ if (externalSub == null) subView.setCues(cues) }, subDelayMs.toLong()) else subView.setCues(cues)
+    }
+
+    // ---------------- obraz 4K / HDR: wymuszenie ścieżki obrazu ----------------
+
+    /** Obraz wymuszony ponad deklarowane możliwości dekodera ([StremioDecoders.trackSelector]). */
+    var forceVideo = false; private set
+
+    /**
+     * Film ma obraz, ale odtwarzacz wybrał tylko dźwięk (telewizor zaniża możliwości dekodera dla 4K HEVC 10-bit / DV / HDR):
+     * ponowny start od tej samej pozycji z wymuszonym obrazem. Gdy i wtedy obrazu nie ma – okno z wyborem (inne źródło,
+     * zewnętrzny odtwarzacz). true – obsłużone (start od nowa).
+     */
+    private fun checkVideo(tracks: androidx.media3.common.Tracks): Boolean {
+        if (!StremioDecoders.needsForcedVideo(tracks)) return false
+        val pos = player?.currentPosition ?: 0L
+        if (!forceVideo) {
+            forceVideo = true
+            Toast.makeText(this, "Telewizor zgłasza brak obsługi tego obrazu (np. 4K HDR) – próbuję mimo to", Toast.LENGTH_LONG).show()
+            handler.post { start(resume = false, atMs = pos.coerceAtLeast(resumeMs)) }
+            return true
+        }
+        val fmt = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_VIDEO }?.mediaTrackGroup?.getFormat(0)
+        handler.post { showFailure("Telewizor nie potrafi wyświetlić obrazu tego źródła" + (fmt?.let { " (${StremioDecoders.codecName(it.sampleMimeType ?: "")} ${it.width}×${it.height})" } ?: "") +
+            ". Wybierz źródło w niższej rozdzielczości albo zewnętrzny odtwarzacz.") }
+        return true
     }
 
     // ---------------- błędy dekodera: tryb programowy, potem wybór ----------------
@@ -446,7 +471,11 @@ class StremioPlayerActivity : AppCompatActivity() {
         saveProgress(push = true)
         lifecycleScope.launch {
             val addon = StremioStore.enabledAddons().firstOrNull { it.transportUrl == stream.addonUrl }
-            val pick = addon?.let { a -> runCatching { StremioApi.streams(a, type, n.id) }.getOrNull() }?.let { StremioStreams.pickNext(stream, it) }
+            // bieżące źródło P2P (przez serwer torrent): następny odcinek też z P2P przez ten sam serwer
+            val server = if (stream.infoHash.isNotBlank()) pl.iptv.tv.data.TorrentStreams.find() else null
+            val pick = addon?.let { a -> runCatching { StremioApi.streams(a, type, n.id) }.getOrNull() }
+                ?.map { if (server != null && it.kind == pl.iptv.tv.data.StremioStream.Kind.TORRENT) pl.iptv.tv.data.TorrentStreams.asHttp(it, server) else it }
+                ?.let { StremioStreams.pickNext(stream, it) }
             if (pick == null) {
                 startActivity(Intent(this@StremioPlayerActivity, StremioDetailActivity::class.java).putExtra(StremioDetailActivity.EXTRA_TYPE, type)
                     .putExtra(StremioDetailActivity.EXTRA_ID, metaId).putExtra(StremioDetailActivity.EXTRA_NAME, intent.getStringExtra(EXTRA_NAME))
@@ -454,7 +483,7 @@ class StremioPlayerActivity : AppCompatActivity() {
                 finish(); return@launch
             }
             stream = pick; videoId = n.id; label = n.label; nextCard.visibility = View.GONE
-            decoderStage = StremioDecoders.Stage.NORMAL; failure = null   // nowe źródło – znowu od dekoderów sprzętowych
+            decoderStage = StremioDecoders.Stage.NORMAL; failure = null; forceVideo = false   // nowe źródło – znowu od dekoderów sprzętowych
             intent.putExtra(EXTRA_STREAM, pick.toJson().toString()).putExtra(EXTRA_VIDEO, n.id).putExtra(EXTRA_LABEL, n.label)
             Toast.makeText(this@StremioPlayerActivity, "Następny odcinek: ${n.label}", Toast.LENGTH_SHORT).show()
             start(resume = false)

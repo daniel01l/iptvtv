@@ -76,15 +76,28 @@ object StremioDecoders {
     }
 
     /** Selektor ścieżek: obsługiwane ścieżki przed nieobsługiwanymi (DTS/TrueHD bez dekodera nie jest wybierany na siłę). */
-    fun trackSelector(c: Context) = DefaultTrackSelector(c.applicationContext).apply {
+    /**
+     * [forceVideo] – obraz także ponad deklarowane możliwości dekodera. Telewizory często zaniżają je dla 4K HEVC 10-bit /
+     * Dolby Vision / HDR, a bez tej opcji odtwarzacz wybierał wtedy SAMĄ ścieżkę dźwięku (film 4K: dźwięk jest, obrazu nie ma).
+     * Obraz wymuszany jest po wykryciu takiej sytuacji ([needsForcedVideo]); gdy dekoder naprawdę nie da rady – zwykła obsługa
+     * błędu dekodera (tryb programowy, inne źródło, zewnętrzny odtwarzacz).
+     */
+    fun trackSelector(c: Context, forceVideo: Boolean = false) = DefaultTrackSelector(c.applicationContext).apply {
         setParameters(buildUponParameters()
-            .setExceedRendererCapabilitiesIfNecessary(false)
+            .setExceedRendererCapabilitiesIfNecessary(forceVideo)
+            .setExceedVideoConstraintsIfNecessary(true)
             .setConstrainAudioChannelCountToDeviceCapabilities(true))
     }
 
-    fun player(c: Context, stage: Stage, sources: MediaSource.Factory): ExoPlayer =
-        ExoPlayer.Builder(c, renderersFactory(c, stage)).setTrackSelector(trackSelector(c)).setMediaSourceFactory(sources)
+    fun player(c: Context, stage: Stage, sources: MediaSource.Factory, forceVideo: Boolean = false): ExoPlayer =
+        ExoPlayer.Builder(c, renderersFactory(c, stage)).setTrackSelector(trackSelector(c, forceVideo)).setMediaSourceFactory(sources)
             .setLoadControl(loadControl()).build()
+
+    /** Plik ma obraz, ale żadna ścieżka obrazu nie została wybrana (zaniżone możliwości dekodera) – start z wymuszonym obrazem. */
+    fun needsForcedVideo(tracks: androidx.media3.common.Tracks): Boolean {
+        val video = tracks.groups.filter { it.type == androidx.media3.common.C.TRACK_TYPE_VIDEO }
+        return video.isNotEmpty() && video.none { it.isSelected }
+    }
 
     /** Bufor filmów Stremio (pliki z serwerów / debrid o zmiennej przepustowości). */
     const val MIN_BUFFER_MS = 30_000

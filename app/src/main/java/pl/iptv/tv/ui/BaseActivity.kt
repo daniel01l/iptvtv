@@ -179,7 +179,8 @@ open class BaseActivity : AppCompatActivity() {
         appliedVersion = Ui.version
         // tło rysuje okno (jedna warstwa zamiast dwóch – mniej przerysowań całego ekranu na słabszych urządzeniach)
         // odtwarzacz: obraz zasłania tło – X25 bez rysowanego tła (pełnoekranowa grafika pod wideo w każdej klatce = przycięcia)
-        if (isPlayerScreen) rootFrame.background = if (X25Theme.active || Ps5Theme.active) android.graphics.drawable.ColorDrawable(Ui.bg) else Ui.bgDrawable()
+        // (7.1) każdy motyw: jednolity kolor – tło Nowoczesnego (cieniowania na cały ekran) pod obrazem też zacinało kanał
+        if (isPlayerScreen) rootFrame.background = android.graphics.drawable.ColorDrawable(Ui.bg)
         else { rootFrame.background = null; window.setBackgroundDrawable(Ui.bgDrawable()) }
         // PS5: podpowiedzi przycisków na dole ekranów w stylu ustawień konsoli (inny motyw – pasek usuwany)
         if (ps5Hints) Ps5Theme.attachScreenHints(rootFrame)

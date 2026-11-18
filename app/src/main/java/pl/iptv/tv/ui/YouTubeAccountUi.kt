@@ -32,13 +32,7 @@ object YouTubeAccountUi {
     @Volatile var current: AlertDialog? = null; private set
 
     fun login(a: AppCompatActivity, onDone: (Boolean) -> Unit) {
-        if (!YouTubeAuth.configured) {
-            Ui.dialog(a).setTitle("Logowanie YouTube")
-                .setMessage("Brak identyfikatora klienta OAuth.\n\nWpisz go w sekcji „Zaawansowane” (Google Cloud Console → Dane logowania → " +
-                    "Identyfikator klienta OAuth, typ „Telewizory i urządzenia z ograniczonym wejściem”, z włączonym YouTube Data API v3).")
-                .setPositiveButton("OK", null).show()
-            onDone(false); return
-        }
+        if (!YouTubeAuth.configured) { setupClient(a, onDone); return }
         val d = a.resources.displayMetrics.density
         fun px(v: Int) = (v * d).toInt()
         val step1 = TextView(a).apply { text = "1.  Na telefonie lub komputerze otwórz:"; tag = "text2"; textSize = 16f }
@@ -125,6 +119,51 @@ object YouTubeAccountUi {
                 status.text = "Brak połączenia z Google: ${e.message ?: e.javaClass.simpleName}"; pin.text = "—"
             }
         }
+    }
+
+    /** Strona konsoli Google z danymi logowania (identyfikator klienta OAuth) – w kodzie QR okna konfiguracji. */
+    const val CONSOLE_URL = "https://console.cloud.google.com/apis/credentials"
+
+    /**
+     * Brak identyfikatora klienta OAuth (aplikacja zbudowana bez niego): okno konfiguracji z kodem QR do konsoli Google
+     * (telefon) i instrukcją, wpisanie identyfikatora i klucza od razu tutaj, potem od razu logowanie kodem QR / kodem urządzenia.
+     */
+    fun setupClient(a: AppCompatActivity, onDone: (Boolean) -> Unit) {
+        val d = a.resources.displayMetrics.density
+        fun px(v: Int) = (v * d).toInt()
+        val qrSize = px(if (a.resources.configuration.screenHeightDp < 520) 140 else 190)
+        val qr = ImageView(a).apply { setBackgroundColor(Color.WHITE); contentDescription = "Kod QR konsoli Google"
+            runCatching { setImageBitmap(QrCode.bitmap(CONSOLE_URL, qrSize)) } }
+        val steps = TextView(a).apply {
+            tag = "text2"; textSize = 15f
+            text = "Logowanie do YouTube wymaga własnego identyfikatora klienta Google (jednorazowo, bezpłatnie). Google nie pozwala " +
+                "wpisywać e-maila i hasła konta w aplikacjach innych firm – logujesz się na telefonie kodem QR.\n\n" +
+                "1. Zeskanuj kod QR telefonem (konsola Google Cloud).\n" +
+                "2. Utwórz projekt, włącz „YouTube Data API v3”.\n" +
+                "3. Dane logowania → Utwórz → Identyfikator klienta OAuth → typ „Telewizory i urządzenia z ograniczonym wejściem”.\n" +
+                "4. Wpisz tu identyfikator klienta i klucz klienta – od razu pojawi się kod QR logowania."
+        }
+        val wide = a.resources.configuration.screenWidthDp >= 640
+        val box = LinearLayout(a).apply {
+            orientation = if (wide) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL; gravity = Gravity.CENTER
+            setPadding(px(24), px(8), px(24), px(4))
+            addView(qr, LinearLayout.LayoutParams(qrSize, qrSize).apply { if (wide) marginEnd = px(22) else bottomMargin = px(12) })
+            addView(steps, LinearLayout.LayoutParams(if (wide) 0 else -1, -2, 1f))
+        }
+        var next = false
+        Ui.dialog(a).setTitle("Logowanie YouTube – konfiguracja").setView(box)
+            .setPositiveButton("Wpisz identyfikator…") { _, _ ->
+                next = true
+                Dialogs.input(a, "Identyfikator klienta OAuth", pl.iptv.tv.data.Prefs.ytClientId, "…apps.googleusercontent.com", onCancel = { onDone(false) }) { id ->
+                    Dialogs.input(a, "Klucz klienta (client secret)", pl.iptv.tv.data.Prefs.ytClientSecret, "GOCSPX-…", password = true, onCancel = { onDone(false) }) { secret ->
+                        pl.iptv.tv.data.Prefs.ytClientId = id.trim(); pl.iptv.tv.data.Prefs.ytClientSecret = secret.trim()
+                        if (YouTubeAuth.configured) login(a, onDone) else onDone(false)
+                    }
+                }
+            }
+            .setNegativeButton("Anuluj", null)
+            .setOnDismissListener { if (!next) onDone(false) }
+            .show()
     }
 
     /**

@@ -121,7 +121,7 @@ object Ui {
         // (7.0) Nowoczesny – styl serwisu VOD: głęboka czerń, niebieskie zaznaczenie z jasną obwódką, półprzezroczyste okna,
         // ekran główny z paskiem ikon, hero i rzędami kafelków (ModernHomeActivity); to samo id – dotychczasowi użytkownicy dostają nowy wygląd
         ThemePreset(ModernTheme.ID, "Nowoczesny", c("#07080C"), c("#14171F"), c("#2F6BFF"), c("#2F6BFF"), c("#FFFFFF"),
-            c("#F5F7FA"), c("#9EA6B4"), 10, 0, FocusStyle.FILL, 1, 2, 0, true, S_MODERN),
+            c("#F5F7FA"), c("#9EA6B4"), 10, 0, FocusStyle.FILL, 9, 2, 0, true, S_MODERN),
         ThemePreset("classic", "Klasyczny dekoder", c("#06134A"), c("#0D2470"), c("#FFC400"), c("#FFB300"), c("#000000"),
             c("#FFFFFF"), c("#B8C7F0"), 0, 2, FocusStyle.GRADIENT, 0, 3, 0, false),
         // (6.5) zostają tylko: Nowoczesny, Klasyczny dekoder, Xbox, X25 i PS5 – pozostałe w [REMOVED_THEMES]
@@ -192,7 +192,7 @@ object Ui {
     private val fontCache = HashMap<Int, Typeface?>()
     val FONT_SCALES = listOf(0.85f to "Mała", 1f to "Normalna", 1.15f to "Duża", 1.3f to "Bardzo duża")
     val ANIMS = listOf("Brak", "Zanikanie", "Przesunięcie", "Powiększenie", "Unoszenie", "Sprężyna (iOS)", "Przyciąganie",
-        "Wejście w kartę", "Konsola – szybkie (Xbox)")
+        "Wejście w kartę", "Konsola – szybkie (Xbox)", "Nowoczesny – płynne przenikanie")
     val ANIM_SPEEDS = listOf(150L to "Szybko", 250L to "Normalnie", 450L to "Wolno")
     val PROGRESS = listOf("Cienka linia", "Gruby pasek", "Zaokrąglony", "Segmenty (klasyczny)", "Ukryty")
     val INFO_POS = listOf("Na dole", "Na górze")
@@ -1073,6 +1073,7 @@ object Ui {
             6 -> a.overridePendingTransition(R.anim.snap_in, R.anim.hold)
             7 -> a.overridePendingTransition(R.anim.console_in, R.anim.hold)
             8 -> a.overridePendingTransition(R.anim.xbox_in, R.anim.hold)
+            9 -> a.overridePendingTransition(R.anim.modern_screen_in, R.anim.hold)
             else -> a.overridePendingTransition(0, 0)
         }
     }
@@ -1088,6 +1089,7 @@ object Ui {
             6 -> a.overridePendingTransition(R.anim.hold, R.anim.snap_out)
             7 -> a.overridePendingTransition(R.anim.hold, R.anim.console_out)
             8 -> a.overridePendingTransition(R.anim.hold, R.anim.xbox_out)
+            9 -> a.overridePendingTransition(R.anim.hold, R.anim.modern_screen_out)
             else -> a.overridePendingTransition(0, 0)
         }
     }

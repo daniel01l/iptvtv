@@ -220,14 +220,42 @@ class StremioDetailActivity : BaseActivity() {
                 m?.name ?: title.text.toString(), m?.poster ?: intent.getStringExtra(EXTRA_POSTER).orEmpty(), vid, label, s))
             StremioStream.Kind.YOUTUBE -> startActivity(YtPlayerActivity.intent(this, s.ytId, s.headline))
             StremioStream.Kind.EXTERNAL -> runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(s.externalUrl))) }
-            StremioStream.Kind.TORRENT -> Ui.dialog(this).setTitle("Źródło P2P (torrent)")
-                .setMessage("To źródło wymaga silnika torrent (serwera strumieniowego Stremio), którego nie ma we wbudowanym odtwarzaczu. " +
-                    "Wybierz źródło z linkiem HTTP (np. wtyczka z usługą Debrid) albo otwórz je w zewnętrznej aplikacji.")
-                .setPositiveButton("Otwórz w aplikacji") { _, _ ->
-                    runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("magnet:?xt=urn:btih:${s.infoHash}&dn=" + Uri.encode(s.headline)))) }
-                        .onFailure { android.widget.Toast.makeText(this, "Brak aplikacji obsługującej linki magnet", android.widget.Toast.LENGTH_SHORT).show() }
-                }.setNegativeButton("Anuluj", null).show()
+            // P2P: przez serwer strumieniujący (TorrServer / serwer Stremio) – zwykłe źródło HTTP we wbudowanym odtwarzaczu
+            StremioStream.Kind.TORRENT -> lifecycleScope.launch {
+                android.widget.Toast.makeText(this@StremioDetailActivity, "Źródło P2P – łączenie z serwerem torrent…", android.widget.Toast.LENGTH_SHORT).show()
+                val server = pl.iptv.tv.data.TorrentStreams.find()
+                if (server != null) play(pl.iptv.tv.data.TorrentStreams.asHttp(s, server))
+                else torrentHelp(s)
+            }
             StremioStream.Kind.NONE -> {}
+        }
+    }
+
+    /** Brak serwera torrent: adres serwera w sieci, zewnętrzna aplikacja (link magnet) albo inne źródło. */
+    fun torrentHelp(s: StremioStream) {
+        Ui.dialog(this).setTitle("Źródło P2P (torrent)")
+            .setMessage("Do odtwarzania źródeł P2P we wbudowanym odtwarzaczu potrzebny jest serwer strumieniujący torrenty:\n\n" +
+                "• TorrServer – aplikacja na ten telewizor (działa sama w tle) albo na komputerze,\n" +
+                "• Stremio na komputerze w tej samej sieci (serwer Stremio, port 11470).\n\n" +
+                "Nie znaleziono serwera" + pl.iptv.tv.data.Prefs.torrentServer.ifBlank { "" }.let { if (it.isBlank()) " na tym urządzeniu." else " pod adresem $it." } +
+                " Podaj adres serwera albo otwórz źródło w zewnętrznej aplikacji.")
+            .setPositiveButton("Adres serwera…") { _, _ -> askTorrentServer { play(s) } }
+            .setNeutralButton("Zewnętrzna aplikacja") { _, _ ->
+                runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("magnet:?xt=urn:btih:${s.infoHash}&dn=" + Uri.encode(s.headline)))) }
+                    .onFailure { android.widget.Toast.makeText(this, "Brak aplikacji obsługującej linki magnet", android.widget.Toast.LENGTH_SHORT).show() }
+            }
+            .setNegativeButton("Anuluj", null).show()
+    }
+
+    /** Adres serwera torrent (np. 192.168.1.10:11470); pusty – szukanie na tym urządzeniu. Sprawdzany od razu. */
+    fun askTorrentServer(onOk: () -> Unit = {}) {
+        Dialogs.input(this, "Serwer torrent (P2P)", pl.iptv.tv.data.Prefs.torrentServer, "np. 192.168.1.10:11470 albo 127.0.0.1:8090") { v ->
+            pl.iptv.tv.data.Prefs.torrentServer = v.trim()
+            lifecycleScope.launch {
+                val found = pl.iptv.tv.data.TorrentStreams.find()
+                android.widget.Toast.makeText(this@StremioDetailActivity, found?.let { "Połączono: ${it.label}" } ?: "Serwer nie odpowiada", android.widget.Toast.LENGTH_LONG).show()
+                if (found != null) onOk()
+            }
         }
     }
 

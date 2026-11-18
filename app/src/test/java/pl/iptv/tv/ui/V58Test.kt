@@ -68,7 +68,8 @@ class V58Test {
         assertEquals(0, Prefs.mainLayout)                                    // zwykły motyw przywraca układ
         // każdy motyw ma własne przejście ekranów
         assertEquals(listOf(3, 8), listOf(Ps5Theme.ID, "xbox").map { id -> Ui.PRESETS.first { it.id == id }.anim })
-        assertEquals(9, Ui.ANIMS.size)
+        assertEquals(10, Ui.ANIMS.size)                                       // 7.1: + „Nowoczesny – płynne przenikanie”
+        assertEquals(9, Ui.PRESETS.first { it.id == ModernTheme.ID }.anim)
     }
 
     @Test fun themeTransitions() {

@@ -100,6 +100,12 @@ import pl.iptv.tv.data.X25Action
 @OptIn(ExperimentalComposeUiApi::class)
 class ModernHomeActivity : BaseActivity() {
     override val videoBackground = false
+    /**
+     * Telewizja wstrzymana na ekranie głównym (jak w STube / Stremio): bez dekodowania kanału „w tle bez obrazu”. Wcześniej kanał
+     * grał tu bez powierzchni obrazu, a odtwarzacz przejmował potem ten sam dekoder – na części TV obraz się zacinał, aż do
+     * ręcznej zmiany silnika. Wybrany kanał startuje czysto; po wejściu do menu wstrzymany kanał wraca.
+     */
+    override val pausesLiveTv = true
 
     enum class Kind { WIDE, POSTER, CHANNEL, ACTION }
 
@@ -460,7 +466,7 @@ class ModernHomeActivity : BaseActivity() {
     private fun Modifier.item(key: String, radius: Dp, scaleTo: Float, focused: MutableState<Boolean>, frame: Boolean = true,
                               onFocus: () -> Unit = {}, toRail: Boolean = false, onClick: () -> Unit, onLong: (() -> Unit)? = null): Modifier {
         val c = LocalModern.current
-        val scale by animateFloatAsState(if (focused.value) scaleTo else 1f, tween(140), label = "ms")
+        val scale by animateFloatAsState(if (focused.value) scaleTo else 1f, tween(170, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "ms")
         AutoFocus(key)
         return this
             .focusRequester(requester(key))
@@ -499,7 +505,7 @@ class ModernHomeActivity : BaseActivity() {
         val c = LocalModern.current
         val cfg = LocalConfiguration.current
         dims = Dims(compact = cfg.screenHeightDp < 520, narrow = cfg.screenWidthDp < 600)
-        Box(Modifier.fillMaxSize().background(c.bg)
+        Box(Modifier.fillMaxSize().modernBackdrop(c.bg, c.accent)
             .focusProperties { enter = { ((pendingFocus ?: lastFocus)?.takeIf { it in attached })?.let { requester(it) } ?: FocusRequester.Default } }
             .focusGroup()) {
             HeroBackdrop()
@@ -550,7 +556,8 @@ class ModernHomeActivity : BaseActivity() {
                 val url = f.images.getOrNull(idx)
                 if (url == null) Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(c.accent.copy(alpha = 0.45f), c.bg))))
                 else {
-                    val w = (resources.displayMetrics.widthPixels * 0.74f).toInt().coerceAtLeast(1)
+                    // dekodowanie w ok. połowie rozdzielczości ekranu – obraz jest pod wygaszeniem, a zmiana materiału nie obciąża słabszych TV
+                    val w = (resources.displayMetrics.widthPixels * 0.42f).toInt().coerceAtLeast(1)
                     val req = remember(url) { coil.request.ImageRequest.Builder(ctx).data(url).crossfade(false).size(w, (w * 9 / 16).coerceAtLeast(1)).build() }
                     coil.compose.AsyncImage(req, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter,
                         onError = { idx++ })
@@ -671,7 +678,7 @@ class ModernHomeActivity : BaseActivity() {
         val r = 8.dp
         Column(Modifier.width(w)) {
             Box(Modifier.size(w, h).item(key, r, 1.06f, focused, onFocus = { showFeature(t.feature) }, toRail = first, onClick = t.run)
-                .clip(RoundedCornerShape(r)).background(c.panel)) {
+                .modernTileSheen(r).clip(RoundedCornerShape(r)).background(c.panel)) {
                 when (t.kind) {
                     Kind.CHANNEL -> {
                         Box(Modifier.fillMaxSize().background(Brush.linearGradient(channelGradient(t.sub.takeIf { t.fraction >= 0f } ?: t.title))))
@@ -808,7 +815,7 @@ class ModernHomeActivity : BaseActivity() {
         const val HERO_PLAY = "h:play"
         const val HERO_INFO = "h:info"
         /** Opóźnienie zmiany hero po zaznaczeniu kafelka (szybkie przewijanie nie wczytuje obrazów po drodze). */
-        const val FEATURE_DELAY_MS = 220L
+        const val FEATURE_DELAY_MS = 300L
     }
 }
 

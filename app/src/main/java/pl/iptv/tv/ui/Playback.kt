@@ -75,6 +75,8 @@ object Playback {
     const val REBUILD_AFTER = 3
     /** Poprzedni kanał zakończył się błędem – następny startuje na czysto (nowe dekodery i powierzchnia obrazu). */
     @Volatile private var hadError = false
+    /** Kanał grał bez powierzchni obrazu ([attach]) – następne play() tego kanału czystym startem. */
+    @Volatile var headless = false; private set
     /** Bieżący kanał choć raz wystartował (STATE_READY). */
     @Volatile private var reachedReady = true
     val retryPending get() = android.os.Build.VERSION.SDK_INT >= 29 && main.hasCallbacks(retry)
@@ -227,7 +229,7 @@ object Playback {
         // aktywne żądania przerwane; bezczynne połączenia z puli zostają – nowy odtwarzacz użyje ich od razu
         // (bez ponownego łączenia, które mogłoby trafić na martwy adres serwera)
         calls?.close(); calls = null
-        isPlayingNow = false; bufferingSince = 0; stuck = 0; lastFrames = -1; lastPos = -1
+        isPlayingNow = false; bufferingSince = 0; stuck = 0; lastFrames = -1; lastPos = -1; headless = false
     }
 
     const val ENGINE_HARDWARE = 0
@@ -455,10 +457,11 @@ object Playback {
         // ten sam kanał gra dalej bez restartu – chyba że od dłuższej chwili tylko buforuje (zawieszony strumień
         // z podglądu lub sprzed przełączenia: dawniej zostawał zawieszony aż do zmiany ustawień silnika)
         if (!force && streamUrl == url && p.playbackState != androidx.media3.common.Player.STATE_IDLE && p.playerError == null &&
-            !stalledFor(SAME_URL_STALL_MS)) { p.playWhenReady = true; return false }
+            !stalledFor(SAME_URL_STALL_MS) && !headless) { p.playWhenReady = true; return false }
+        val wasHeadless = headless; headless = false
         // czysty start (zwolnione dekodery + nowa powierzchnia obrazu): po błędzie, po kanale, który nie zdążył ruszyć
         // (np. wadliwy strumień), i zawsze na słabszych urządzeniach – inaczej następny kanał potrafi zaciąć obraz
-        val clean = hadError || p.playerError != null || !reachedReady || (pl.iptv.tv.data.Prefs.lowPerf && pl.iptv.tv.data.Prefs.lowCleanDecoder)
+        val clean = hadError || wasHeadless || p.playerError != null || !reachedReady || (pl.iptv.tv.data.Prefs.lowPerf && pl.iptv.tv.data.Prefs.lowCleanDecoder)
         if (clean) { p.stop(); p.clearMediaItems() }
         // osobna grupa połączeń dla nowego strumienia; poprzednia zamykana po podmianie źródła (niżej)
         val previousCalls = calls
@@ -528,6 +531,9 @@ object Playback {
     fun attach(view: PlayerView) {
         val p = player ?: return
         if (target === view && view.player === p) return
+        // kanał grał bez żadnej powierzchni obrazu (np. za ekranem głównym) – dekoder pracował „na ślepo”; przy jego przejęciu
+        // część TV zacinała obraz aż do ręcznej zmiany silnika. Następne play() tego kanału robi czysty start (świeży dekoder).
+        if (target == null && p.playbackState != androidx.media3.common.Player.STATE_IDLE && p.videoFormat != null) headless = true
         PlayerView.switchTargetView(p, target, view)
         target = view
     }

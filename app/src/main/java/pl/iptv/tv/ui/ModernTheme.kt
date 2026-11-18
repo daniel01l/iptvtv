@@ -98,25 +98,32 @@ object ModernTheme {
 class ModernBackdrop(private val base: Int, private val accent: Int) : Drawable() {
     private val lin = Paint(Paint.DITHER_FLAG)
     private val rad = Paint(Paint.DITHER_FLAG)
+    /** (7.1) druga, chłodna poświata przy lewym dolnym rogu i winieta – głębia jak w serwisach VOD, nadal bez bitmapy. */
+    private val rad2 = Paint(Paint.DITHER_FLAG)
+    private val vig = Paint(Paint.DITHER_FLAG)
     private var alphaMul = 255
 
     override fun onBoundsChange(b: Rect) {
         if (b.isEmpty) return
         val w = b.width().toFloat(); val h = b.height().toFloat()
         lin.shader = LinearGradient(0f, b.top.toFloat(), 0f, b.bottom.toFloat(),
-            intArrayOf(Ui.blend(base, accent, 0.07f), base, Ui.shade(base, -0.55f)), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP)
+            intArrayOf(Ui.blend(base, accent, 0.08f), base, Ui.shade(base, -0.55f)), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP)
         rad.shader = RadialGradient(b.left + w * 0.85f, b.top + h * 0.05f, maxOf(w, h) * 0.6f,
-            intArrayOf(Ui.withAlpha(accent, 0x2C), Ui.withAlpha(accent, 0x0A), Color.TRANSPARENT), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP)
+            intArrayOf(Ui.withAlpha(accent, 0x30), Ui.withAlpha(accent, 0x0C), Color.TRANSPARENT), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP)
+        rad2.shader = RadialGradient(b.left + w * 0.05f, b.bottom - h * 0.05f, maxOf(w, h) * 0.45f,
+            intArrayOf(Ui.withAlpha(Color.parseColor("#5B3BD6"), 0x1C), Color.TRANSPARENT), null, Shader.TileMode.CLAMP)
+        vig.shader = RadialGradient(b.exactCenterX(), b.exactCenterY(), maxOf(w, h) * 0.75f,
+            intArrayOf(Color.TRANSPARENT, Color.TRANSPARENT, Ui.withAlpha(Color.BLACK, 0x60)), floatArrayOf(0f, 0.6f, 1f), Shader.TileMode.CLAMP)
     }
 
     override fun draw(c: Canvas) {
-        lin.alpha = alphaMul; rad.alpha = alphaMul
-        c.drawRect(bounds, lin); c.drawRect(bounds, rad)
+        lin.alpha = alphaMul; rad.alpha = alphaMul; rad2.alpha = alphaMul; vig.alpha = alphaMul
+        c.drawRect(bounds, lin); c.drawRect(bounds, rad); c.drawRect(bounds, rad2); c.drawRect(bounds, vig)
     }
 
     override fun setAlpha(a: Int) { alphaMul = a; invalidateSelf() }
     override fun getAlpha() = alphaMul
-    override fun setColorFilter(cf: android.graphics.ColorFilter?) { lin.colorFilter = cf; rad.colorFilter = cf }
+    override fun setColorFilter(cf: android.graphics.ColorFilter?) { lin.colorFilter = cf; rad.colorFilter = cf; rad2.colorFilter = cf; vig.colorFilter = cf }
     @Deprecated("Deprecated in Java")
     override fun getOpacity() = PixelFormat.OPAQUE
 }

@@ -146,6 +146,8 @@ object Prefs {
     var stremioSubDelay: Int get() = int("stremio_sub_delay", 0); set(v) = putInt("stremio_sub_delay", v)
     var stremioAspect: Int get() = int("stremio_aspect", 0); set(v) = putInt("stremio_aspect", v)
     var stremioSubLang: String get() = str("stremio_sub_lang", "pol"); set(v) = put("stremio_sub_lang", v)
+    /** Serwer strumieniujący źródła P2P (TorrServer / serwer Stremio), np. „192.168.1.10:11470”; pusty – szukanie na tym urządzeniu. */
+    var torrentServer: String get() = str("torrent_server"); set(v) = put("torrent_server", v)
     // ---- motyw X25 ----
     /** Pulpit X25 jako ekran startowy (gdy włączony motyw X25). */
     var x25Dashboard: Boolean get() = bool("x25_dash", true); set(v) = putBool("x25_dash", v)

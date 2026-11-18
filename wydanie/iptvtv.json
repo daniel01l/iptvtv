@@ -1,6 +1,6 @@
 {
-  "versionCode": 60,
-  "versionName": "7.0",
+  "versionCode": 61,
+  "versionName": "7.1",
   "apk": "D-iptv-Player.apk",
-  "notes": "Dobor silnika dla kanalow, ktore nie ruszaja (proby w tle, zapamietane dla kanalu); nowy motyw Nowoczesny z ekranem glownym w stylu serwisu VOD; STube: logowanie kodem QR, miksy gatunkowe i spolecznosciowe, odtwarzacz w stylu YouTube z autoodtwarzaniem i polka muzyczna; Stremio: zrodla w zwijanych grupach rozdzielczosci, przycisk Nastepny odcinek, naprawione skakanie kursora"
+  "notes": "Naprawione zacinanie kanalu po wejsciu z ekranu glownego Nowoczesny; plynniejsze przejscia i nowe tekstury motywu Nowoczesny; Stremio: zrodla P2P (torrent) przez TorrServer lub serwer Stremio, filmy 4K maja juz obraz; STube: logowanie z konfiguracja i kodem QR"
 }
