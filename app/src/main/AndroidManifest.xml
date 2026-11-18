@@ -98,6 +98,7 @@
         <activity android:name=".ui.X25DashboardActivity" android:screenOrientation="behind" android:windowSoftInputMode="stateHidden" />
         <!-- motyw PS5: ekran główny (zakładki, rząd aplikacji, karty), nad listą kanałów -->
         <activity android:name=".ui.Ps5HomeActivity" android:screenOrientation="behind" android:windowSoftInputMode="stateHidden" />
+        <activity android:name=".ui.ModernHomeActivity" android:screenOrientation="behind" android:windowSoftInputMode="stateHidden" />
         <!-- biblioteka aplikacji (tryb launchera, pulpity X25 / PS5) -->
         <activity android:name=".ui.AppLibraryActivity" android:screenOrientation="behind" android:windowSoftInputMode="stateHidden" />
         <activity android:name=".ui.STubeActivity" android:screenOrientation="behind"

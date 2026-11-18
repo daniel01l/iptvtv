@@ -14,8 +14,8 @@ android {
         applicationId = "pl.iptv.tv"
         minSdk = 21
         targetSdk = 34
-        versionCode = 59
-        versionName = "6.6"
+        versionCode = 60
+        versionName = "7.0"
         // konto YouTube (OAuth 2.0 Device Flow): klient typu „TV i urządzenia z ograniczonym wejściem” z Google Cloud Console.
         // Plik keystore/youtube_oauth.properties (poza repozytorium): client_id=…, client_secret=…, api_key=… (klucz – trendy bez logowania).
         val yt = Properties().apply { rootProject.file("keystore/youtube_oauth.properties").takeIf { it.exists() }?.reader()?.use { load(it) } }
@@ -113,6 +113,8 @@ dependencies {
     implementation("org.jellyfin.media3:media3-ffmpeg-decoder:$media3+1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.coil-kt:coil:2.7.0")
+    // kod QR logowania STube (generowany lokalnie, Apache 2.0)
+    implementation("com.google.zxing:core:3.5.3")
     // pulpit X25: miniatury i logo w Compose (ten sam ImageLoader co widoki – IptvApp)
     implementation("io.coil-kt:coil-compose:2.7.0")
     // tokeny konta YouTube szyfrowane kluczem z Android Keystore (1.1.0-alpha06: minSdk 21)

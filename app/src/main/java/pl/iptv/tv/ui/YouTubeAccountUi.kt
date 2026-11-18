@@ -1,8 +1,10 @@
 package pl.iptv.tv.ui
 
+import android.graphics.Color
 import android.graphics.Typeface
 import android.view.Gravity
 import android.view.WindowManager
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -48,16 +50,35 @@ object YouTubeAccountUi {
             letterSpacing = 0.12f; gravity = Gravity.CENTER; setPadding(0, px(10), 0, px(10))
         }
         val status = TextView(a).apply { text = "Pobieranie kodu…"; tag = "text2"; textSize = 15f; gravity = Gravity.CENTER; setPadding(0, px(6), 0, 0) }
-        val box = LinearLayout(a).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(px(24), px(8), px(24), px(4))
+        val steps = LinearLayout(a).apply {
+            orientation = LinearLayout.VERTICAL
             listOf(step1, url, step2, pin, status).forEach { addView(it, LinearLayout.LayoutParams(-1, -2)) }
         }
+        // kod QR: zeskanowanie aparatem telefonu otwiera stronę logowania Google (bez przepisywania adresu)
+        val qrSize = px(if (a.resources.configuration.screenHeightDp < 520) 150 else 210)
+        val qr = ImageView(a).apply { setBackgroundColor(Color.WHITE); scaleType = ImageView.ScaleType.FIT_CENTER; contentDescription = "Kod QR logowania" }
+        val qrBox = LinearLayout(a).apply {
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
+            addView(qr, LinearLayout.LayoutParams(qrSize, qrSize))
+            addView(TextView(a).apply { text = "Zeskanuj telefonem,\nzaloguj się i wpisz kod obok"; tag = "text2"; textSize = 14f; gravity = Gravity.CENTER
+                setPadding(0, px(8), 0, 0) }, LinearLayout.LayoutParams(qrSize + px(40), -2))
+        }
+        val wide = a.resources.configuration.screenWidthDp >= 640
+        val box = LinearLayout(a).apply {
+            orientation = if (wide) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+            gravity = Gravity.CENTER; setPadding(px(24), px(8), px(24), px(4))
+            addView(qrBox, LinearLayout.LayoutParams(-2, -2).apply { if (wide) marginEnd = px(24) else bottomMargin = px(12) })
+            addView(steps, LinearLayout.LayoutParams(if (wide) 0 else -1, -2, 1f))
+        }
         var job: Job? = null
+        var viaToken = false
         var success = false
         val dlg = Ui.dialog(a).setTitle("Logowanie YouTube").setView(box)
             .setNegativeButton("Anuluj", null)
+            // logowanie tokenem odświeżania (np. przeniesionym z innego urządzenia z tym samym klientem OAuth)
+            .setNeutralButton("Token…") { _, _ -> viaToken = true; tokenLogin(a, onDone) }
             .create()
-        dlg.setOnDismissListener { job?.cancel(); current = null; onDone(success) }
+        dlg.setOnDismissListener { job?.cancel(); current = null; if (!viaToken) onDone(success) }
         dlg.show()
         current = dlg
         // ekran nie gaśnie podczas wpisywania kodu na telefonie
@@ -71,6 +92,7 @@ object YouTubeAccountUi {
                     val dc = YouTubeAuth.requestDeviceCode()
                     url.text = dc.verificationUrl.removePrefix("https://").removePrefix("http://")
                     pin.text = dc.userCode
+                    runCatching { qr.setImageBitmap(QrCode.bitmap(dc.verificationUrl, qrSize)) }
                     val ticker = launch {
                         while (isActive) {
                             val s = dc.remainingS()
@@ -101,6 +123,23 @@ object YouTubeAccountUi {
                 status.text = e.message; pin.text = "—"
             } catch (e: Exception) {
                 status.text = "Brak połączenia z Google: ${e.message ?: e.javaClass.simpleName}"; pin.text = "—"
+            }
+        }
+    }
+
+    /**
+     * Logowanie tokenem odświeżania (refresh token tego samego klienta OAuth) – dla zaawansowanych; Google nie pozwala
+     * wpisywać hasła konta w aplikacjach zewnętrznych, więc zamiast e-maila i hasła: kod QR / kod urządzenia albo token.
+     */
+    fun tokenLogin(a: AppCompatActivity, onDone: (Boolean) -> Unit) {
+        Dialogs.input(a, "Logowanie tokenem", "", "Token odświeżania (refresh token)", password = true, onCancel = { onDone(false) }) { t ->
+            a.lifecycleScope.launch {
+                runCatching {
+                    YouTubeAuth.loginWithRefreshToken(t)
+                    YouTubeRepository.myChannelTitle()?.let { YouTubeTokens.saveAccount(it) }
+                    YouTubeRepository.clearCache()
+                }.onSuccess { toast(a, "Zalogowano" + YouTubeTokens.accountName.takeIf { it.isNotBlank() }?.let { ": $it" }.orEmpty()); onDone(true) }
+                    .onFailure { toast(a, it.message ?: "Logowanie nieudane"); onDone(false) }
             }
         }
     }

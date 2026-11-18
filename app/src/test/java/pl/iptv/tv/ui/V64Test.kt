@@ -161,8 +161,10 @@ class V64Test {
         assertTrue(all.any { it.text.toString() == "📺 Kanał Autora" && it.isShown })
         assertTrue(all.any { it.text.startsWith("⏭ Co następuje:  ▶ Film nx1") && it.isShown })
         // przyciski: jakość, napisy/audio (wg ścieżek), PiP tylko z obsługą systemu
-        assertTrue(all.any { it.text.startsWith("🎞 ") && it.isFocusable })
-        val pip = all.first { it.text == "⧉ Okno (PiP)" }
+        // 7.0: kapsuły z ikoną (bez emoji) – jakość „Auto …”, autoodtwarzanie
+        assertTrue(all.any { it.text.startsWith("Auto") && it.isFocusable && it.compoundDrawables[0] is PlayerIcon })
+        assertTrue(all.any { it.text == "Autoodtwarzanie: wł." && it.isFocusable })
+        val pip = all.first { it.text == "Okno" }
         assertEquals(if (a.pipSupported) View.VISIBLE else View.GONE, pip.visibility)
     }
 

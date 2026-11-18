@@ -174,6 +174,26 @@ fun RecyclerView.focusPosition(pos: Int, childId: Int? = null, tries: Int = 20, 
     postDelayed({ focusPosition(p, childId, tries - 1, fallback) }, 30)
 }
 
+/**
+ * Poziomy rząd kafelków na TV (STube, Stremio): ◄► nie przenoszą fokusu do INNEGO rzędu. Na skraju rzędu (albo gdy następny
+ * kafelek nie jest jeszcze ułożony) zwykłe wyszukiwanie fokusu potrafiło wybrać najbliższy kafelek rzędu niżej / wyżej –
+ * kursor „przeskakiwał” w dół do innych propozycji. Wyjście w bok do innych elementów (np. menu z boku) zostaje.
+ */
+class HRowRecycler(c: android.content.Context) : RecyclerView(c) {
+    override fun focusSearch(focused: View?, direction: Int): View? {
+        val r = super.focusSearch(focused, direction)
+        if (focused == null || (direction != View.FOCUS_LEFT && direction != View.FOCUS_RIGHT)) return r
+        if (r == null) return focused
+        var p: android.view.ViewParent? = r.parent
+        while (p != null) {
+            if (p === this) return r
+            if (p is HRowRecycler) return focused          // kafelek innego rzędu – zostajemy w swoim
+            p = p.parent
+        }
+        return r
+    }
+}
+
 private fun inflate(p: ViewGroup, layout: Int): View =
     LayoutInflater.from(p.context).inflate(layout, p, false).also { Ui.style(it) }
 

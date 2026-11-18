@@ -604,6 +604,14 @@ class SettingsActivity : BaseActivity() {
         }
         note("Motyw działa od razu na wszystkich ekranach (menu, odtwarzacz, pasek informacji, okna) – bez ponownego uruchamiania.")
         note("Wybór motywu ustawia kolory, czcionkę, animacje, pasek postępu i położenie paska informacji. Każdą z tych opcji możesz potem zmienić osobno.")
+        header("Nowoczesny")
+        if (ModernTheme.active) {
+            toggle("Ekran główny jako ekran startowy", { Prefs.modernHome }) { Prefs.modernHome = it }
+            toggle("Menu jako panel nakładkowy", { Prefs.modernOverlay }) { Prefs.modernOverlay = it }
+            row("▶ Otwórz ekran główny") { ModernTheme.openHome(this) }
+        } else row("Włącz motyw Nowoczesny") { ModernTheme.enable(); lookChanged() }
+        note("Nowoczesny: głęboka czerń, pasek ikon przy lewej krawędzi, duży podgląd zaznaczonego materiału z przyciskami „Odtwórz” i „Więcej informacji”, " +
+            "rzędy kanałów, filmów STube i tytułów Stremio z postępem oglądania; menu jako półprzezroczysty panel z prawej strony.")
         header("X25 Dashboard")
         toggle("Motyw X25 Dashboard", { X25Theme.active }, look = true) { X25Theme.setEnabled(it) }
         if (X25Theme.active) {
@@ -875,6 +883,13 @@ class SettingsActivity : BaseActivity() {
         toggle("Zapasowy dekoder przy błędzie", { Prefs.decoderFallback }) { Prefs.decoderFallback = it; Playback.stop() }
         toggle("Dekoder programowy, gdy obraz zamarza", { Prefs.freezeFallback }) { Prefs.freezeFallback = it; Playback.stop() }
         note("Gdy obraz stoi, a dźwięk gra (ok. ${Playback.FREEZE_SWITCH_MS / 1000} s), odtwarzacz sam przechodzi na dekoder programowy – do zamknięcia aplikacji albo ręcznej zmiany silnika.")
+        toggle("Dobór silnika dla niedziałających kanałów", { Prefs.engineOptimizer }) { Prefs.engineOptimizer = it }
+        row("Zapamiętane silniki kanałów", "${pl.iptv.tv.data.ChannelEngines.count - pl.iptv.tv.data.ChannelEngines.failedCount} dobranych, ${pl.iptv.tv.data.ChannelEngines.failedCount} niedziałających") {
+            Dialogs.confirm(this, "Zapamiętane silniki", "Usunąć dobrane ustawienia silnika wszystkich kanałów? Kanały, które nie ruszą, zostaną przetestowane ponownie.") {
+                pl.iptv.tv.data.ChannelEngines.clear(); ChannelEngineOptimizer.resetSession(); build(keepFocus = true)
+            }
+        }
+        note("Kanał bez obrazu po ${Playback.START_CHECK_MS / 1000} s albo z błędem dekodera: odtwarzacz sprawdza po kolei inne ustawienia (dekoder programowy, dźwięk FFmpeg, kolejka dekodera, HLS / TS – po ok. ${ChannelEngineOptimizer.PROBE_MS / 1000} s na próbę, w tle) i zapamiętuje działające dla tego kanału. Gdy nic nie pomaga (np. serwer nie działa), kanał nie jest testowany ponownie przez dobę.")
         toggle("Niskie opóźnienie na żywo", { Prefs.lowLatency }) { Prefs.lowLatency = it; Playback.stop() }
         note("Niskie opóźnienie: start po 0,5 s buforu i odtwarzanie bliżej bieżącej chwili transmisji (mniejsze opóźnienie, przy słabym łączu częstsze buforowanie).")
         row("Bieżący dekoder", Playback.decoderInfo().take(60)) { Dialogs.confirm(this, "Bieżący dekoder", Playback.decoderInfo()) {} }

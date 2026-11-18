@@ -36,7 +36,7 @@ class V61Test {
 
     @Before fun setup() {
         Playback.stop()
-        Prefs.permissionsAsked = true; Prefs.setupDone = true; Prefs.startAction = 0; Prefs.playlistsJson = "[]"; Prefs.mainPreview = false
+        Prefs.permissionsAsked = true; Prefs.setupDone = true; Prefs.modernHome = false; Prefs.startAction = 0; Prefs.playlistsJson = "[]"; Prefs.mainPreview = false
         Prefs.groupOrder = emptyList(); Prefs.groupHidden = emptyList(); Prefs.keyMapJson = ""; Prefs.orientation = 0; Prefs.mainLayout = 0
         Prefs.bootStart = false
         Ui.applyPreset("modern"); Ui.changed()

@@ -21,6 +21,8 @@ object YtKeyless {
     interface Source {
         fun kiosk(id: String): List<YtVideo>
         fun search(q: String): List<YtVideo>
+        /** Propozycje YouTube po filmie (lista „Następne” – kolejność z zachowań innych widzów). */
+        fun related(id: String): List<YtVideo> = emptyList()
     }
 
     object NewPipeSource : Source {
@@ -34,6 +36,11 @@ object YtKeyless {
             YtStreams.ensureInit()
             val yt = ServiceList.YouTube
             return SearchInfo.getInfo(yt, yt.searchQHFactory.fromQuery(q.trim(), listOf("videos"), ""))
+                .relatedItems.filterIsInstance<StreamInfoItem>().mapNotNull(::video)
+        }
+        override fun related(id: String): List<YtVideo> {
+            YtStreams.ensureInit()
+            return org.schabi.newpipe.extractor.stream.StreamInfo.getInfo(ServiceList.YouTube, "https://www.youtube.com/watch?v=$id")
                 .relatedItems.filterIsInstance<StreamInfoItem>().mapNotNull(::video)
         }
     }
@@ -53,6 +60,15 @@ object YtKeyless {
 
     suspend fun search(q: String): List<YtVideo> = withContext(Dispatchers.IO) {
         try { source.search(q) } catch (e: Exception) { throw YtException(YtStreams.message(e)) }
+    }
+
+    /** Propozycje po filmie [id] (pamięć podręczna jak listy – miksy nie pytają YouTube przy każdym otwarciu). */
+    suspend fun related(id: String): List<YtVideo> = withContext(Dispatchers.IO) {
+        val k = "rel:$id"
+        synchronized(cache) { cache[k]?.takeIf { System.currentTimeMillis() - it.first < TTL }?.let { return@withContext it.second } }
+        val l = try { source.related(id) } catch (e: Exception) { throw YtException(YtStreams.message(e)) }
+        synchronized(cache) { cache[k] = System.currentTimeMillis() to l }
+        l
     }
 
     /** Identyfikator z adresu filmu (watch?v=…, youtu.be/…, /shorts/…). */

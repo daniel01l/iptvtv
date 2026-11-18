@@ -1,6 +1,6 @@
 {
-  "versionCode": 59,
-  "versionName": "6.6",
+  "versionCode": 60,
+  "versionName": "7.0",
   "apk": "D-iptv-Player.apk",
-  "notes": "Stremio: do 5 zrodel z kazdej rozdzielczosci z polska wersja (lektor/dubbing/napisy) na gorze, automatycznie polski dzwiek albo polskie napisy, wiekszy bufor - mniej zaciec, staly opis bez przeskakiwania; czytelny tekst na zaznaczonych kafelkach we wszystkich motywach; plynne przewijanie pulpitow X25 i PS5; okna bez migniecia; logo kanalow bez napisu pod spodem"
+  "notes": "Dobor silnika dla kanalow, ktore nie ruszaja (proby w tle, zapamietane dla kanalu); nowy motyw Nowoczesny z ekranem glownym w stylu serwisu VOD; STube: logowanie kodem QR, miksy gatunkowe i spolecznosciowe, odtwarzacz w stylu YouTube z autoodtwarzaniem i polka muzyczna; Stremio: zrodla w zwijanych grupach rozdzielczosci, przycisk Nastepny odcinek, naprawione skakanie kursora"
 }

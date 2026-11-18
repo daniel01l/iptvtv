@@ -30,8 +30,14 @@ import pl.iptv.tv.data.StremioStream
 import pl.iptv.tv.data.StremioStreams
 import pl.iptv.tv.data.StremioVideo
 
-/** Pozycja listy źródeł: nagłówek wtyczki, źródło, komunikat. */
-sealed class SourceItem { data class Header(val g: StremioSourceGroup) : SourceItem(); data class Source(val s: StremioStream) : SourceItem(); data class Note(val t: String) : SourceItem() }
+/**
+ * Pozycja listy źródeł: zwijana grupa rozdzielczości (4K, 1080p…), źródło (z nazwą wtyczki), komunikat (wczytywanie, błąd wtyczki).
+ */
+sealed class SourceItem {
+    data class Quality(val q: String, val count: Int, val polish: Int, val open: Boolean) : SourceItem()
+    data class Source(val s: StremioStream) : SourceItem()
+    data class Note(val t: String) : SourceItem()
+}
 
 /**
  * Szczegóły filmu / serialu jak w Stremio: plakat, opis, sezony i odcinki, a po prawej źródła – zapytanie wyłącznie do włączonych
@@ -253,51 +259,103 @@ class StremioDetailActivity : BaseActivity() {
         }
     }
 
-    /** Źródła: nagłówek wtyczki, jej źródła (≤ 5) albo komunikat (wczytywanie, brak, błąd). */
+    /**
+     * Źródła pogrupowane według rozdzielczości w zwijanych grupach (4K, 1440p, 1080p, 720p, 480p, inna, CAM): OK na grupie
+     * rozwija / zwija jej źródła (z nazwą wtyczki), na starcie rozwinięta najwyższa dostępna. W grupie najpierw polska wersja.
+     * Wtyczki wczytują się równolegle – kolejne wyniki dopisywane bez utraty zaznaczenia (fokus wraca na ten sam element).
+     */
     inner class SourceAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
         var items: List<SourceItem> = emptyList(); private set
+        /** Wszystkie źródła w kolejności wyświetlania (także w zwiniętych grupach). */
+        var sourceItems: List<StremioStream> = emptyList(); private set
+        private var byQuality: List<Pair<String, List<StremioStream>>> = emptyList()
+        private var notes: List<SourceItem.Note> = emptyList()
+        /** Rozwinięte grupy; null – jeszcze bez wyboru użytkownika (rozwinięta pierwsza). */
+        private var expanded: MutableSet<String>? = null
+        val expandedNow: Set<String> get() = expanded ?: setOfNotNull(byQuality.firstOrNull()?.first)
 
         fun set(gs: List<StremioSourceGroup>, empty: String?) {
-            items = if (empty != null) listOf(SourceItem.Note(empty)) else gs.flatMap { g ->
-                listOf(SourceItem.Header(g)) + when {
-                    g.loading -> listOf(SourceItem.Note("Wczytywanie…"))
-                    g.error != null -> listOf(SourceItem.Note("Błąd: ${g.error}"))
-                    g.streams.isEmpty() -> listOf(SourceItem.Note("Brak źródeł"))
-                    else -> g.streams.map { SourceItem.Source(it) }
-                }
+            if (empty != null) { byQuality = emptyList(); sourceItems = emptyList(); notes = listOf(SourceItem.Note(empty)); rebuild(); return }
+            val all = gs.flatMap { it.streams }
+            val groups = all.groupBy { it.quality }
+            val order = StremioStreams.QUALITY_ORDER + (groups.keys - StremioStreams.QUALITY_ORDER.toSet())
+            byQuality = order.mapNotNull { q -> groups[q]?.sortedBy { StremioStreams.polishRank(it) }?.let { q to it } }
+            sourceItems = byQuality.flatMap { it.second }
+            notes = buildList {
+                gs.filter { it.loading }.takeIf { it.isNotEmpty() }?.let { l -> add(SourceItem.Note("Wczytywanie: " + l.joinToString(", ") { it.addon.name } + "…")) }
+                gs.filter { it.error != null }.forEach { add(SourceItem.Note("🧩 ${it.addon.name}: błąd – ${it.error}")) }
+                if (all.isEmpty() && gs.none { it.loading }) add(SourceItem.Note("Brak źródeł dla tego tytułu we włączonych wtyczkach."))
             }
-            notifyDataSetChanged()
+            rebuild()
         }
-        fun firstSource() = items.indexOfFirst { it is SourceItem.Source }.coerceAtLeast(0)
-        val sourceItems get() = items.filterIsInstance<SourceItem.Source>().map { it.s }
+
+        private fun build(): List<SourceItem> = byQuality.flatMap { (q, l) ->
+            val open = q in expandedNow
+            listOf(SourceItem.Quality(q, l.size, l.count { StremioStreams.polishRank(it) < 2 }, open)) + if (open) l.map { SourceItem.Source(it) } else emptyList()
+        } + notes
+
+        /** Nowa lista z zachowaniem zaznaczenia (grupa / źródło o tym samym kluczu) – fokus nie przeskakuje przy dopisywaniu wyników. */
+        private fun rebuild() {
+            val focusedKey = sources.findFocus()?.let { f -> sources.findContainingViewHolder(f)?.bindingAdapterPosition }?.let { items.getOrNull(it)?.let(::keyOf) }
+            items = build()
+            notifyDataSetChanged()
+            if (focusedKey != null) items.indexOfFirst { keyOf(it) == focusedKey }.takeIf { it >= 0 }?.let { p -> sources.post { sources.focusPosition(p) } }
+        }
+
+        private fun keyOf(i: SourceItem) = when (i) { is SourceItem.Quality -> "q:" + i.q; is SourceItem.Source -> "s:" + i.s.url + i.s.infoHash + i.s.name; is SourceItem.Note -> "n:" + i.t }
+
+        /** OK na grupie: rozwinięcie / zwinięcie bez przebudowy listy (wstawienie / usunięcie pozycji) – zaznaczenie zostaje na grupie. */
+        fun toggle(q: String) {
+            val set = expanded ?: expandedNow.toMutableSet().also { expanded = it }
+            val p = items.indexOfFirst { it is SourceItem.Quality && it.q == q }.takeIf { it >= 0 } ?: return
+            val n = byQuality.firstOrNull { it.first == q }?.second?.size ?: 0
+            if (q in set) set -= q else set += q
+            items = build()
+            notifyItemChanged(p)
+            if (q in set) notifyItemRangeInserted(p + 1, n) else notifyItemRangeRemoved(p + 1, n)
+        }
+
+        fun firstSource() = items.indexOfFirst { it is SourceItem.Source }.takeIf { it >= 0 } ?: items.indexOfFirst { it is SourceItem.Quality }.coerceAtLeast(0)
+        fun qualityName(q: String) = when (q) { "4K" -> "4K UHD"; "" -> "Inna jakość"; "CAM" -> "CAM (nagranie z kina)"; else -> q }
 
         override fun getItemCount() = items.size
-        override fun getItemViewType(position: Int) = when (items[position]) { is SourceItem.Header -> 0; is SourceItem.Source -> 1; is SourceItem.Note -> 2 }
+        override fun getItemViewType(position: Int) = when (items[position]) { is SourceItem.Quality -> 0; is SourceItem.Source -> 1; is SourceItem.Note -> 2 }
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
             val c = parent.context
             val v: View = when (viewType) {
-                0 -> StremioUi.text(c, "", 16f, "accent", bold = true, lines = 1).apply { setPadding(Ui.dp(6), Ui.dp(12), Ui.dp(6), Ui.dp(4)) }
+                0 -> LinearLayout(c).apply {
+                    gravity = android.view.Gravity.CENTER_VERTICAL; tag = "item"; isFocusable = true; isClickable = true
+                    setPadding(Ui.dp(12), Ui.dp(10), Ui.dp(14), Ui.dp(10))
+                    addView(StremioUi.text(c, "", 17f, bold = true, lines = 1), LinearLayout.LayoutParams(0, -2, 1f))
+                    addView(StremioUi.text(c, "", 13f, "text2", lines = 1))
+                }
                 1 -> LinearLayout(c).apply {
                     orientation = LinearLayout.VERTICAL; tag = "item"; isFocusable = true; isClickable = true
-                    setPadding(Ui.dp(14), Ui.dp(9), Ui.dp(14), Ui.dp(9))
+                    setPadding(Ui.dp(26), Ui.dp(9), Ui.dp(14), Ui.dp(9))
                     addView(StremioUi.text(c, "", 15f, bold = true, lines = 1)); addView(StremioUi.text(c, "", 13f, "text2", lines = 2))
                 }
-                else -> StremioUi.text(c, "", 14f, "text2").apply { setPadding(Ui.dp(14), Ui.dp(4), Ui.dp(6), Ui.dp(6)) }
+                else -> StremioUi.text(c, "", 14f, "text2").apply { setPadding(Ui.dp(14), Ui.dp(6), Ui.dp(6), Ui.dp(6)) }
             }
             v.layoutParams = RecyclerView.LayoutParams(-1, -2).apply { bottomMargin = Ui.dp(4) }
             val vh = object : RecyclerView.ViewHolder(v) {}
             if (viewType == 1) v.setOnClickListener { (items.getOrNull(vh.bindingAdapterPosition) as? SourceItem.Source)?.let { play(it.s) } }
+            if (viewType == 0) v.setOnClickListener { (items.getOrNull(vh.bindingAdapterPosition) as? SourceItem.Quality)?.let { toggle(it.q) } }
             Ui.style(v)
             return vh
         }
         override fun onBindViewHolder(h: RecyclerView.ViewHolder, position: Int) {
             when (val it = items[position]) {
-                is SourceItem.Header -> (h.itemView as TextView).text = "🧩 " + it.g.addon.name + (if (it.g.total > it.g.streams.size) "   (${it.g.streams.size} z ${it.g.total})" else "")
+                is SourceItem.Quality -> (h.itemView as LinearLayout).let { box ->
+                    (box.getChildAt(0) as TextView).text = (if (it.open) "▾  " else "▸  ") + qualityName(it.q)
+                    (box.getChildAt(1) as TextView).text = listOfNotNull("${it.count} " + StremioUi.plural(it.count, "źródło", "źródła", "źródeł"),
+                        it.polish.takeIf { n -> n > 0 }?.let { n -> "🇵🇱 $n" }).joinToString("   ·   ")
+                    h.itemView.isActivated = it.open
+                }
                 is SourceItem.Note -> (h.itemView as TextView).text = it.t
                 is SourceItem.Source -> (h.itemView as LinearLayout).let { box ->
                     val s = it.s
                     (box.getChildAt(0) as TextView).text = s.badges.ifBlank { s.name.replace('\n', ' ') }
-                    (box.getChildAt(1) as TextView).text = s.headline
+                    (box.getChildAt(1) as TextView).text = "🧩 ${s.addonName}  ·  ${s.headline}"
                 }
             }
         }

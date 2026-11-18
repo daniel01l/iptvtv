@@ -136,6 +136,18 @@ object YouTubeAuth {
         false
     }
 
+    /**
+     * Logowanie tokenem odświeżania (refresh token wygenerowany dla tego samego klienta OAuth, np. przeniesiony z innego
+     * urządzenia): zapis i od razu próba odświeżenia – nieważny token jest usuwany ([AuthException]).
+     */
+    suspend fun loginWithRefreshToken(rt: String) {
+        val t = rt.trim()
+        if (t.isEmpty()) throw AuthException("invalid_grant", "Wpisz token odświeżania")
+        YouTubeTokens.clear()
+        YouTubeTokens.save("", t, 0)
+        if (!refresh(force = true)) { YouTubeTokens.clear(); throw AuthException("invalid_grant", "Token nieprawidłowy, odwołany albo wydany dla innego klienta OAuth") }
+    }
+
     /** Wylogowanie: odwołanie tokenu u Google (najlepiej jak się da) i usunięcie danych lokalnie. */
     suspend fun logout() {
         val t = YouTubeTokens.refreshToken.ifBlank { YouTubeTokens.accessToken }

@@ -129,9 +129,13 @@ interface WatchLaterDao {
 }
 
 // v2: lista „Do obejrzenia później”, v3: kolejka odtwarzania, v4: kafelki pulpitu X25, v5: Stremio (wtyczki, postęp) – migracje automatyczne (schematy w app/schemas), dane zachowane
-@Database(entities = [SearchEntry::class, WatchProgress::class, WatchLater::class, QueueItem::class, DashTile::class, StremioAddonState::class, StremioProgress::class], version = 5, exportSchema = true,
-    autoMigrations = [androidx.room.AutoMigration(from = 1, to = 2), androidx.room.AutoMigration(from = 2, to = 3), androidx.room.AutoMigration(from = 3, to = 4), androidx.room.AutoMigration(from = 4, to = 5)])
+// v6: dobrane ustawienia silnika kanałów TV (ChannelEngineOptimizer)
+@Database(entities = [SearchEntry::class, WatchProgress::class, WatchLater::class, QueueItem::class, DashTile::class, StremioAddonState::class, StremioProgress::class,
+    ChannelEngine::class], version = 6, exportSchema = true,
+    autoMigrations = [androidx.room.AutoMigration(from = 1, to = 2), androidx.room.AutoMigration(from = 2, to = 3), androidx.room.AutoMigration(from = 3, to = 4), androidx.room.AutoMigration(from = 4, to = 5),
+        androidx.room.AutoMigration(from = 5, to = 6)])
 abstract class StubeDatabase : RoomDatabase() {
+    abstract fun channelEngines(): ChannelEngineDao
     abstract fun search(): SearchDao
     abstract fun progress(): ProgressDao
     abstract fun watchLater(): WatchLaterDao

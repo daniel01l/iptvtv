@@ -12,6 +12,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import pl.iptv.tv.data.Channel
+import pl.iptv.tv.data.ChannelEngines
 import pl.iptv.tv.data.Repository
 
 /**
@@ -115,6 +116,14 @@ object Playback {
                 androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED, androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED, androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
                 androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED)
             val max = if (decoder) 0 else if (source) SOURCE_RETRIES else 5
+            // kanał na żywo, który nie ruszył: błąd dekodera albo nierozpoznany / wadliwy format – dobór silnika w tle
+            // (błędy HTTP i sieci – zwykłe ponowienia: inny dekoder nie pomoże na niedziałający serwer)
+            val engineIssue = decoder || e.errorCode in listOf(androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
+                androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED, androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED,
+                androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED)
+            val ch = lastChannel; val c = lastCtx; val u = url
+            if (engineIssue && !reachedReady && ch != null && c != null && u != null && u == ch.url &&
+                ChannelEngineOptimizer.onStartFailed(c, ch, u, e.errorCodeName)) return
             if (retries < max) { retries++; main.removeCallbacks(retry); main.postDelayed(retry, retryDelayMs(source, retries)) }
             else { p.stop(); calls?.cancelActive(); onFatal?.invoke(e) }   // stop = zwolnienie dekoderów (słabsze urządzenia nie zacinają kolejnych kanałów)
         }
@@ -210,7 +219,7 @@ object Playback {
 
     /** Pełne zwolnienie odtwarzacza i jego połączeń (bez zmiany zapamiętanego kanału). */
     private fun releasePlayer() {
-        main.removeCallbacks(retry); main.removeCallbacks(watchdog)
+        main.removeCallbacks(retry); main.removeCallbacks(watchdog); main.removeCallbacks(startCheck)
         val p = player
         target?.let { if (it.player === p) it.player = null }   // widok nie trzyma zwolnionego odtwarzacza
         if (p != null) { listeners.forEach { p.removeListener(it) }; p.removeListener(recovery); runCatching { p.release() } }
@@ -264,7 +273,23 @@ object Playback {
         return create(c)
     }
 
-    private fun create(c: Context): ExoPlayer {
+    private fun create(c: Context): ExoPlayer = buildPlayer(c, profile).also { p ->
+        player = p; p.addListener(recovery); listeners.forEach { p.addListener(it) }
+        if (pl.iptv.tv.BuildConfig.DEBUG) p.addAnalyticsListener(loadLog)
+        main.removeCallbacks(watchdog); main.postDelayed(watchdog, 3000)
+    }
+
+    /**
+     * Ustawienia silnika dobrane dla bieżącego kanału ([ChannelEngineOptimizer], zapisane w Room); null – ustawienia użytkownika.
+     * Profil: dekoder programowy / dźwięk FFmpeg / kolejka dekodera / rodzaj strumienia, bez tunelowania.
+     */
+    @Volatile var profile: pl.iptv.tv.data.EngineProfile? = null; private set
+
+    /**
+     * Odtwarzacz z ustawieniami użytkownika i ewentualnym profilem kanału. Bez skutków ubocznych – używany też przez testy
+     * silnika w tle ([looper] – wątek testów; [probe] – bez strażnika i słuchaczy ekranu).
+     */
+    fun buildPlayer(c: Context, profile: pl.iptv.tv.data.EngineProfile?, looper: android.os.Looper? = null): ExoPlayer {
         // zapasowy dekoder; bez wymuszonej asynchronicznej kolejki (na części TV zamrażała obraz przy działającym dźwięku)
         val renderers = object : androidx.media3.exoplayer.DefaultRenderersFactory(c.applicationContext) {
             // zegar odtwarzania przesunięty o ustawienie synchronizacji – obraz dopasowuje się do dźwięku (zmiana działa od razu)
@@ -281,20 +306,23 @@ object Playback {
         }
         val P = pl.iptv.tv.data.Prefs
         val engine = P.playerEngine
+        val software = softwareDecoding || profile?.software == true
         // wybór dekodera: sprzętowy (akceleracja) przed programowym albo odwrotnie (tryb zgodności)
-        renderers.setMediaCodecSelector(codecSelector(software = softwareDecoding))
-        renderers.setEnableDecoderFallback(P.decoderFallback || softwareDecoding)
-        when (P.asyncDecoder) {
+        renderers.setMediaCodecSelector(codecSelector(software = software))
+        renderers.setEnableDecoderFallback(P.decoderFallback || software || profile != null)
+        when (profile?.async?.takeIf { it != 0 } ?: P.asyncDecoder) {
             1 -> renderers.forceEnableMediaCodecAsynchronousQueueing()
             2 -> renderers.forceDisableMediaCodecAsynchronousQueueing()
         }
+        // profil kanału: dekoder dźwięku FFmpeg przed systemowym (formaty, których dekoder urządzenia nie obsługuje)
+        if (profile?.ffmpeg == true) renderers.setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
         val low = P.lowPerf
         // słabsze urządzenia: ograniczona rozdzielczość (domyślnie 1080p – bez 4K, którego dekoder nie nadąża) i mniejszy bufor w pamięci
         val selector = androidx.media3.exoplayer.trackselection.DefaultTrackSelector(c.applicationContext).apply {
             val b = buildUponParameters()
             if (low && P.lowMaxHeight > 0) b.setMaxVideoSize(P.lowMaxHeight * 16 / 9, P.lowMaxHeight).setExceedRendererCapabilitiesIfNecessary(false)
             // tunelowanie: obraz i dźwięk dekodowane i synchronizowane sprzętowo (Android TV) – najmniejsze obciążenie procesora
-            if (engine == ENGINE_TUNNELING && P.hwAccel && !sessionSoftware) b.setTunnelingEnabled(true)
+            if (engine == ENGINE_TUNNELING && P.hwAccel && !sessionSoftware && profile == null) b.setTunnelingEnabled(true)
             setParameters(b)
         }
         val start = if (P.lowLatency) 800 else START_BUFFER_MS
@@ -306,18 +334,48 @@ object Playback {
         // start po 2 s zapasu (1 s dawał przycięcia zaraz po przełączeniu na niestabilnych strumieniach),
         // po przycięciu 5 s zapasu (bez serii krótkich zatrzymań), bufor 30–60 s
         else DefaultLoadControl.Builder().setBufferDurationsMs(30_000, 60_000, start, REBUFFER_MS).setPrioritizeTimeOverSizeThresholds(true).build()
+        val probe = looper != null
         return ExoPlayer.Builder(c.applicationContext, renderers)
             .setTrackSelector(selector)
             .setLoadControl(load)
-            .setWakeMode(androidx.media3.common.C.WAKE_MODE_NETWORK)          // Wi-Fi nie usypia podczas oglądania
-            .setAudioAttributes(androidx.media3.common.AudioAttributes.Builder().setUsage(androidx.media3.common.C.USAGE_MEDIA)
-                .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
-            .setHandleAudioBecomingNoisy(true)
-            .build().also { p ->
-                player = p; p.addListener(recovery); listeners.forEach { p.addListener(it) }
-                if (pl.iptv.tv.BuildConfig.DEBUG) p.addAnalyticsListener(loadLog)
-                main.removeCallbacks(watchdog); main.postDelayed(watchdog, 3000)
+            .apply { if (looper != null) setLooper(looper) }
+            .apply {
+                // odtwarzacz testowy: bez blokady Wi-Fi i bez przejmowania dźwięku (nie przerywa niczego, co gra)
+                if (!probe) setWakeMode(androidx.media3.common.C.WAKE_MODE_NETWORK)          // Wi-Fi nie usypia podczas oglądania
+                setAudioAttributes(androidx.media3.common.AudioAttributes.Builder().setUsage(androidx.media3.common.C.USAGE_MEDIA)
+                    .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE).build(), !probe)
+                setHandleAudioBecomingNoisy(!probe)
             }
+            .build()
+    }
+
+    /** Typ strumienia wg profilu kanału (HLS / TS wymuszony), inaczej z adresu albo wcześniejszego rozpoznania. */
+    fun mimeFor(streamUrl: String, mime: String?, profile: pl.iptv.tv.data.EngineProfile?): String? = when (profile?.container) {
+        1 -> MimeTypes.APPLICATION_M3U8
+        2 -> MimeTypes.VIDEO_MP2T
+        else -> mime ?: guessMime(streamUrl) ?: if (streamUrl in hlsUrls) MimeTypes.APPLICATION_M3U8 else null
+    }
+
+    /** Źródło strumienia kanału (wspólne dla odtwarzacza i testów silnika): nagłówki kanału, tolerancyjne TS / HLS. */
+    fun mediaSource(c: Context, ch: Channel, streamUrl: String, mime: String?, calls: okhttp3.Call.Factory): androidx.media3.exoplayer.source.MediaSource {
+        val headers = HashMap<String, String>()
+        if (ch.referrer.isNotBlank()) headers["Referer"] = ch.referrer
+        val http = OkHttpDataSource.Factory(calls)
+            .setUserAgent(ch.userAgent.ifBlank { Repository.userAgent }).setDefaultRequestProperties(headers)
+        val item = MediaItem.Builder().setUri(streamUrl)
+            // stała prędkość 1.0 – bez przyspieszania/zwalniania obrazu tuż po starcie kanału na żywo
+            .setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setMinPlaybackSpeed(1f).setMaxPlaybackSpeed(1f)
+                // niskie opóźnienie: bliżej krawędzi transmisji na żywo (gdy strumień na to pozwala)
+                .apply { if (pl.iptv.tv.data.Prefs.lowLatency) setTargetOffsetMs(4_000) }.build()).apply {
+            mime?.let { setMimeType(it) }
+        }.build()
+        val ds = DefaultDataSource.Factory(c.applicationContext, http)
+        return if (item.localConfiguration?.mimeType == MimeTypes.APPLICATION_M3U8)
+            // HLS: segmenty TS czytane z tymi samymi, tolerancyjnymi ustawieniami co strumienie TS; szybki start bez pobierania segmentu
+            androidx.media3.exoplayer.hls.HlsMediaSource.Factory(ds)
+                .setExtractorFactory(androidx.media3.exoplayer.hls.DefaultHlsExtractorFactory(TS_FLAGS, true))
+                .setAllowChunklessPreparation(true).createMediaSource(item)
+        else DefaultMediaSourceFactory(ds, extractors).createMediaSource(item)
     }
 
     val active get() = player != null && url != null
@@ -376,6 +434,21 @@ object Playback {
 
     /** Odtwarza [streamUrl]; ten sam adres nie jest uruchamiany ponownie. Zwraca true, gdy rozpoczęto nowe odtwarzanie. */
     fun play(c: Context, ch: Channel, streamUrl: String, force: Boolean = false, mime: String? = null): Boolean {
+        // inny kanał niż dobierany w tle – dobór przerwany (odtwarzacz testowy zwolniony)
+        ChannelEngineOptimizer.cancelUnless(streamUrl)
+        // zapamiętany profil silnika kanału (Room, odczyt z pamięci); rodzaj strumienia tylko dla adresu, dla którego go dobrano
+        val want = ChannelEngines.get(ch.key)?.let { e -> e.profile?.let { if (e.streamUrl == streamUrl) it else it.copy(container = 0) } }
+        if (want != profile) {
+            // inne ustawienia silnika – nowy odtwarzacz (stary całkowicie zwolniony), obraz na tym samym widoku
+            val view = target
+            profile = want
+            if (player != null) {
+                releasePlayer(); url = null
+                val np = create(c)
+                view?.let { it.player = np; target = it }
+                onPlayerChanged?.invoke(np)
+            }
+        }
         val p = get(c)
         main.removeCallbacks(retry)
         lastCtx = c.applicationContext; lastChannel = ch
@@ -387,28 +460,10 @@ object Playback {
         // (np. wadliwy strumień), i zawsze na słabszych urządzeniach – inaczej następny kanał potrafi zaciąć obraz
         val clean = hadError || p.playerError != null || !reachedReady || (pl.iptv.tv.data.Prefs.lowPerf && pl.iptv.tv.data.Prefs.lowCleanDecoder)
         if (clean) { p.stop(); p.clearMediaItems() }
-        val headers = HashMap<String, String>()
-        if (ch.referrer.isNotBlank()) headers["Referer"] = ch.referrer
         // osobna grupa połączeń dla nowego strumienia; poprzednia zamykana po podmianie źródła (niżej)
         val previousCalls = calls
         val streamCalls = StreamCalls(streamHttp); calls = streamCalls
-        val http = OkHttpDataSource.Factory(streamCalls)
-            .setUserAgent(ch.userAgent.ifBlank { Repository.userAgent }).setDefaultRequestProperties(headers)
-        val item = MediaItem.Builder().setUri(streamUrl)
-            // stała prędkość 1.0 – bez przyspieszania/zwalniania obrazu tuż po starcie kanału na żywo
-            .setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setMinPlaybackSpeed(1f).setMaxPlaybackSpeed(1f)
-                // niskie opóźnienie: bliżej krawędzi transmisji na żywo (gdy strumień na to pozwala)
-                .apply { if (pl.iptv.tv.data.Prefs.lowLatency) setTargetOffsetMs(4_000) }.build()).apply {
-            (mime ?: guessMime(streamUrl) ?: if (streamUrl in hlsUrls) MimeTypes.APPLICATION_M3U8 else null)?.let { setMimeType(it) }
-        }.build()
-        val ds = DefaultDataSource.Factory(c.applicationContext, http)
-        val source = if (item.localConfiguration?.mimeType == MimeTypes.APPLICATION_M3U8)
-            // HLS: segmenty TS czytane z tymi samymi, tolerancyjnymi ustawieniami co strumienie TS; szybki start bez pobierania segmentu
-            androidx.media3.exoplayer.hls.HlsMediaSource.Factory(ds)
-                .setExtractorFactory(androidx.media3.exoplayer.hls.DefaultHlsExtractorFactory(TS_FLAGS, true))
-                .setAllowChunklessPreparation(true).createMediaSource(item)
-        else DefaultMediaSourceFactory(ds, extractors).createMediaSource(item)
-        p.setMediaSource(source)
+        p.setMediaSource(mediaSource(c, ch, streamUrl, mimeFor(streamUrl, mime, profile), streamCalls))
         p.playWhenReady = true
         p.prepare()
         // po podmianie źródła: stare połączenia przerwane od razu (stare źródło jest już zwolnione, więc przerwanie
@@ -420,7 +475,53 @@ object Playback {
         retries = 0; stuck = 0; bufferingSince = 0; hadError = false; reachedReady = false
         // po błędzie: świeża powierzchnia obrazu (to samo, co wcześniej dawało dopiero otwarcie menu)
         if (clean) main.post { target?.let { v -> if (v.player === p) { v.player = null; v.player = p } } }
+        // kanał na żywo: kontrola startu (pierwsze klatki w [START_CHECK_MS]) – inaczej dobór silnika w tle
+        startedAt = android.os.SystemClock.uptimeMillis(); lastBuffered = -1
+        main.removeCallbacks(startCheck)
+        if (streamUrl == ch.url) main.postDelayed(startCheck, START_CHECK_MS)
         return true
+    }
+
+    /** Pierwsze klatki kanału na żywo powinny pojawić się w tym czasie; potem – dobór silnika ([ChannelEngineOptimizer]). */
+    const val START_CHECK_MS = 5_000L
+    /**
+     * Strumień jeszcze się wczytuje (wolne łącze, zapas rośnie): kontrola przesuwana, najwyżej do tego czasu od startu –
+     * wolny, ale działający kanał nie jest przerywany testami.
+     */
+    const val START_GIVE_UP_MS = 15_000L
+    private var startedAt = 0L
+
+    private val startCheck = object : Runnable {
+        override fun run() {
+            val p = player ?: return
+            val ch = lastChannel ?: return; val u = url ?: return; val c = lastCtx ?: return
+            if (reachedReady || !p.playWhenReady || p.playerError != null || u != ch.url) return
+            val elapsed = android.os.SystemClock.uptimeMillis() - startedAt
+            // dane płyną (zapas rośnie, ale za mały do startu) – to łącze, nie silnik: jeszcze chwila
+            if (p.totalBufferedDuration < START_BUFFER_MS && p.totalBufferedDuration > lastBuffered && elapsed < START_GIVE_UP_MS) {
+                lastBuffered = p.totalBufferedDuration; main.postDelayed(this, 2_000); return
+            }
+            lastBuffered = -1
+            android.util.Log.w(TAG, "kanał nie ruszył w ${elapsed / 1000} s • ${diagnostics()}")
+            ChannelEngineOptimizer.onStartFailed(c, ch, u, "brak obrazu po ${elapsed / 1000} s")
+        }
+    }
+    private var lastBuffered = -1L
+
+    /**
+     * Dobór silnika: zatrzymanie odtwarzania kanału na czas testów (dekodery i połączenia zwolnione – testowy odtwarzacz nie
+     * konkuruje o dekoder ani o połączenie u dostawcy). Kanał, adres i obraz zostają.
+     */
+    fun holdForProbe() {
+        main.removeCallbacks(retry); main.removeCallbacks(startCheck)
+        player?.stop(); calls?.cancelActive()
+        bufferingSince = 0; stuck = 0
+    }
+
+    /** Wynik doboru (albo jego brak): kanał od nowa – z zapisanym profilem, a bez niego z ustawieniami użytkownika. */
+    fun restartAfterProbe(c: Context, ch: Channel, streamUrl: String) {
+        if (url != streamUrl) return                          // w międzyczasie inny kanał
+        play(c, ch, streamUrl, force = true, mime = lastMime)
     }
 
     /** Przenosi obraz do [view] (bez przerywania odtwarzania). */
@@ -502,7 +603,10 @@ object Playback {
 
     /** Całkowite zatrzymanie: odtwarzacz, dekodery, wątki ładowania i połączenia zwolnione (zmiana silnika, wyjście). */
     fun stop() {
+        ChannelEngineOptimizer.cancel()
+        main.removeCallbacks(startCheck)
         releasePlayer()
+        profile = null
         hadError = false; retries = 0; recoveries = 0; recoveryWindow = 0
         sessionSoftware = false          // ręczna zmiana silnika / wyjście – znowu ustawienia użytkownika
         url = null; channelKey = null; target = null; lastMime = null

@@ -49,6 +49,8 @@ object Prefs {
     var decoderFallback: Boolean get() = bool("dec_fallback", true); set(v) = putBool("dec_fallback", v)
     /** Zamrożony obraz na dekoderze sprzętowym (dźwięk gra) – automatycznie dekoder programowy do końca sesji. */
     var freezeFallback: Boolean get() = bool("freeze_fallback", true); set(v) = putBool("freeze_fallback", v)
+    /** Dobór silnika dla kanałów, które nie ruszają (ChannelEngineOptimizer) – testy w tle, wynik zapamiętany w bazie. */
+    var engineOptimizer: Boolean get() = bool("engine_optimizer", true); set(v) = putBool("engine_optimizer", v)
     /** Akceleracja sprzętowa obrazu: wyłączona = dekoder programowy (zgodność), niezależnie od silnika. */
     var hwAccel: Boolean get() = bool("hw_accel", true); set(v) = putBool("hw_accel", v)
     /** Przytrzymanie OK w odtwarzaczu: 0 = od razu menu odtwarzania (silnik, akceleracja), 1 = szybkie menu ikon z kafelkiem „Silnik i akceleracja” (domyślnie). */
@@ -100,6 +102,8 @@ object Prefs {
     var stubeLayout: Int get() = int("stube_layout", 0); set(v) = putInt("stube_layout", v)
     /** Odtwarzacz STube: prędkość (procent, 100 = 1.0×) – zapamiętana jak w SmartTube. */
     var ytSpeedPct: Int get() = int("yt_speed", 100); set(v) = putInt("yt_speed", v)
+    /** STube: autoodtwarzanie – po końcu filmu (bez kolejki) następna propozycja YouTube, także w tle. */
+    var ytAutoplay: Boolean get() = bool("yt_autoplay", true); set(v) = putBool("yt_autoplay", v)
     /** Korektor dźwięku: preset ([pl.iptv.tv.ui.YtEq]) i poziomy pasm presetu „Własny” (millibele, po przecinku). */
     var ytEqPreset: Int get() = int("yt_eq", 0); set(v) = putInt("yt_eq", v)
     var ytEqCustom: List<Int> get() = str("yt_eq_custom").split(',').mapNotNull { it.trim().toIntOrNull() }
@@ -164,6 +168,11 @@ object Prefs {
     var ps5PrevTheme: String get() = str("ps5_prev"); set(v) = put("ps5_prev", v)
     /** Aplikacje z urządzenia dodane do rzędu ekranu głównego PS5 (ComponentName.flattenToString). */
     var ps5Apps: List<String> get() = list("ps5_apps"); set(v) = putList("ps5_apps", v)
+    // ---- motyw Nowoczesny (7.0) ----
+    /** Ekran główny Nowoczesny (pasek ikon, hero, rzędy) jako ekran startowy (gdy włączony motyw Nowoczesny). */
+    var modernHome: Boolean get() = bool("modern_home", true); set(v) = putBool("modern_home", v)
+    /** Menu i listy wyboru jako półprzezroczysty panel nakładkowy z prawej strony. */
+    var modernOverlay: Boolean get() = bool("modern_overlay", true); set(v) = putBool("modern_overlay", v)
 
     // ---- funkcje (można wyłączać) ----
     var showFavGroup: Boolean get() = bool("f_fav", true); set(v) = putBool("f_fav", v)

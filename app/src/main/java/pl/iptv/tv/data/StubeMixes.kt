@@ -13,7 +13,31 @@ import kotlin.math.exp
 object StubeMixes {
     data class Mix(val id: String, val title: String, val subtitle: String, val queries: List<String>, val thumb: String = "",
                    /** Lista bez sieci – filmy z historii. */
-                   val local: List<YtVideo> = emptyList())
+                   val local: List<YtVideo> = emptyList(),
+                   /**
+                    * Filmy-zalążki rekomendacji społecznościowych: propozycje YouTube po każdym z nich (kolejność z zachowań innych
+                    * widzów); kilka zalążków – wyżej filmy polecane po wielu z nich naraz ([rankCrowd]).
+                    */
+                   val seeds: List<String> = emptyList())
+
+    /** Gatunek: nazwa, słowa w tytule / nazwie kanału i zapytania miksu. */
+    data class Genre(val id: String, val name: String, val pattern: Regex, val queries: List<String>)
+
+    val GENRES = listOf(
+        Genre("rock", "Rock", Regex("(?i)\\brock\\b|grunge|punk|\\bindie\\b|alternative|alternatyw"), listOf("rock mix", "best rock songs")),
+        Genre("metal", "Metal", Regex("(?i)metal|metallica|slayer|sabaton|\\bdeath\\b|thrash"), listOf("metal mix", "heavy metal playlist")),
+        Genre("hiphop", "Hip-hop i rap", Regex("(?i)hip ?hop|\\brap\\b|raper|trap\\b|drill\\b|freestyle|\\bdrake\\b|eminem|quebonafide|taco hemingway|mata\\b"), listOf("hip hop mix", "polski rap mix")),
+        Genre("pop", "Pop", Regex("(?i)\\bpop\\b|taylor swift|dua lipa|ed sheeran|the weeknd|billie eilish|ariana|sanah|podsiadło"), listOf("pop hits mix", "polski pop mix")),
+        Genre("electronic", "Elektronika", Regex("(?i)\\bedm\\b|house|techno|trance|dubstep|drum ?(and|&|n) ?bass|\\bdnb\\b|electro|synthwave|avicii|tiesto|\\bdj\\b"), listOf("electronic music mix", "house music mix")),
+        Genre("discopolo", "Disco polo", Regex("(?i)disco ?polo|\\bdisco\\b|zenek|martyniuk|akcent|weekend\\b|boys\\b"), listOf("disco polo mix", "disco polo hity")),
+        Genre("jazz", "Jazz i blues", Regex("(?i)jazz|blues|\\bswing\\b|bossa"), listOf("jazz mix", "smooth jazz playlist")),
+        Genre("classical", "Klasyczna", Regex("(?i)classical|klasyczn|symphony|symfoni|chopin|mozart|beethoven|bach\\b|vivaldi|piano sonata|koncert fortepian"), listOf("classical music mix", "muzyka klasyczna")),
+        Genre("chill", "Chill i lo-fi", Regex("(?i)lo-?fi|chill|relax|relaks|ambient|sleep|study|deep focus"), listOf("lofi chill mix", "relaxing music")),
+        Genre("reggae", "Reggae", Regex("(?i)reggae|dancehall|ska\\b|bob marley"), listOf("reggae mix", "best reggae songs")),
+        Genre("kpop", "K-pop", Regex("(?i)k-?pop|bts\\b|blackpink|twice\\b|stray kids|newjeans"), listOf("kpop mix", "kpop hits")),
+        Genre("latin", "Latino", Regex("(?i)latin|reggaeton|bachata|salsa|bad bunny|shakira"), listOf("latin hits mix", "reggaeton mix")),
+        Genre("country", "Country i folk", Regex("(?i)country|\\bfolk\\b|bluegrass|ludow"), listOf("country music mix", "folk music playlist")),
+    )
 
     const val MIN_HISTORY = 3
     const val PER_QUERY = 12
@@ -73,10 +97,66 @@ object StubeMixes {
             out += Mix("ch:" + ch.lowercase().hashCode().toUInt().toString(16), "Miks: $ch", "Więcej od tego twórcy i podobnych",
                 listOf(ch, if (music) "$ch mix" else "$ch najnowsze"), h.firstOrNull { it.channel.trim() == ch }?.thumb.orEmpty())
         }
+        // miksy gatunkowe (do dwóch najmocniejszych gatunków w historii)
+        genreScores(h, now).filter { it.value >= GENRE_MIN }.entries.sortedByDescending { it.value }.take(2).forEach { (g, _) ->
+            out += Mix("g:" + g.id, "Miks: ${g.name}", "Gatunek z Twojej historii", g.queries,
+                h.filter { g.pattern.containsMatchIn(it.title + " " + it.channel) }.maxByOrNull { weight(it, now) }?.thumb.orEmpty())
+        }
+        // „Dalej po…”: co oglądano / słuchano po ostatnim filmie – u Ciebie (przejścia w historii) i u innych widzów (propozycje YouTube)
+        val latest = h.maxByOrNull { it.updatedAt }!!
+        val tr = transitions(h)
+        val after = followers(tr, latest.videoId).mapNotNull { id -> h.firstOrNull { it.videoId == id }?.toVideo() }
+        out += Mix("next:" + latest.videoId, "Dalej po: " + latest.title.take(48), "Co słuchają dalej osoby o podobnym guście",
+            emptyList(), latest.thumb, local = after, seeds = listOf(latest.videoId))
+        // rekomendacje społecznościowe: filmy polecane po kilku Twoich ulubionych naraz (wspólne gusta)
+        val favs = byWeight.map { it.videoId }.distinct().take(CROWD_SEEDS)
+        if (favs.size >= 2) out += Mix("crowd", "Słuchacze podobni do Ciebie wybierają", "Wspólne propozycje po Twoich ulubionych",
+            emptyList(), byWeight.getOrNull(1)?.thumb ?: byWeight.first().thumb, seeds = favs)
         out += Mix("again", "Wróć do ulubionych", "Najczęściej oglądane", emptyList(), byWeight.first().thumb,
             local = byWeight.take(MAX_VIDEOS).map { it.toVideo() })
         return out
     }
+
+    const val GENRE_MIN = 2.5
+    const val CROWD_SEEDS = 3
+    /** Dwa filmy obejrzane w odstępie nie większym niż ta przerwa – jedno posiedzenie (przejście „po tym – tamto”). */
+    const val SESSION_GAP_MS = 45 * 60_000L
+
+    /** Gatunki w historii: suma wag pozycji, których tytuł / kanał pasuje do gatunku. Czysta funkcja – testy. */
+    fun genreScores(h: List<WatchProgress>, now: Long = System.currentTimeMillis()): Map<Genre, Double> {
+        val out = HashMap<Genre, Double>()
+        h.forEach { p -> val t = p.title + " " + p.channel; GENRES.filter { it.pattern.containsMatchIn(t) }.forEach { g -> out.merge(g, weight(p, now), Double::plus) } }
+        return out
+    }
+
+    /**
+     * Przejścia między filmami w historii (Room zapisuje czas ostatniego oglądania): kolejne pozycje w jednym posiedzeniu
+     * (przerwa ≤ [SESSION_GAP_MS]) → liczba przejść a → b. Czysta funkcja – testy.
+     */
+    fun transitions(h: List<WatchProgress>): Map<String, Map<String, Int>> {
+        val out = HashMap<String, HashMap<String, Int>>()
+        h.sortedBy { it.updatedAt }.zipWithNext().forEach { (a, b) ->
+            if (a.videoId != b.videoId && b.updatedAt - a.updatedAt <= SESSION_GAP_MS) out.getOrPut(a.videoId) { HashMap() }.merge(b.videoId, 1, Int::plus)
+        }
+        return out
+    }
+
+    /** Filmy oglądane po [id] – od najczęstszego. */
+    fun followers(tr: Map<String, Map<String, Int>>, id: String): List<String> = tr[id].orEmpty().entries.sortedByDescending { it.value }.map { it.key }
+
+    /**
+     * Ranking społecznościowy: filmy z kilku list propozycji – najpierw polecane po większej liczbie zalążków, w razie remisu
+     * wyżej na listach (suma pozycji). Czysta funkcja – testy.
+     */
+    fun rankCrowd(lists: List<List<YtVideo>>): List<YtVideo> {
+        val count = HashMap<String, Int>(); val pos = HashMap<String, Int>(); val first = LinkedHashMap<String, YtVideo>()
+        lists.forEach { l -> l.forEachIndexed { i, v -> count.merge(v.id, 1, Int::plus); pos.merge(v.id, i, Int::plus); first.putIfAbsent(v.id, v) } }
+        return first.values.sortedWith(compareByDescending<YtVideo> { count[it.id] ?: 0 }.thenBy { (pos[it.id] ?: 0) / (count[it.id] ?: 1) })
+    }
+
+    /** Czy film to muzyka (tytuł z oznaczeniami muzycznymi, kanał wykonawcy „– Topic” / VEVO). */
+    fun isMusicVideo(title: String, channel: String = ""): Boolean =
+        MUSIC.containsMatchIn(title) || channel.endsWith(" - Topic") || channel.contains("VEVO", true) || GENRES.any { it.pattern.containsMatchIn(title) && it.id != "chill" }
 
     /**
      * Słowa „klimatu”: najmocniejsze słowo i najczęstsze słowo, które występuje RAZEM z nim w tych samych tytułach
@@ -98,6 +178,12 @@ object StubeMixes {
     /** Filmy miksu: wyniki zapytań przeplatane, bez powtórzeń i bez filmów już obejrzanych. */
     suspend fun videos(m: Mix, watchedIds: Set<String>? = null): List<YtVideo> {
         val watched = watchedIds ?: StubeHistory.watched(500).map { it.videoId }.toSet()
+        if (m.seeds.isNotEmpty()) {
+            val lists = m.seeds.map { s -> runCatching { YtKeyless.related(s) }.getOrDefault(emptyList()).filter { it.id !in m.seeds } }
+            // jeden zalążek: najpierw Twoje przejścia (z historii), potem propozycje innych widzów; kilka – ranking wspólnych
+            val crowd = if (lists.size > 1) rankCrowd(lists) else lists.firstOrNull().orEmpty()
+            return (m.local + crowd.filter { it.id !in watched && it.duration != "P0D" }).distinctBy { it.id }.take(MAX_VIDEOS)
+        }
         if (m.queries.isEmpty()) return m.local
         val lists = m.queries.map { q ->
             runCatching {

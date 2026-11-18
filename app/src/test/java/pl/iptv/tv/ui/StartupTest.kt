@@ -30,6 +30,7 @@ class StartupTest {
         f.writeText((1..5).joinToString("", "#EXTM3U\n") { "#EXTINF:-1 group-title=\"G\",K$it\nhttp://t/$it\n" })
         Repository.resetAllEdits()
         Prefs.batteryAsked = true; Prefs.permissionsAsked = true
+        Prefs.modernHome = false; X25Theme.justEnabled = false            // lista kanałów bez ekranu głównego motywu Nowoczesny
         runBlocking { Repository.loadPlaylist(f.absolutePath) }
     }
 
@@ -97,6 +98,7 @@ class LauncherAndBatteryTest {
         f.writeText("#EXTM3U\n#EXTINF:-1,K1\nhttp://t/1\n")
         runBlocking { Repository.loadPlaylist(f.absolutePath) }
         Prefs.lastChannel = "http://t/1"
+        Prefs.modernHome = false; X25Theme.justEnabled = false            // lista kanałów bez ekranu głównego motywu Nowoczesny
     }
 
     @Test fun firstRunPermissionWizardThenStartAction() {
@@ -144,6 +146,7 @@ class LauncherAndBatteryTest {
 
     @Test fun launcherModeToggleAndHomeForwarding() {
         Prefs.batteryAsked = true; Prefs.permissionsAsked = true
+        Prefs.modernHome = false; X25Theme.justEnabled = false            // lista kanałów bez ekranu głównego motywu Nowoczesny
         assertFalse(SystemTools.isLauncherEnabled(ctx))
         SystemTools.setLauncherEnabled(ctx, true)
         assertTrue(SystemTools.isLauncherEnabled(ctx))
@@ -155,7 +158,7 @@ class LauncherAndBatteryTest {
         val h2 = Robolectric.buildActivity(pl.iptv.tv.HomeActivity::class.java).setup()
         // kolejny HOME: aplikacja jako ekran główny – od razu pulpit (6.5); inaczej lista kanałów bez akcji startowej
         val next = shadowOf(h2.get()).nextStartedActivity
-        if (X25Theme.launcherHome) assertEquals(Ps5HomeActivity::class.java.name, next.component!!.className)
+        if (X25Theme.launcherHome) assertEquals(ModernHomeActivity::class.java.name, next.component!!.className)   // motyw Nowoczesny – jego ekran główny
         else assertTrue(next.getBooleanExtra(MainActivity.EXTRA_SKIP_START, false))
         val m = Robolectric.buildActivity(MainActivity::class.java,
             Intent(ctx, MainActivity::class.java).putExtra(MainActivity.EXTRA_SKIP_START, true)).setup(); idle()

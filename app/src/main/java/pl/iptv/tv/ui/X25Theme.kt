@@ -42,7 +42,7 @@ object X25Theme {
      * Ekran startowy w stylu konsoli: pulpit X25 albo ekran główny PS5 ([Ps5Theme.homeOn]; w trybie launchera także przy
      * pozostałych motywach). Lista kanałów, WSTECZ z ekranów głównych i HOME otwierają wtedy ten ekran ([openDashboard]).
      */
-    val dashboardOn: Boolean get() = ownDashboard || Ps5Theme.homeOn
+    val dashboardOn: Boolean get() = ownDashboard || ModernTheme.homeOn || Ps5Theme.homeOn
 
     /**
      * Tryb launchera: aplikacja jest domyślnym ekranem głównym urządzenia. Wtedy HOME zawsze otwiera pulpit (pełnoprawny
@@ -71,9 +71,10 @@ object X25Theme {
     /** Otwiera pulpit motywu (X25 albo ekran główny PS5; istniejący wraca na wierzch – bez budowania od nowa). */
     fun openDashboard(a: Activity) { a.startActivity(dashboardIntent(a)) }
 
-    /** Ekran pulpitu: X25 przy motywie X25, w pozostałych przypadkach ekran główny PS5. */
+    /** Ekran pulpitu: X25 przy motywie X25, ekran główny Nowoczesny przy motywie Nowoczesny, w pozostałych przypadkach PS5. */
     fun dashboardIntent(c: Context): android.content.Intent =
-        android.content.Intent(c, if (active) X25DashboardActivity::class.java else Ps5HomeActivity::class.java)
+        android.content.Intent(c, when { active -> X25DashboardActivity::class.java; ModernTheme.homeOn -> ModernHomeActivity::class.java
+            else -> Ps5HomeActivity::class.java })
             .addFlags(android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
 
     // ---------------- okna: panel boczny „Guide” ----------------

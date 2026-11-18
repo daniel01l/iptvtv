@@ -41,7 +41,7 @@ class UiFlowTest {
         val f = File(ctx.filesDir, "pl.m3u"); f.writeText(m3u)
         Prefs.recent = emptyList(); Prefs.favorites = emptyList()
         Repository.resetAllEdits()
-        Prefs.batteryAsked = true; Prefs.permissionsAsked = true
+        Prefs.batteryAsked = true; Prefs.permissionsAsked = true; Prefs.modernHome = false
         runBlocking { Repository.loadPlaylist(f.absolutePath) }
     }
 

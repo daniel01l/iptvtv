@@ -158,8 +158,9 @@ class YtPlayerExtrasTest {
         fun collect(v: View) { if (v is TextView && v.isFocusable) texts += v; if (v is ViewGroup) (0 until v.childCount).forEach { collect(v.getChildAt(it)) } }
         collect(a.window.decorView)
         val labels = texts.map { it.text.toString() }
-        assertTrue(labels.toString(), labels.contains("⏩ 2.0×") && labels.contains("🎚 Film / Dialogi") && labels.contains("☰ Rozdziały"))
-        assertEquals(View.VISIBLE, texts.first { it.text == "☰ Rozdziały" }.visibility)
+        // 7.0: podpisy bez emoji – ikony rysowane ([PlayerIcon])
+        assertTrue(labels.toString(), labels.contains("2.0×") && labels.contains("Film / Dialogi") && labels.contains("Rozdziały"))
+        assertEquals(View.VISIBLE, texts.first { it.text == "Rozdziały" }.visibility)
     }
 
     @Test fun equalizerPanelWithDpad() {

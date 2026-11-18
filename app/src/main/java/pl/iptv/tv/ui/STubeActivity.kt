@@ -271,7 +271,7 @@ class STubeActivity : BaseActivity() {
         box.addView(TextView(this).apply { text = r.title; tag = "accent"; textSize = 18f * Ui.geo.headerScale; setTypeface(typeface, 1); setPadding(Ui.dp(4), 0, 0, Ui.dp(2)) })
         val status = TextView(this).apply { tag = "text2"; textSize = 14f; setPadding(Ui.dp(4), Ui.dp(4), 0, Ui.dp(4)); text = "Wczytywanie…"; setTag(R.id.row_key, "status") }
         box.addView(status)
-        val rv = RecyclerView(this).apply {
+        val rv = HRowRecycler(this).apply {
             layoutManager = LinearLayoutManager(this@STubeActivity, LinearLayoutManager.HORIZONTAL, false)
             adapter = r.adapter; itemAnimator = null; setHasFixedSize(false)
             isFocusable = false; descendantFocusability = android.view.ViewGroup.FOCUS_AFTER_DESCENDANTS

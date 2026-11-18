@@ -267,6 +267,9 @@ class StremioTest {
         assertTrue(paths.any { it.startsWith("/a/stream/series/tt2%3A1%3A1") || it.startsWith("/a/stream/series/tt2:1:1") })
         assertFalse(paths.any { it.startsWith("/b/stream") })      // wyłączona wtyczka nie jest pytana
         assertEquals(6, a.sourceAdapter.sourceItems.size)
+        // 7.0: źródła w zwijanych grupach rozdzielczości – rozwinięta najwyższa (4K: 1), 1080p zwinięta
+        assertEquals(listOf("4K", "1080p"), a.sourceAdapter.items.filterIsInstance<SourceItem.Quality>().map { it.q })
+        assertEquals(1, a.sourceAdapter.items.count { it is SourceItem.Source })
         // odcinek 2 – nowe źródła
         a.selectEpisode(a.meta!!.episodes(1)[1])
         waitFor { a.videoId == "tt2:1:2" && a.groups.none { it.loading } }
@@ -295,7 +298,8 @@ class StremioTest {
         // następny odcinek: ta sama wtyczka, ta sama grupa (1080p)
         waitFor { paths.any { it.startsWith("/m/meta/series/tt2") } }
         idle(500)
-        p.playNext()
+        // 7.0: przycisk „następny” pilota (bez menu) – od razu następny odcinek
+        p.dispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_MEDIA_NEXT))
         waitFor { p.videoId == "tt2:1:2" }
         assertEquals("tt2:1:2", p.videoId); assertEquals("a|1080p", p.stream.bingeGroup)
         c.pause().stop().destroy(); Unit

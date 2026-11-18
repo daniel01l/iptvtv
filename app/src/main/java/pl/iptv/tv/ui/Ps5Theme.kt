@@ -43,9 +43,10 @@ object Ps5Theme {
     val active: Boolean get() = runCatching { Ui.surface == Ui.S_PS5 }.getOrDefault(false)
     /**
      * Ekran główny PS5 jako ekran startowy (nad listą kanałów). W trybie launchera ([X25Theme.launcherHome]) – zawsze,
-     * także przy motywach bez własnego pulpitu (Nowoczesny, Klasyczny, Xbox – w ich kolorach); przy X25 – pulpit X25.
+     * także przy motywach bez własnego pulpitu (Klasyczny, Xbox – w ich kolorach); przy X25 – pulpit X25, przy Nowoczesnym
+     * z włączonym ekranem głównym – jego ekran ([ModernTheme.homeOn]).
      */
-    val homeOn: Boolean get() = !X25Theme.active && ((active && Prefs.ps5Home) || X25Theme.launcherHome)
+    val homeOn: Boolean get() = !X25Theme.active && !ModernTheme.homeOn && ((active && Prefs.ps5Home) || X25Theme.launcherHome)
 
     /** Włącza / wyłącza motyw; wyłączenie wraca do motywu sprzed włączenia (np. X25). */
     fun setEnabled(on: Boolean) {

@@ -238,7 +238,11 @@ object YtEngine {
             when {
                 next?.isVideo == true -> load(app, next.toVideo(), force = true)
                 next != null -> { if (listeners.reversed().none { it.onQueueChannel(next) }) stop() }
-                listeners.reversed().none { it.onEnded() } -> stop()
+                listeners.reversed().any { it.onEnded() } -> {}
+                // bez ekranu (gra w tle): autoodtwarzanie – następna propozycja YouTube (jak w aplikacji YouTube)
+                Prefs.ytAutoplay && playable?.related?.firstOrNull { it.id != cur && it.duration != "P0D" } != null ->
+                    load(app, playable!!.related.first { it.id != cur && it.duration != "P0D" }, force = true)
+                else -> stop()
             }
         }
     }

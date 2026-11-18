@@ -30,6 +30,11 @@
         <item name="android:windowEnterAnimation">@anim/x25_guide_in</item>
         <item name="android:windowExitAnimation">@anim/x25_guide_out</item>
     </style>
+    <!-- Nowoczesny: okna-menu jako panel nakładkowy wysuwany z prawej -->
+    <style name="ModernOverlayAnim">
+        <item name="android:windowEnterAnimation">@anim/modern_overlay_in</item>
+        <item name="android:windowExitAnimation">@anim/modern_overlay_out</item>
+    </style>
     <style name="Btn" parent="Widget.AppCompat.Button">
         <item name="android:background">@drawable/item_bg</item>
         <item name="android:textColor">@color/text</item>

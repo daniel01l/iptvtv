@@ -292,11 +292,11 @@ class Ps5Test {
     @Test fun launcherHomeOpensConsoleDashboardForEveryTheme() {
         X25Theme.launcherForTest = true; X25Theme.refreshLauncher(ctx)
         // motyw bez własnego pulpitu – ekran główny PS5 (w kolorach motywu), nawet przy wyłączonym „ekranie startowym”
-        Ui.applyPreset("modern"); Ui.changed(); Prefs.ps5Home = false
+        Ui.applyPreset("classic"); Ui.changed(); Prefs.ps5Home = false
         assertTrue(X25Theme.dashboardOn); assertTrue(Ps5Theme.homeOn)
         assertEquals(Ps5HomeActivity::class.java.name, X25Theme.dashboardIntent(ctx).component?.className)
         val home = Robolectric.buildActivity(Ps5HomeActivity::class.java).setup().get(); idle()
-        assertFalse("ekran główny zostaje przy motywie Nowoczesny", home.isFinishing)
+        assertFalse("ekran główny zostaje przy motywie Klasyczny", home.isFinishing)
         // WSTECZ na ekranie głównym launchera nie zamyka go
         home.onBackPressedDispatcher.onBackPressed(); idle()
         assertFalse(home.isFinishing)

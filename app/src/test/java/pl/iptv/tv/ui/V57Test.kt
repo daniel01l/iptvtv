@@ -65,9 +65,13 @@ class V57Test {
         // własny kolor tła (gradient) ma pierwszeństwo przed fakturą
         Ui.setGradient("bg", 0xFF000000.toInt(), 0xFF202020.toInt())
         assertTrue(Ui.bgDrawable() is android.graphics.drawable.GradientDrawable)
-        Ui.applyPreset("modern"); Ui.changed()
+        // motyw bez faktury – zwykłe tła (Nowoczesny od 7.0 ma własną fakturę S_MODERN)
+        Ui.applyPreset("classic"); Ui.changed()
         assertEquals(Ui.S_FLAT, Ui.surface)
         assertTrue(Ui.panelBg() is android.graphics.drawable.GradientDrawable)
+        Ui.applyPreset("modern"); Ui.changed()
+        assertEquals(Ui.S_MODERN, Ui.surface)
+        assertTrue(Ui.panelBg() is TexturedDrawable)
         // ekrany z nowymi motywami otwierają się bez błędów
         for (id in listOf(Ps5Theme.ID, "xbox")) {
             Ui.applyPreset(id); Ui.changed()
@@ -88,7 +92,9 @@ class V57Test {
         Ui.applyPreset("modern"); Ui.changed()
         val c = Ui.itemBg() as android.graphics.drawable.StateListDrawable
         c.state = intArrayOf(android.R.attr.state_focused)
-        assertEquals(Ui.focus, (c.current as android.graphics.drawable.GradientDrawable).color!!.defaultColor)
+        // Nowoczesny: warstwy (poświata + wypełnienie) – wypełnienie w ostatniej
+        val cur = c.current.let { (it as? android.graphics.drawable.LayerDrawable)?.let { l -> l.getDrawable(l.numberOfLayers - 1) } ?: it }
+        assertEquals(Ui.focus, (cur as android.graphics.drawable.GradientDrawable).color!!.defaultColor)
         Ui.applyPreset("modern"); Ui.changed()
     }
 

@@ -34,10 +34,19 @@ class V52Test {
         assertEquals(androidx.media3.common.Player.STATE_IDLE, Playback.player!!.playbackState)
         // ten sam adres po błędzie uruchamia się od nowa (nie zostaje „martwy”)
         assertTrue(Playback.play(ctx, ch(2), ch(2).url))
-        // błąd dekodera – od razu (bez ponowień, które na słabym sprzęcie blokują dekoder)
+        // błąd dekodera – od razu (bez ponowień, które na słabym sprzęcie blokują dekoder); przy wyłączonym doborze silnika – komunikat
+        pl.iptv.tv.data.Prefs.engineOptimizer = false
         Playback.simulateError(PlaybackException.ERROR_CODE_DECODER_INIT_FAILED)
         assertEquals(2, fatal); assertFalse(Playback.retryPending)
+        // 7.0: z doborem silnika – zamiast komunikatu próby innych ustawień w tle (ChannelEngineOptimizer)
+        pl.iptv.tv.data.Prefs.engineOptimizer = true
+        ChannelEngineOptimizer.resetSession(); ChannelEngineOptimizer.probeOverride = { kotlinx.coroutines.delay(10_000); false }
+        assertTrue(Playback.play(ctx, ch(2), ch(2).url, force = true))
+        Playback.simulateError(PlaybackException.ERROR_CODE_DECODER_INIT_FAILED)
+        assertEquals(2, fatal); assertFalse(Playback.retryPending); assertTrue(ChannelEngineOptimizer.running)
+        ChannelEngineOptimizer.probeOverride = null
         Playback.onFatal = null; Playback.stop()
+        assertFalse(ChannelEngineOptimizer.running)
     }
 
     @Test fun fastZapStartsOnlyLastChannel() {

@@ -283,9 +283,20 @@ class StremioActivity : BaseActivity() {
     private class Row(val title: String, val adapter: StremioPosterAdapter, val view: View, val status: TextView)
     private val rows = mutableListOf<Row>()
 
+    /** Użytkownik poruszył się pilotem od ostatniej przebudowy tablicy – bez automatycznego przenoszenia fokusu. */
+    private var userMoved = false
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN && event.keyCode in DPAD_KEYS) userMoved = true
+        return super.dispatchKeyEvent(event)
+    }
+    private val DPAD_KEYS = setOf(KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
+        KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER)
+
     private fun build(q: String?) {
         jobs.forEach { it.cancel() }; jobs.clear()
         rowsBox.removeAllViews(); rows.clear(); rowTitles.clear()
+        userMoved = false
         var first = true
         jobs += lifecycleScope.launch {
             val continueRow = addRow("Kontynuuj oglądanie")
@@ -306,8 +317,11 @@ class StremioActivity : BaseActivity() {
                     val res = runCatching { StremioApi.catalog(a, c, q) }
                     res.onSuccess { list ->
                         if (list.isEmpty()) { removeRow(r); return@onSuccess }
-                        r.adapter.items += list.map { StremioTile(it) }; r.adapter.notifyDataSetChanged(); r.status.visibility = View.GONE
-                        if (first && window.decorView.findFocus().let { it == null || it === query || !rowsHaveFocus() }) { first = false; focusRow(r) }
+                        val start = r.adapter.items.size
+                        r.adapter.items += list.map { StremioTile(it) }; r.adapter.notifyItemRangeInserted(start, list.size); r.status.visibility = View.GONE
+                        // fokus na pierwszym rzędzie tylko, dopóki użytkownik niczego nie zaznaczył pilotem – wcześniej każdy
+                        // doładowany katalog mógł przenieść kursor (np. gdy fokus był na przycisku u góry albo chwilowo zniknął)
+                        if (first && !userMoved && window.decorView.findFocus().let { it == null || it === query }) { first = false; focusRow(r) }
                     }.onFailure { if (q != null) removeRow(r) else r.status.text = "Błąd: ${it.message}" }
                 }
             }
@@ -327,7 +341,7 @@ class StremioActivity : BaseActivity() {
         val status = StremioUi.text(this, "Wczytywanie…", 14f, "text2").apply { setPadding(Ui.dp(4), Ui.dp(4), 0, Ui.dp(4)) }
         box.addView(status)
         val adapter = StremioPosterAdapter()
-        val rv = RecyclerView(this).apply {
+        val rv = HRowRecycler(this).apply {
             layoutManager = LinearLayoutManager(this@StremioActivity, LinearLayoutManager.HORIZONTAL, false)
             this.adapter = adapter; itemAnimator = null
             setPadding(Ui.dp(6), Ui.dp(8), Ui.dp(40), Ui.dp(10)); clipToPadding = false
@@ -341,16 +355,31 @@ class StremioActivity : BaseActivity() {
         return r
     }
 
-    private fun removeRow(r: Row) { rowsBox.removeView(r.view); rows.remove(r); rowTitles.remove(r.title) }
+    /** Usunięcie pustego rzędu; zaznaczony rząd zostaje na swoim miejscu u góry (bez przesuwania widoku pod kursorem). */
+    private fun removeRow(r: Row) {
+        rowsBox.removeView(r.view); rows.remove(r); rowTitles.remove(r.title)
+        focusedRow()?.let { box -> scroll.post { scroll.scrollTo(0, (box.top - Ui.dp(4)).coerceAtLeast(0)) } }
+    }
+
+    private fun focusedRow(): View? {
+        var v: View? = window.decorView.findFocus()
+        while (v != null && v.parent !== rowsBox) v = v.parent as? View
+        return v
+    }
 
     private fun focusRow(r: Row) { (r.view as LinearLayout).getChildAt(2).let { it as RecyclerView }.focusPosition(0) }
 
     private suspend fun fillContinue(r: Row) {
         val list = StremioStore.progress().filter { !it.finished }
         if (list.isEmpty()) { removeRow(r); return }
-        r.adapter.items.clear()
-        r.adapter.items += list.map { p -> StremioTile(StremioMetaPreview(p.metaId, p.type, p.name, p.poster), p) }
+        val tiles = list.map { p -> StremioTile(StremioMetaPreview(p.metaId, p.type, p.name, p.poster), p) }
+        if (tiles == r.adapter.items) return                         // bez zmian – bez przebudowy (zaznaczenie zostaje)
+        // zaznaczony kafelek w tym rzędzie (powrót z odtwarzacza) – fokus wraca na tę samą pozycję po odświeżeniu
+        val rv = (r.view as LinearLayout).getChildAt(2) as RecyclerView
+        val had = rv.findFocus()?.let { f -> rv.findContainingViewHolder(f)?.bindingAdapterPosition }
+        r.adapter.items.clear(); r.adapter.items += tiles
         r.adapter.notifyDataSetChanged(); r.status.visibility = View.GONE
+        if (had != null && had >= 0) rv.focusPosition(had.coerceAtMost(tiles.size - 1))
     }
 
     private fun refreshContinue() {

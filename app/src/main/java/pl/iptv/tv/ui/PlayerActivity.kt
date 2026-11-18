@@ -246,7 +246,7 @@ class PlayerActivity : BaseActivity() {
         recentScheduled = false
         // odtwarzacz zostaje (kanał gra dalej w menu/ustawieniach); odłączamy tylko obraz i słuchacza
         Playback.removeListener(listener)
-        Playback.onFatal = null; Playback.onPlayerChanged = null; Playback.onDecoderFallback = null
+        Playback.onFatal = null; Playback.onPlayerChanged = null; Playback.onDecoderFallback = null; ChannelEngineOptimizer.onStatus = null
         Playback.detach(playerView)
         player = null
     }
@@ -532,6 +532,14 @@ class PlayerActivity : BaseActivity() {
         player = p
         Playback.onPlayerChanged = { np -> player = np; Playback.attach(playerView) }
         Playback.onDecoderFallback = { toast("Obraz zamarzał – przełączono na dekoder programowy (do zmiany silnika lub zamknięcia aplikacji)") }
+        // dobór silnika dla kanału, który nie ruszył – postęp na ekranie, wynik jako krótki komunikat
+        ChannelEngineOptimizer.onStatus = { s ->
+            when (s) {
+                is ChannelEngineOptimizer.Status.Testing -> { errorTv.text = "Dobieranie silnika dla kanału ${s.channel}…\nPróba ${s.step} z ${s.of}: ${s.label}"; errorTv.visibility = View.VISIBLE }
+                is ChannelEngineOptimizer.Status.Found -> { errorTv.visibility = View.GONE; toast("Dobrano silnik: ${s.label} – zapamiętany dla kanału") }
+                is ChannelEngineOptimizer.Status.Failed -> { errorTv.visibility = View.GONE; toast("Kanał ${s.channel} nie odpowiada na żadnym silniku – dalsze próby zwykłe") }
+            }
+        }
         playerView.setKeepContentOnPlayerReset(true)      // ostatnia klatka zamiast czarnego ekranu przy zmianie kanału
         Playback.attach(playerView)
         if (p.playbackState == Player.STATE_READY) { errorTv.visibility = View.GONE }

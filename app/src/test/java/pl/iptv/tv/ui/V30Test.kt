@@ -83,7 +83,8 @@ class V30Test {
         Ui.applyPreset("modern")
         val bg = Ui.itemBg() as android.graphics.drawable.StateListDrawable
         bg.state = intArrayOf(android.R.attr.state_focused)
-        val g = bg.current as android.graphics.drawable.GradientDrawable
+        // Nowoczesny (7.0): zaznaczenie z poświatą – warstwy, ramka w ostatniej
+        val g = bg.current.let { (it as? android.graphics.drawable.LayerDrawable)?.let { l -> l.getDrawable(l.numberOfLayers - 1) } ?: it } as android.graphics.drawable.GradientDrawable
         assertNotNull(g)
         val s = Robolectric.buildActivity(SettingsActivity::class.java).setup(); idle()
         val row = generateSequence<View>(s.get().window.decorView) { null }.let {

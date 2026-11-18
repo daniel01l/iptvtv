@@ -1,0 +1,228 @@
+package pl.iptv.tv.ui
+
+import android.os.Looper
+import android.view.Gravity
+import android.view.KeyEvent
+import android.view.ViewGroup
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlinx.coroutines.runBlocking
+import org.junit.After
+import org.junit.Assert.*
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.Robolectric
+import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.LooperMode
+import pl.iptv.tv.data.Prefs
+import pl.iptv.tv.data.StubeDatabase
+import pl.iptv.tv.data.StubeHistory
+import pl.iptv.tv.data.WatchProgress
+import pl.iptv.tv.data.X25Store
+import java.time.Duration
+
+/** Motyw Nowoczesny (7.0): preset, tło, zaznaczenie, panele nakładkowe, ekran główny w Compose (pasek ikon, hero, rzędy). */
+@RunWith(AndroidJUnit4::class)
+@Config(sdk = [34], qualifiers = "w960dp-h540dp-land-television-xhdpi")
+@LooperMode(LooperMode.Mode.PAUSED)
+class ModernTest {
+    private val ctx get() = ApplicationProvider.getApplicationContext<android.app.Application>()
+    private var frameView: android.view.View? = null
+    private val frameCanvas by lazy { android.graphics.Canvas(android.graphics.Bitmap.createBitmap(1920, 1080, android.graphics.Bitmap.Config.ARGB_8888)) }
+    private fun idle(ms: Long = 200) {
+        repeat(3) { shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ms / 3 + 1)); frameView?.let { v -> v.measure(android.view.View.MeasureSpec.makeMeasureSpec(1920, android.view.View.MeasureSpec.EXACTLY), android.view.View.MeasureSpec.makeMeasureSpec(1080, android.view.View.MeasureSpec.EXACTLY)); v.layout(0, 0, 1920, 1080); v.draw(frameCanvas) } }
+    }
+    private fun waitFor(cond: () -> Boolean) { repeat(60) { idle(100); Thread.sleep(5); if (cond()) return } }
+    private lateinit var db: StubeDatabase
+
+    @Before fun setup() {
+        db = Room.inMemoryDatabaseBuilder(ctx, StubeDatabase::class.java).allowMainThreadQueries().build()
+        StubeHistory.useDatabase(db); X25Store.clearCache()
+        Prefs.permissionsAsked = true; Prefs.setupDone = true
+        Prefs.modernHome = true; Prefs.modernOverlay = true
+        Ui.applyPreset("classic"); Ui.applyPreset(ModernTheme.ID); Ui.changed(); X25Theme.justEnabled = false
+    }
+
+    @After fun tearDown() {
+        frameView = null; X25Theme.launcherForTest = null; X25Theme.launcherHome = false
+        Prefs.modernHome = true; Prefs.modernOverlay = true; Prefs.lowPerf = false
+        Ui.applyPreset(ModernTheme.ID); Ui.changed(); X25Theme.justEnabled = false; StubeHistory.useDatabase(null); db.close()
+    }
+
+    // ---------------- motyw ----------------
+
+    @Test fun presetSurfaceFocusAndBackdrop() {
+        assertTrue(ModernTheme.active); assertEquals(Ui.S_MODERN, Ui.surface)
+        // nadal pięć motywów, Nowoczesny na pierwszym miejscu (to samo id – dotychczasowi użytkownicy dostają nowy wygląd)
+        assertEquals(listOf("modern", "classic", "xbox", X25Theme.ID, Ps5Theme.ID), Ui.PRESETS.map { it.id })
+        assertEquals("Nowoczesny", Ui.PRESETS.first().name)
+        // bez nazw zewnętrznych serwisów w motywie
+        for (p in Ui.PRESETS) assertFalse(p.name, p.name.contains("VOD", true) || p.name.contains("TVP", true))
+        assertTrue(Ui.geo.blur > 0 && Ui.geo.zoomMax > 0.05f)
+        // tło: same cieniowania (bez bitmapy), rysowane na całym ekranie
+        val bg = Ui.bgDrawable()
+        assertTrue(bg is ModernBackdrop)
+        bg.setBounds(0, 0, 1920, 1080)
+        val bmp = android.graphics.Bitmap.createBitmap(1920, 1080, android.graphics.Bitmap.Config.ARGB_8888)
+        bg.draw(android.graphics.Canvas(bmp))
+        assertEquals(android.graphics.PixelFormat.OPAQUE, @Suppress("DEPRECATION") bg.opacity)
+        // ciemne tło, niebieskie zaznaczenie z białym tekstem
+        assertTrue(android.graphics.Color.red(Ui.bg) < 0x20 && android.graphics.Color.blue(Ui.accent) > 0xC0)
+        assertEquals(android.graphics.Color.WHITE, Ui.focusText)
+        Prefs.lowPerf = false
+        assertTrue(Ui.focusedBg() is android.graphics.drawable.LayerDrawable)
+        Prefs.lowPerf = true
+        assertTrue(Ui.focusedBg() is android.graphics.drawable.GradientDrawable)
+        Prefs.lowPerf = false
+        Prefs.remove("info_style"); assertEquals(0, Ui.infoStyle)
+    }
+
+    @Test fun menusAsOverlayPanelAndPillButtons() {
+        val a = Robolectric.buildActivity(SettingsActivity::class.java).setup().get(); idle()
+        val menu = Ui.dialog(a).setTitle("Menu").setItems(arrayOf("A", "B", "C")) { _, _ -> }.show(); idle()
+        assertTrue(ModernTheme.isOverlay(menu)); assertFalse(Ps5Theme.isPanel(menu)); assertFalse(X25Theme.isGuide(menu))
+        val w = menu.window!!.attributes
+        assertEquals(Gravity.END or Gravity.TOP, w.gravity)
+        assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, w.height)
+        menu.dismiss()
+        // komunikat – okno na środku, przyciski-kapsuły: zaznaczony z białym tekstem
+        val msg = Ui.dialog(a).setTitle("Pytanie").setMessage("Na pewno?").setPositiveButton("Tak", null).setNegativeButton("Nie", null).show(); idle()
+        assertFalse(ModernTheme.isOverlay(msg))
+        assertNotEquals(ViewGroup.LayoutParams.MATCH_PARENT, msg.window!!.attributes.height)
+        val b = msg.getButton(android.content.DialogInterface.BUTTON_POSITIVE)
+        assertEquals(android.graphics.Color.WHITE, b.textColors.getColorForState(intArrayOf(android.R.attr.state_focused), 0))
+        msg.dismiss()
+        Prefs.modernOverlay = false
+        val m2 = Ui.dialog(a).setTitle("Menu 2").setItems(arrayOf("A")) { _, _ -> }.show(); idle()
+        assertFalse(ModernTheme.isOverlay(m2)); m2.dismiss()
+    }
+
+    @Test fun homeScreenRouting() {
+        assertTrue(ModernTheme.homeOn); assertTrue(X25Theme.dashboardOn); assertFalse(Ps5Theme.homeOn)
+        assertEquals(ModernHomeActivity::class.java.name, X25Theme.dashboardIntent(ctx).component?.className)
+        // lista kanałów przy starcie otwiera ekran główny Nowoczesny (nie PS5 / X25)
+        val m = Robolectric.buildActivity(MainActivity::class.java).setup(); idle()
+        val started = generateSequence { shadowOf(m.get()).nextStartedActivity }.map { it.component?.className }.toList()
+        assertTrue(started.toString(), ModernHomeActivity::class.java.name in started)
+        assertFalse(Ps5HomeActivity::class.java.name in started)
+        // bez ekranu startowego – zwykła lista kanałów; tryb launchera – i tak ekran główny Nowoczesny
+        Prefs.modernHome = false
+        assertFalse(X25Theme.dashboardOn)
+        X25Theme.launcherForTest = true; X25Theme.refreshLauncher(ctx)
+        assertTrue(ModernTheme.homeOn); assertFalse(Ps5Theme.homeOn)
+        assertEquals(ModernHomeActivity::class.java.name, X25Theme.dashboardIntent(ctx).component?.className)
+        // swobodne przełączanie: PS5 i powrót (wyłączenie PS5 wraca do Nowoczesnego)
+        X25Theme.launcherForTest = false; X25Theme.refreshLauncher(ctx); Prefs.modernHome = true
+        Ps5Theme.setEnabled(true); assertTrue(Ps5Theme.active); assertFalse(ModernTheme.active)
+        assertEquals(ModernTheme.ID, Prefs.ps5PrevTheme)
+        Ps5Theme.setEnabled(false); assertTrue(ModernTheme.active)
+        assertTrue(X25Theme.consumeJustEnabled())
+    }
+
+    // ---------------- ekran główny (Compose) ----------------
+
+    private fun home(): ModernHomeActivity {
+        val c = Robolectric.buildActivity(ModernHomeActivity::class.java).setup().visible()
+        c.windowFocusChanged(true)
+        frameView = c.get().window.decorView
+        waitFor { c.get().focusedKey != null }
+        return c.get()
+    }
+
+    private fun key(a: android.app.Activity, code: Int) {
+        val t = android.os.SystemClock.uptimeMillis()
+        a.dispatchKeyEvent(KeyEvent(t, t, KeyEvent.ACTION_DOWN, code, 0))
+        a.dispatchKeyEvent(KeyEvent(t, t + 50, KeyEvent.ACTION_UP, code, 0))
+        idle()
+    }
+
+    @Test fun railHeroAndRowsWithFocusThatNeverGetsLost() {
+        runBlocking { StubeHistory.flush(WatchProgress("v1", "Film 1", "Kanał", positionMs = 300_000, durationMs = 1_200_000, updatedAt = 1)) }
+        val a = home()
+        assertEquals(ModernHomeActivity.HERO_PLAY, a.focusedKey)
+        waitFor { "continue" in a.shelfIds }
+        // Start: hero – ostatnio oglądany film, rzędy „Kontynuuj” (postęp z Room) i skróty
+        assertEquals("Film 1", a.featureTitle)
+        assertEquals(listOf("yt:v1"), a.tileKeys("continue"))
+        assertTrue(a.shelfIds.contains("shortcuts"))
+        // ▼ – pierwszy rząd; ▼ – kolejny; hero pokazuje zaznaczony kafelek (z krótkim opóźnieniem)
+        key(a, KeyEvent.KEYCODE_DPAD_DOWN)
+        assertEquals("r:continue|yt:v1", a.focusedKey)
+        key(a, KeyEvent.KEYCODE_DPAD_DOWN)
+        assertTrue(a.focusedKey, a.focusedKey!!.startsWith("r:${a.shelfIds[1]}|"))   // drugi rząd (zależnie od danych: kanały albo skróty)
+        key(a, KeyEvent.KEYCODE_DPAD_RIGHT)
+        val shortcut = a.focusedKey!!
+        idle(400)
+        assertNotEquals("Film 1", a.featureTitle)
+        // ▲ – z powrotem ten sam kafelek rzędu wyżej, ▲ – przyciski hero, ▼ ▼ – ostatnio zaznaczony skrót
+        key(a, KeyEvent.KEYCODE_DPAD_UP)
+        assertEquals("r:continue|yt:v1", a.focusedKey)
+        key(a, KeyEvent.KEYCODE_DPAD_UP)
+        assertTrue(a.focusedKey, a.focusedKey!!.startsWith("h:"))
+        key(a, KeyEvent.KEYCODE_DPAD_UP)
+        assertTrue("▲ nad hero nie gubi fokusu", a.focusedKey!!.startsWith("h:"))
+        key(a, KeyEvent.KEYCODE_DPAD_DOWN); key(a, KeyEvent.KEYCODE_DPAD_DOWN)
+        assertEquals(shortcut, a.focusedKey)
+        // ◄ z pierwszej kolumny – pasek ikon (rozwinięty, bieżąca sekcja)
+        key(a, KeyEvent.KEYCODE_DPAD_LEFT)
+        if (a.focusedKey!!.startsWith("r:")) key(a, KeyEvent.KEYCODE_DPAD_LEFT)
+        assertEquals("nav:s0", a.focusedKey); assertTrue(a.railOpenNow)
+        // ▼ OK – sekcja „Na żywo”: fokus na jej pierwszym kafelku
+        key(a, KeyEvent.KEYCODE_DPAD_DOWN)
+        assertEquals("nav:s1", a.focusedKey)
+        key(a, KeyEvent.KEYCODE_DPAD_CENTER)
+        assertEquals(1, a.sectionNow)
+        waitFor { a.focusedKey?.startsWith("r:") == true }
+        assertEquals("r:${a.shelfIds[0]}|${a.tileKeys(a.shelfIds[0])[0]}", a.focusedKey); assertFalse(a.railOpenNow)
+        // WSTECZ: z treści – pasek ikon; z paska – wyjście
+        a.onBackPressedDispatcher.onBackPressed(); waitFor { a.focusedKey == "nav:s1" }
+        assertEquals("nav:s1", a.focusedKey)
+        a.onBackPressedDispatcher.onBackPressed(); idle()
+        assertTrue(a.isFinishing)
+    }
+
+    @Test fun heroButtonsAndTilesOpenExistingScreens() {
+        val a = home()
+        // bez historii – powitanie, „Oglądaj telewizję” = lista kanałów
+        assertEquals("Witaj w D-IPTV Player", a.featureTitle)
+        key(a, KeyEvent.KEYCODE_DPAD_CENTER)
+        assertEquals(MainActivity::class.java.name, shadowOf(a).nextStartedActivity?.component?.className)
+        // „Więcej informacji” – przewodnik TV
+        key(a, KeyEvent.KEYCODE_DPAD_RIGHT)
+        assertEquals(ModernHomeActivity.HERO_INFO, a.focusedKey)
+        key(a, KeyEvent.KEYCODE_DPAD_CENTER)
+        assertEquals(GuideActivity::class.java.name, shadowOf(a).nextStartedActivity?.component?.className)
+    }
+
+    @Test fun profileOptionsPanelSwitchesAndThemeChange() {
+        val a = home()
+        key(a, KeyEvent.KEYCODE_MENU)
+        assertTrue(a.optionsOpen)
+        assertTrue(a.optionLabels.containsAll(listOf("Ekran główny przy starcie", "Menu jako panel nakładkowy", "Wtyczki Stremio",
+            "Przełącz na motyw PS5", "Przełącz na motyw X25")))
+        a.clickOption("Menu jako panel nakładkowy"); idle()
+        assertFalse(Prefs.modernOverlay)
+        a.clickOption("Menu jako panel nakładkowy"); idle()
+        assertTrue(Prefs.modernOverlay)
+        a.onBackPressedDispatcher.onBackPressed(); idle()
+        assertFalse(a.optionsOpen)
+        waitFor { a.focusedKey == ModernHomeActivity.HERO_PLAY }
+        assertEquals(ModernHomeActivity.HERO_PLAY, a.focusedKey)
+        key(a, KeyEvent.KEYCODE_MENU)
+        a.clickOption("Przełącz na motyw PS5"); idle()
+        assertTrue(Ps5Theme.active); assertTrue(a.isFinishing)
+        assertEquals(Ps5HomeActivity::class.java.name, shadowOf(a).nextStartedActivity?.component?.className)
+    }
+
+    @Test @Config(qualifiers = "w890dp-h400dp-land-xxhdpi") fun compactOnLowLandscapeScreen() {
+        runBlocking { StubeHistory.flush(WatchProgress("v1", "Film 1", "Kanał", positionMs = 300_000, durationMs = 1_200_000, updatedAt = 1)) }
+        val a = home()
+        assertTrue(a.dimsNow.compact)
+        waitFor { "continue" in a.shelfIds }
+        key(a, KeyEvent.KEYCODE_DPAD_DOWN)
+        assertEquals("r:continue|yt:v1", a.focusedKey)
+    }
+}

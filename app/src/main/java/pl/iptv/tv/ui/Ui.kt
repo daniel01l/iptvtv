@@ -118,8 +118,10 @@ object Ui {
     private fun c(s: String) = Color.parseColor(s)
 
     val PRESETS = listOf(
-        ThemePreset("modern", "Nowoczesny", c("#0F1218"), c("#171C25"), c("#2F80ED"), c("#2F80ED"), c("#FFFFFF"),
-            c("#EFEFEF"), c("#9AA3B2"), 10, 0, FocusStyle.FILL, 1, 2, 0, true),
+        // (7.0) Nowoczesny – styl serwisu VOD: głęboka czerń, niebieskie zaznaczenie z jasną obwódką, półprzezroczyste okna,
+        // ekran główny z paskiem ikon, hero i rzędami kafelków (ModernHomeActivity); to samo id – dotychczasowi użytkownicy dostają nowy wygląd
+        ThemePreset(ModernTheme.ID, "Nowoczesny", c("#07080C"), c("#14171F"), c("#2F6BFF"), c("#2F6BFF"), c("#FFFFFF"),
+            c("#F5F7FA"), c("#9EA6B4"), 10, 0, FocusStyle.FILL, 1, 2, 0, true, S_MODERN),
         ThemePreset("classic", "Klasyczny dekoder", c("#06134A"), c("#0D2470"), c("#FFC400"), c("#FFB300"), c("#000000"),
             c("#FFFFFF"), c("#B8C7F0"), 0, 2, FocusStyle.GRADIENT, 0, 3, 0, false),
         // (6.5) zostają tylko: Nowoczesny, Klasyczny dekoder, Xbox, X25 i PS5 – pozostałe w [REMOVED_THEMES]
@@ -140,6 +142,8 @@ object Ui {
     const val S_X25 = 6
     /** Motyw PS5: granatowe panele, biało-błękitna obwódka zaznaczenia, tło [Ps5Backdrop]. */
     const val S_PS5 = 7
+    /** Motyw Nowoczesny (7.0): czarne tło z poświatą, półprzezroczyste panele, niebieskie zaznaczenie z jasną obwódką, tło [ModernBackdrop]. */
+    const val S_MODERN = 8
     /** Układ menu głównego „karty poziome” (konsole). */
     const val LAYOUT_CARDS = 4
     val surface get() = preset.surface
@@ -159,6 +163,8 @@ object Ui {
         S_XBOX -> Geometry(zoomMax = 0.05f, headerScale = 1.1f, zoomMs = 80, topBar = true, focusStroke = 3)
         S_X25 -> Geometry(zoomMax = 0.04f, headerScale = 1.15f, zoomMs = 90, topBar = true, glow = true, focusStroke = 3)
         S_PS5 -> Geometry(zoomMax = 0.05f, headerScale = 1.2f, zoomMs = 90, glow = true, focusStroke = 2)
+        // Nowoczesny: wyraźne powiększenie, półprzezroczyste okna z rozmyciem tła (gdy urządzenie obsługuje)
+        S_MODERN -> Geometry(zoomMax = 0.06f, headerScale = 1.15f, zoomMs = 120, blur = 24, focusStroke = 2)
         else -> Geometry()
     }
 
@@ -261,6 +267,8 @@ object Ui {
         if (id == X25Theme.ID && old.id != X25Theme.ID) { if (!restoring) Prefs.x25PrevTheme = old.id; X25Theme.justEnabled = true }
         // PS5: tak samo (poprzedni motyw może być X25 – swobodne przełączanie między motywami konsolowymi)
         if (id == Ps5Theme.ID && old.id != Ps5Theme.ID) { if (!restoring) Prefs.ps5PrevTheme = old.id; X25Theme.justEnabled = true }
+        // Nowoczesny (np. powrót z X25 / PS5): lista kanałów otwiera jego ekran główny
+        if (id == ModernTheme.ID && old.id != ModernTheme.ID) X25Theme.justEnabled = true
         val p = preset
         if (p.layout >= 0) Prefs.mainLayout = p.layout
         else if (old.layout >= 0 && Prefs.mainLayout == old.layout) Prefs.mainLayout = 0
@@ -298,6 +306,8 @@ object Ui {
             S_X25 -> X25Backdrop(b, accent)
             // PS5: granat z siatką kreślarską i rysunkami technicznymi (bitmapa w połowie rozdzielczości, wspólna)
             S_PS5 -> Ps5Backdrop(b, accent)
+            // Nowoczesny: czerń z granatową górą i niebieską poświatą (same cieniowania, bez bitmapy)
+            S_MODERN -> ModernBackdrop(b, accent)
             else -> TexturedDrawable(shade(b, 0.03f), shade(b, -0.08f), 0f)
         }
     }
@@ -324,6 +334,9 @@ object Ui {
             // (okna prawie nieprzezroczyste – tekst ekranu pod spodem nie prześwituje)
             S_PS5 -> TexturedDrawable(withAlpha(blend(shade(base, 0.05f), accent, 0.06f), minOf(alpha, 0xF0)), withAlpha(shade(base, -0.35f), minOf(alpha, 0xF6)), r,
                 stroke = withAlpha(Color.WHITE, 0x16), strokeW = dp(1).toFloat(), highlight = withAlpha(Color.WHITE, 0x22))
+            // Nowoczesny: półprzezroczysta grafitowa czerń (nakładka), cienka jasna krawędź
+            S_MODERN -> TexturedDrawable(withAlpha(shade(base, 0.05f), minOf(alpha, 0xE6)), withAlpha(shade(base, -0.3f), minOf(alpha, 0xF0)), r,
+                stroke = withAlpha(Color.WHITE, 0x14), strokeW = dp(1).toFloat(), highlight = withAlpha(Color.WHITE, 0x18))
             else -> null
         }
     }
@@ -364,7 +377,7 @@ object Ui {
     var zoom: Boolean get() = (Prefs.optInt("zoom") ?: if (preset.zoom) 1 else 0) == 1; set(v) = Prefs.setOptInt("zoom", if (v) 1 else 0)
     /** Styl paska informacji; domyślnie wg motywu (motywy systemowe i konsolowe mają własny pasek). */
     var infoStyle: Int get() = (Prefs.optInt("info_style") ?: when (surface) {
-        S_GLASS -> 6; S_XBOX -> 9; S_X25 -> 7; S_PS5 -> 1
+        S_GLASS -> 6; S_XBOX -> 9; S_X25 -> 7; S_PS5 -> 1; S_MODERN -> 0
         else -> if (preset.focusStyle == FocusStyle.GRADIENT) 3 else 0 }).coerceIn(INFO_STYLES.indices); set(v) = Prefs.setOptInt("info_style", v)
     var infoAlphaIndex: Int get() = (Prefs.optInt("info_alpha") ?: 0).coerceIn(INFO_ALPHAS.indices); set(v) = Prefs.setOptInt("info_alpha", v)
     var infoSizeIndex: Int get() = (Prefs.optInt("info_size") ?: 1).coerceIn(INFO_SIZES.indices); set(v) = Prefs.setOptInt("info_size", v)
@@ -436,7 +449,20 @@ object Ui {
         surface == S_XBOX -> xboxFocus()
         surface == S_X25 -> x25Focus()
         surface == S_PS5 -> ps5Focus()
+        surface == S_MODERN && color2("focus") == null -> modernFocus()
         else -> focusDrawableClassic()
+    }
+
+    /**
+     * Nowoczesny: niebieskie wypełnienie (biały tekst – czytelny z kanapy) z jasnoniebieską obwódką, poza nią delikatna poświata;
+     * tryb słabszych urządzeń – bez poświaty.
+     */
+    private fun modernFocus(): Drawable {
+        val r = dp(preset.radius).toFloat()
+        val core = GradientDrawable().apply { cornerRadius = maxOf(r - dp(2), 0f); setColor(focus); setStroke(dp(geo.focusStroke), ModernTheme.RING) }
+        if (Prefs.lowPerf) return core
+        val halo = GradientDrawable().apply { cornerRadius = r; setColor(Color.TRANSPARENT); setStroke(dp(2), withAlpha(ModernTheme.RING, 0x40)) }
+        return android.graphics.drawable.LayerDrawable(arrayOf(halo, core)).apply { setLayerInset(1, dp(2), dp(2), dp(2), dp(2)) }
     }
 
     /**
@@ -518,6 +544,8 @@ object Ui {
             S_X25 -> shape(withAlpha(shade(panel, 0.04f), 0xB8), if (border) 1 else 0, withAlpha(Color.WHITE, 0x12))
             // PS5: prawie przezroczyste wiersze (jak lista ustawień konsoli) – tło daje panel
             S_PS5 -> shape(withAlpha(Color.WHITE, 0x06), if (border) 1 else 0, withAlpha(Color.WHITE, 0x0E))
+            // Nowoczesny: ledwie widoczne, szare wiersze (jak kapsuły ekranu głównego)
+            S_MODERN -> shape(withAlpha(Color.WHITE, 0x09), if (border) 1 else 0, withAlpha(Color.WHITE, 0x0C))
             else -> if (border) shape(Color.TRANSPARENT, 1, withAlpha(text, 0x1C)) else shape(Color.TRANSPARENT)
         })
         setEnterFadeDuration(if (anim == 0) 0 else 90); setExitFadeDuration(if (anim == 0) 0 else 90)
@@ -795,7 +823,7 @@ object Ui {
 
     fun dialogBg(): Drawable {
         // ramka okna wg motywu: ostra (Xbox), duże zaokrąglenia (iOS)
-        val r = when (surface) { S_XBOX -> 2; S_GLASS -> 22; S_X25 -> 6; S_PS5 -> 14; else -> maxOf(preset.radius, 14) }
+        val r = when (surface) { S_XBOX -> 2; S_GLASS -> 22; S_X25 -> 6; S_PS5 -> 14; S_MODERN -> 16; else -> maxOf(preset.radius, 14) }
         if (color2("panel") != null) return fill("panel").apply { setStroke(dp(1), withAlpha(accent, 0x90)); cornerRadius = dp(r).toFloat() }
         // szkło: okno półprzezroczyste (rozmycie tła pod oknem, gdy system je obsługuje)
         return texturedSurface(panel, if (geo.blur > 0 && surface != S_XBOX) 0xE4 else 0xFA, r, frame = true)
@@ -819,14 +847,17 @@ object Ui {
         // X25: menu i listy wyboru wysuwają się z lewej jako panel boczny (Guide) na całą wysokość ekranu
         // PS5: menu jako panel ustawień konsoli (pionowa lista przy lewej krawędzi) – ten sam układ co panel X25, inny wygląd
         val ps5 = Ps5Theme.isPanel(d)
-        val guide = X25Theme.isGuide(d) || ps5
-        w.setBackgroundDrawable(if (ps5) Ps5Theme.panelBg() else if (guide) X25Theme.guideBg() else dialogBg())
+        // Nowoczesny: menu jako półprzezroczysty panel nakładkowy przy prawej krawędzi
+        val overlay = ModernTheme.isOverlay(d)
+        val guide = X25Theme.isGuide(d) || ps5 || overlay
+        w.setBackgroundDrawable(if (ps5) Ps5Theme.panelBg() else if (overlay) ModernTheme.overlayBg() else if (guide) X25Theme.guideBg() else dialogBg())
         // TV: 46% szerokości; telefon/tablet: do 92%, ale nie szerzej niż 560 dp (w poziomie okno nie rozciąga się na cały ekran)
         if (ps5) Ps5Theme.layoutPanel(w, wide)
+        else if (overlay) ModernTheme.layoutOverlay(w, wide)
         else if (guide) X25Theme.layoutGuide(w, wide)
         else w.setLayout(if (wide) (dm.widthPixels * 0.46f).toInt() else minOf((dm.widthPixels * 0.92f).toInt(), dp(560)), ViewGroup.LayoutParams.WRAP_CONTENT)
         w.setDimAmount(if (guide) 0.45f else 0.7f)
-        if (anim != 0) w.setWindowAnimations(if (guide) R.style.X25GuideAnim else R.style.DialogAnim)
+        if (anim != 0) w.setWindowAnimations(if (overlay) R.style.ModernOverlayAnim else if (guide) R.style.X25GuideAnim else R.style.DialogAnim)
         // szkło: rozmyte tło pod oknem (Android 12+, gdy urządzenie obsługuje rozmycie między oknami)
         if (geo.blur > 0 && android.os.Build.VERSION.SDK_INT >= 31 &&
             (d.context.getSystemService(android.content.Context.WINDOW_SERVICE) as? android.view.WindowManager)?.isCrossWindowBlurEnabled == true) {
@@ -844,7 +875,7 @@ object Ui {
         w.decorView.setPadding(dp(10), dp(8), dp(10), dp(if (guide) 24 else 10))   // panel Guide: przyciski nad dolną krawędzią ekranu
         styleDialogTree(w.decorView)
         d.findViewById<TextView>(androidx.appcompat.R.id.alertTitle)?.apply {
-            setTextColor(Ui.accent); typeface = Ui.typeface(Typeface.BOLD)
+            setTextColor(if (surface == S_MODERN) Ui.text else Ui.accent); typeface = Ui.typeface(Typeface.BOLD)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f * fontScale * geo.headerScale); maxLines = 3
             // iOS: duży, wyśrodkowany tytuł; pozostałe – do lewej
             gravity = if (geo.titleCenter) android.view.Gravity.CENTER_HORIZONTAL else android.view.Gravity.START
@@ -859,10 +890,12 @@ object Ui {
             d.getButton(which)?.apply {
                 val primary = which == android.content.DialogInterface.BUTTON_POSITIVE
                 isAllCaps = false
-                setTextColor(when (surface) { S_X25 -> X25Theme.buttonText(primary); S_PS5 -> Ps5Theme.buttonText(primary); else -> textColors(if (primary) Ui.accent else Ui.text) })
+                setTextColor(when (surface) { S_X25 -> X25Theme.buttonText(primary); S_PS5 -> Ps5Theme.buttonText(primary)
+                    S_MODERN -> ModernTheme.textColors(); else -> textColors(if (primary) Ui.accent else Ui.text) })
                 typeface = Ui.typeface(Typeface.BOLD)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f * fontScale)
-                background = pillBg(primary)
+                // Nowoczesny: szare kapsuły, zaznaczona – niebieska (jak „Odtwórz” na ekranie głównym)
+                background = if (surface == S_MODERN) ModernTheme.pill(focus) else pillBg(primary)
                 setPadding(dp(22), dp(10), dp(22), dp(10))
                 (layoutParams as? ViewGroup.MarginLayoutParams)?.let { it.marginStart = dp(8); layoutParams = it }
             }

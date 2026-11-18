@@ -24,6 +24,13 @@ import pl.iptv.tv.data.StremioStore
 object StremioUi {
     const val POSTER_W = 150; const val POSTER_H = 222
 
+    /** Odmiana liczebnika: 1 źródło, 2–4 źródła, 5+ źródeł (12–14 – „źródeł”). */
+    fun plural(n: Int, one: String, few: String, many: String) = when {
+        n == 1 -> one
+        n % 10 in 2..4 && n % 100 !in 12..14 -> few
+        else -> many
+    }
+
     fun button(c: Context, text: String, onClick: () -> Unit) = TextView(c).apply {
         this.text = text; tag = "item"; isFocusable = true; isClickable = true; textSize = 16f; gravity = Gravity.CENTER
         setPadding(Ui.dp(16), Ui.dp(10), Ui.dp(16), Ui.dp(10)); setOnClickListener { onClick() }

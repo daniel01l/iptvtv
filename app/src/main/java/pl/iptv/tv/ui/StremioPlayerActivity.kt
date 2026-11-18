@@ -115,7 +115,11 @@ class StremioPlayerActivity : AppCompatActivity() {
             useController = true; controllerShowTimeoutMs = 4000; setShowNextButton(false); setShowPreviousButton(false)
             resizeMode = ASPECTS.getOrElse(Prefs.stremioAspect) { ASPECTS[0] }.first
             setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
-            setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { v -> topBar.visibility = v; if (v == View.VISIBLE) titleView.visibility = View.VISIBLE else titleView.visibility = View.GONE })
+            setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { v ->
+                topBar.visibility = v; titleView.visibility = if (v == View.VISIBLE) View.VISIBLE else View.GONE
+                // „Następny odcinek” razem z paskiem (serial z kolejnym odcinkiem)
+                nextBtn.visibility = if (v == View.VISIBLE && nextVideo != null) View.VISIBLE else View.GONE
+            })
         }
         root.addView(playerView, FrameLayout.LayoutParams(-1, -1))
         // napisy rysowane przez nas (opóźnienie, rozmiar, kolor – także dla napisów z wtyczek)
@@ -129,18 +133,19 @@ class StremioPlayerActivity : AppCompatActivity() {
         }
         root.addView(titleView, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
         topBar = LinearLayout(this).apply { gravity = Gravity.END; setPadding(Ui.dp(30), Ui.dp(18), Ui.dp(30), 0); visibility = View.GONE }
-        fun btn(t: String, a: () -> Unit) = TextView(this).apply {
-            text = t; tag = "item"; isFocusable = true; isClickable = true; textSize = 15f; setPadding(Ui.dp(14), Ui.dp(8), Ui.dp(14), Ui.dp(8))
-            setOnClickListener { a(); playerView.showController() }
-        }.also { topBar.addView(it, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) }) }
-        btn("💬 Napisy") { subtitlesMenu() }
-        btn("⏱ Opóźnienie") { delayMenu() }
-        btn("Aa Styl") { styleMenu() }
-        btn("🔊 Audio") { audioMenu() }
-        btn("⛶ Obraz") { aspectMenu() }
-        nextBtn = btn("⏭ Następny odcinek") { playNext() }.apply { visibility = View.GONE }
+        // przyciski jak w odtwarzaczu Stremio: okrągłe ikony (podpis tylko przy napisach), zaznaczona – biała
+        fun btn(icon: String, t: String, a: () -> Unit) = PlayerChrome.button(this, icon, t) { a(); playerView.showController() }
+            .also { it.contentDescription = t.ifBlank { icon }; topBar.addView(it, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(10) }) }
+        btn(PlayerIcon.CC, "Napisy") { subtitlesMenu() }.contentDescription = "Napisy"
+        btn(PlayerIcon.DELAY, "") { delayMenu() }.contentDescription = "Opóźnienie napisów"
+        btn(PlayerIcon.STYLE, "") { styleMenu() }.contentDescription = "Styl napisów"
+        btn(PlayerIcon.AUDIO, "") { audioMenu() }.contentDescription = "Ścieżka dźwięku"
+        btn(PlayerIcon.ASPECT, "") { aspectMenu() }.contentDescription = "Dopasowanie obrazu"
+        topBar.clipChildren = false; topBar.clipToPadding = false
         root.addView(topBar, FrameLayout.LayoutParams(-1, -2, Gravity.TOP).apply { topMargin = Ui.dp(52) })
-        Ui.style(topBar)
+        // „Następny odcinek” – wyraźna kapsuła nad paskiem postępu (▼ z kontrolek, przycisk „następny” pilota)
+        nextBtn = PlayerChrome.button(this, PlayerIcon.NEXT, "Następny odcinek") { playNext() }.apply { visibility = View.GONE; textSize = 16f }
+        root.addView(nextBtn, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, Ui.dp(40), Ui.dp(100)) })
         // karta „Następny odcinek” przy końcu odcinka
         nextCard = TextView(this).apply {
             tag = "item"; isFocusable = true; isClickable = true; textSize = 16f; setTextColor(Color.WHITE); visibility = View.GONE
@@ -149,6 +154,8 @@ class StremioPlayerActivity : AppCompatActivity() {
             setOnClickListener { playNext() }
         }
         root.addView(nextCard, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, Ui.dp(40), Ui.dp(110)) })
+        // pasek postępu w kolorze Stremio, ◄► na pasku – 10 s
+        root.post { PlayerChrome.styleTimeBar(playerView, PlayerChrome.STREMIO) }
         return root
     }
 
@@ -418,7 +425,8 @@ class StremioPlayerActivity : AppCompatActivity() {
     private suspend fun updateNextButton() {
         if (type != "series") return
         nextVideo = StremioMetas.get(type, metaId)?.next(videoId)
-        nextBtn.visibility = if (nextVideo != null) View.VISIBLE else View.GONE
+        nextBtn.visibility = if (nextVideo != null && playerView.isControllerFullyVisible) View.VISIBLE else View.GONE
+        nextBtn.text = nextVideo?.let { "Następny odcinek · ${it.label.substringBefore(" – ")}" } ?: "Następny odcinek"
         nextCard.text = nextVideo?.let { "⏭  Następny odcinek: ${it.label}   (OK)" }.orEmpty()
     }
 
@@ -464,8 +472,27 @@ class StremioPlayerActivity : AppCompatActivity() {
     /** WSTECZ schował pasek – zwolnienie klawisza nie zamyka odtwarzacza. */
     private var backHid = false
 
+    /** Kontrolki środkowe paska (⏪ ⏯ ⏩) – z nich ▼ przechodzi do „Następny odcinek”. */
+    private val centerControls = setOf(androidx.media3.ui.R.id.exo_play_pause, androidx.media3.ui.R.id.exo_rew_with_amount,
+        androidx.media3.ui.R.id.exo_ffwd_with_amount, androidx.media3.ui.R.id.exo_progress)
+
     override fun dispatchKeyEvent(e: KeyEvent): Boolean {
         val visible = playerView.isControllerFullyVisible
+        // „Następny odcinek” zawsze pod ręką: przycisk „następny” / CH+ pilota, ▼ z kontrolek – kapsuła, ▲ z niej – ⏯
+        if (e.action == KeyEvent.ACTION_DOWN && nextVideo != null) {
+            if (e.keyCode == KeyEvent.KEYCODE_MEDIA_NEXT && e.repeatCount == 0) { playNext(); return true }
+            val f = window.decorView.findFocus()
+            if (visible && e.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && f != null && f.id in centerControls && nextBtn.visibility == View.VISIBLE) {
+                nextBtn.requestFocus(); playerView.showController(); return true
+            }
+            if (visible && f === nextBtn) {
+                playerView.showController()
+                when (e.keyCode) {
+                    KeyEvent.KEYCODE_DPAD_UP -> { playerView.findViewById<View>(androidx.media3.ui.R.id.exo_play_pause)?.requestFocus(); return true }
+                    KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_DOWN -> return true      // bez „ucieczki” fokusu poza ekran
+                }
+            }
+        }
         if (e.action == KeyEvent.ACTION_DOWN) when (e.keyCode) {
             KeyEvent.KEYCODE_MENU -> { optionsMenu(); return true }
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> if (!visible && nextCard.visibility != View.VISIBLE) { playerView.showController(); return true }

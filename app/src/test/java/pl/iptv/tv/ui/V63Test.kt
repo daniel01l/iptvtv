@@ -53,6 +53,12 @@ class V63Test {
     @Before fun setup() {
         db = Room.inMemoryDatabaseBuilder(ctx, StubeDatabase::class.java).allowMainThreadQueries().build()
         StubeHistory.useDatabase(db)
+        // zakładki „Z tego kanału” / „Podobne” (7.0) – wyszukiwanie bez sieci
+        pl.iptv.tv.data.YtKeyless.clearCache()
+        pl.iptv.tv.data.YtKeyless.source = object : pl.iptv.tv.data.YtKeyless.Source {
+            override fun kiosk(id: String) = emptyList<YtVideo>()
+            override fun search(q: String) = listOf(YtVideo("s1", "Wynik $q", "K", duration = "PT3M"))
+        }
         server = MockWebServer().apply { dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
             override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest) =
                 if (request.path!!.startsWith("/sb/")) MockResponse().setBody("[]") else MockResponse().setResponseCode(404)
@@ -66,6 +72,7 @@ class V63Test {
 
     @After fun tearDown() {
         YtStreams.resolverOverride = null; YtEqSession.factory = null; YtEngine.releasePlayer(); YtEngine.listeners.clear()
+        pl.iptv.tv.data.YtKeyless.source = pl.iptv.tv.data.YtKeyless.NewPipeSource; pl.iptv.tv.data.YtKeyless.clearCache()
         StubeTheme.exit(); Prefs.stubeTheme = 0; Prefs.stubeLayout = 0; Prefs.stubeRemote = false
         server.shutdown(); StubeHistory.useDatabase(null); db.close()
     }
@@ -185,11 +192,18 @@ class V63Test {
         assertEquals("▶ Propozycje", focusedTitle())
         key(a, KeyEvent.KEYCODE_DPAD_RIGHT); waitFor { p.tab == 1 && p.entries.isNotEmpty() }
         assertEquals(1, p.tab); assertEquals("Film q1", p.entries.single().title)
-        key(a, KeyEvent.KEYCODE_DPAD_RIGHT); assertEquals(1, p.tab)                     // ostatnia zakładka – fokus zostaje
+        // 7.0: dalej zakładki „Z tego kanału” i „Podobne”; na ostatniej ► – fokus zostaje
+        // (film bez kanału i bez słów kluczowych – obie zakładki puste, z komunikatem)
+        key(a, KeyEvent.KEYCODE_DPAD_RIGHT); waitFor { p.tab == YtPlayerActivity.TAB_CHANNEL }
+        assertEquals(YtPlayerActivity.TAB_CHANNEL, p.tab)
+        key(a, KeyEvent.KEYCODE_DPAD_RIGHT); waitFor { p.tab == YtPlayerActivity.TAB_SIMILAR }
+        key(a, KeyEvent.KEYCODE_DPAD_RIGHT); assertEquals(YtPlayerActivity.TAB_SIMILAR, p.tab)
         // fokus nie ucieka z panelu do kontrolek odtwarzacza
-        key(a, KeyEvent.KEYCODE_DPAD_LEFT); key(a, KeyEvent.KEYCODE_DPAD_DOWN)
+        repeat(3) { key(a, KeyEvent.KEYCODE_DPAD_LEFT) }; waitFor { p.tab == 0 }
+        key(a, KeyEvent.KEYCODE_DPAD_DOWN)
         var x: View? = a.window.decorView.findFocus(); var inside = false
-        while (x != null) { if (x.contentDescription == "Film r1" || x.contentDescription == "Film r2") inside = true; x = x.parent as? View }
+        // fokus w panelu (pozycja albo zakładka), nie na kontrolkach odtwarzacza pod spodem
+        while (x != null) { if (x is androidx.media3.ui.PlayerView) break; if (x.parent == null || x.contentDescription == "Film r1" || x.contentDescription == "Film r2" || (x as? android.widget.TextView)?.text?.startsWith("▶") == true) inside = true; x = x.parent as? View }
         assertTrue(inside)
         // WSTECZ zamyka panel, odtwarzacz zostaje
         key(a, KeyEvent.KEYCODE_BACK); assertFalse(p.isOpen); assertFalse(a.isFinishing)

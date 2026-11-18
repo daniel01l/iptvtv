@@ -233,6 +233,11 @@ class YouTubeAccountTest {
         assertTrue("kod widoczny", pinShown)
         val d = YouTubeAccountUi.current!!
         assertTrue(texts(d.window!!.decorView).any { it.contains("google.com/device") })
+        // 7.0: kod QR z adresem logowania (generowany lokalnie) obok kodu
+        fun views(v: View): List<View> = listOf(v) + ((v as? ViewGroup)?.let { g -> (0 until g.childCount).flatMap { views(g.getChildAt(it)) } } ?: emptyList())
+        val qr = views(d.window!!.decorView).filterIsInstance<android.widget.ImageView>().first { it.contentDescription == "Kod QR logowania" }
+        assertNotNull(qr.drawable)
+        assertEquals("Token…", d.getButton(android.content.DialogInterface.BUTTON_NEUTRAL).text.toString())
         // potwierdzenie na telefonie → zapis tokenów, okno zamknięte
         tokenReplies += tokenOk()
         apiHandler = { json(200, """{"items":[{"snippet":{"title":"Mój kanał"}}]}""") }
