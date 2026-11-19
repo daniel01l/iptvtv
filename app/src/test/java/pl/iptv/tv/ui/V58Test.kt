@@ -127,11 +127,12 @@ class V58Test {
     }
 
     @Test fun holdOkShowsEngineTileOpeningPopup() {
+        Prefs.okLongAction = 1
         val c = Robolectric.buildActivity(PlayerActivity::class.java, Intent(ctx, PlayerActivity::class.java)
             .putExtra(PlayerActivity.EXTRA_CHANNEL, Repository.channels[1].key).putExtra(PlayerActivity.EXTRA_GROUP, Repository.ALL)).setup(); idle(600)
         val a = c.get()
         down(a, KeyEvent.KEYCODE_DPAD_CENTER); down(a, KeyEvent.KEYCODE_DPAD_CENTER, 1); a.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_CENTER)); idle()
-        assertEquals(View.VISIBLE, a.findViewById<View>(R.id.miniMenu).visibility)   // domyślnie: szybkie menu ikon
+        assertEquals(View.VISIBLE, a.findViewById<View>(R.id.miniMenu).visibility)   // ustawienie: szybkie menu ikon (7.5: domyślnie menu silnika)
         val icons = a.findViewById<LinearLayout>(R.id.miniIcons)
         assertEquals(7, icons.childCount)
         repeat(6) { key(a, KeyEvent.KEYCODE_DPAD_RIGHT) }

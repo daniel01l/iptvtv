@@ -78,7 +78,8 @@ class IptvApp : Application(), coil.ImageLoaderFactory {
         Repository.init(this)
         pl.iptv.tv.data.YouTubeTokens.init(this)
         pl.iptv.tv.data.StubeHistory.init(this)
-        pl.iptv.tv.data.ChannelEngines.loadAsync()          // dobrane silniki kanałów – do pamięci w tle
+        // dobrane silniki kanałów – do pamięci w tle (w testach Robolectric nie: wyścig z zamykaniem bazy testu – zakleszczenie Room)
+        if (android.os.Build.FINGERPRINT != "robolectric") pl.iptv.tv.data.ChannelEngines.loadAsync()
         // odtwarzacz rozgrzany w tle (dekodery, klasy silnika, rozpoznane HLS) – płynne kanały od pierwszego przełączenia
         if (android.os.Build.FINGERPRINT != "robolectric") pl.iptv.tv.ui.Playback.warmUp(this)
         pl.iptv.tv.data.StremioAccount.init(this)

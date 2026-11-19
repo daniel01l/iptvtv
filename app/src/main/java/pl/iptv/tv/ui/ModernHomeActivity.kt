@@ -338,7 +338,10 @@ class ModernHomeActivity : BaseActivity() {
             Shelf("watched", "Obejrzane", videos.map { videoTile(it) }),
         )
         3 -> listOf(
-            Shelf("stcontinue", "Kontynuuj oglądanie", titles.filter { !it.finished }.map { titleTile(it) }),
+            Shelf("stcontinue", "Oglądaj dalej", titles.filter { !it.finished }.map { titleTile(it) }),
+            // (7.5) jak na tablicy Stremio: pod „Oglądaj dalej” propozycje filmów, pod nimi – seriali
+            Shelf("stmovies", "Filmy – propozycje", stMovies.map { metaTile(it) }),
+            Shelf("stseries", "Seriale – propozycje", stSeries.map { metaTile(it) }),
             Shelf("stremio", "Filmy i seriale", listOf(
                 actionTile("stremio", X25Action.STREMIO, "Przeglądaj", "Katalogi filmów i seriali z włączonych wtyczek.", act(X25Action.STREMIO)),
                 searchStremio(),
@@ -360,7 +363,7 @@ class ModernHomeActivity : BaseActivity() {
         )
         else -> listOf(
             Shelf("continue", "Kontynuuj oglądanie", videos.filter { it.positionMs > 0 && !it.finished }.map { videoTile(it) }),
-            Shelf("channels", "Kanały TV", recent.ifEmpty { all.take(12) }.map { channelTile("channels", it) }),
+            Shelf("channels", if (recent.isNotEmpty()) "Ostatnio oglądane" else "Kanały TV", recent.ifEmpty { all.take(12) }.map { channelTile("channels", it) }),
             Shelf("stcontinue", "Filmy i seriale", titles.map { titleTile(it) }),
             Shelf("shortcuts", "Na skróty", listOf(
                 actionTile("live", X25Action.LIVE, "Telewizja", "Wszystkie kanały na żywo.", act(X25Action.LIVE)),
@@ -405,10 +408,84 @@ class ModernHomeActivity : BaseActivity() {
     /** Nowa sekcja: hero i rzędy od początku, fokus na pierwszym kafelku (gdy rzędy są) albo na „Odtwórz”. */
     private fun selectSection(i: Int) {
         if (section != i) { section = i; rowLast.clear() }
+        if (i == 3) loadStremioSuggestions()
         feature = defaultFeature(i)
         val first = shelves(i).firstOrNull()?.let { "r:${it.id}|${it.tiles.first().key}" }
         lastContent = null
         pendingFocus = first ?: HERO_PLAY
+    }
+
+    /** (7.6) Postęp przejścia między sekcjami (0 → 1). */
+    private val sectionAnim = androidx.compose.animation.core.Animatable(1f)
+    private val lowPerfNow get() = runCatching { pl.iptv.tv.data.Prefs.lowPerf }.getOrDefault(false)
+
+    /** Przenikanie z przesunięciem o 18 dp wg [sectionAnim] – odczyt w warstwie rysowania (bez ponownego składania). */
+    private fun Modifier.sectionFade(): Modifier = graphicsLayer {
+        val v = sectionAnim.value
+        alpha = 0.2f + 0.8f * v
+        translationY = (1f - v) * 18.dp.toPx()
+    }
+
+    /** (7.5) Zaznaczenie sekcji w pasku – podgląd jej rzędów i hero (fokus zostaje w pasku). */
+    private fun previewSection(i: Int) {
+        if (section == i) return
+        section = i; rowLast.clear(); lastContent = null
+        feature = defaultFeature(i)
+        if (i == 3) loadStremioSuggestions()
+    }
+
+    /**
+     * (7.5) OK / dotknięcie zakładki w pasku: od razu ta zakładka – Na żywo, STube, Stremio, Moje playlisty otwierają swoje ekrany;
+     * Domek (Start) – kursor w prawo na „Ostatnio oglądane”.
+     */
+    private fun openSection(i: Int) {
+        when (i) {
+            0 -> {
+                if (section != 0) { section = 0; rowLast.clear() }
+                feature = defaultFeature(0)
+                val list = shelves(0)
+                val target = list.firstOrNull { it.id == "channels" } ?: list.firstOrNull()
+                lastContent = null
+                pendingFocus = target?.let { "r:${it.id}|${it.tiles.first().key}" } ?: HERO_PLAY
+            }
+            1 -> act(X25Action.LIVE)()
+            2 -> act(X25Action.STUBE)()
+            3 -> act(X25Action.STREMIO)()
+            else -> act(X25Action.PLAYLISTS)()
+        }
+    }
+
+    // ---------------- (7.5) propozycje Stremio: filmy, potem seriale ----------------
+
+    private var stMovies by mutableStateOf<List<pl.iptv.tv.data.StremioMetaPreview>>(emptyList())
+    private var stSeries by mutableStateOf<List<pl.iptv.tv.data.StremioMetaPreview>>(emptyList())
+    private var stLoad: Job? = null
+    val stremioRowsNow get() = stMovies.size to stSeries.size
+
+    /** Pierwszy katalog filmów i pierwszy katalog seriali z włączonych wtyczek (jak tablica Stremio) – raz na ekran. */
+    private fun loadStremioSuggestions() {
+        if (stLoad != null) return
+        stLoad = lifecycleScope.launch {
+            val addons = runCatching { pl.iptv.tv.data.StremioStore.enabledAddons() }.getOrDefault(emptyList())
+            suspend fun first(type: String) = addons.asSequence().flatMap { a -> a.boardCatalogs.filter { it.type == type }.map { a to it } }
+                .firstOrNull()?.let { (a, c) -> runCatching { pl.iptv.tv.data.StremioApi.catalog(a, c) }.getOrNull() }.orEmpty().take(20)
+            val m = first("movie"); val s = first("series")
+            if (m != stMovies) stMovies = m
+            if (s != stSeries) stSeries = s
+        }
+    }
+
+    private fun metaFeature(m: pl.iptv.tv.data.StremioMetaPreview): Feature {
+        val bg = if (m.id.startsWith("tt")) "https://images.metahub.space/background/medium/${m.id.substringBefore(':')}/img" else ""
+        val open = { startActivity(StremioDetailActivity.intent(this, m)) }
+        return Feature("sm:" + m.id, m.name.ifBlank { "Stremio" },
+            listOf(if (m.type == "series") "Serial" else "Film", m.releaseInfo, m.imdbRating.takeIf { it.isNotBlank() }?.let { "IMDb $it" }.orEmpty())
+                .filter { it.isNotBlank() },
+            desc = m.description, images = listOf(bg, m.poster).filter { it.isNotBlank() }, playLabel = "Otwórz", play = open, info = open)
+    }
+
+    private fun metaTile(m: pl.iptv.tv.data.StremioMetaPreview) = metaFeature(m).let { f ->
+        Tile("sm:" + m.id, m.name.ifBlank { "Stremio" }, m.releaseInfo.ifBlank { if (m.type == "series") "Serial" else "Film" }, m.poster, Kind.POSTER, f) { f.play() }
     }
 
     /** Hero zaznaczonego kafelka – z krótkim opóźnieniem (szybkie przewijanie nie wczytuje kolejnych obrazów). */
@@ -487,19 +564,23 @@ class ModernHomeActivity : BaseActivity() {
     // ================= UI =================
 
     /** Wymiary wg ekranu: TV – pełne, niski ekran (telefon w poziomie) – mniejsze kafelki i hero, wąski – mniejsze marginesy. */
-    data class Dims(val compact: Boolean, val narrow: Boolean) {
-        val rail get() = if (compact) 56.dp else 76.dp
-        val railOpen get() = if (compact) 200.dp else 250.dp
-        val railItem get() = if (compact) 34.dp else 44.dp
-        val railPad get() = if (compact) 8.dp else 12.dp
+    /**
+     * (7.6) [portrait] – telefon w pionie: węższy pasek, kafelki z szerokości ekranu ([availW]) – 2 szerokie / 3 plakaty
+     * na ekran (dawniej stałe 236 dp – półtora kafelka i przycinanie), krótsze przyciski hero.
+     */
+    data class Dims(val compact: Boolean, val narrow: Boolean, val portrait: Boolean = false, val availW: Dp = 0.dp) {
+        val rail get() = if (compact || portrait) 56.dp else 76.dp
+        val railOpen get() = if (compact || portrait) 200.dp else 250.dp
+        val railItem get() = if (compact) 34.dp else if (portrait) 40.dp else 44.dp
+        val railPad get() = if (compact || portrait) 8.dp else 12.dp
         val side get() = if (narrow) 10.dp else if (compact) 16.dp else 28.dp
-        val heroH get() = if (compact) 150.dp else 236.dp
-        val heroTitle get() = if (compact) 22.sp else 34.sp
-        val wideW get() = if (compact) 160.dp else 236.dp
+        val heroH get() = if (compact) 150.dp else if (portrait) 210.dp else 236.dp
+        val heroTitle get() = if (compact) 22.sp else if (portrait) 26.sp else 34.sp
+        val wideW get() = if (portrait) ((availW - gap) / 2).coerceIn(120.dp, 236.dp) else if (compact) 160.dp else 236.dp
         val wideH get() = wideW * 9f / 16f
-        val posterW get() = if (compact) 92.dp else 132.dp
+        val posterW get() = if (portrait) ((availW - gap * 2) / 3).coerceIn(84.dp, 132.dp) else if (compact) 92.dp else 132.dp
         val posterH get() = posterW * 1.5f
-        val gap get() = if (compact) 12.dp else 18.dp
+        val gap get() = if (compact) 12.dp else if (portrait) 12.dp else 18.dp
     }
     private var dims = Dims(compact = false, narrow = false)
 
@@ -507,7 +588,10 @@ class ModernHomeActivity : BaseActivity() {
     private fun Home() {
         val c = LocalModern.current
         val cfg = LocalConfiguration.current
-        dims = Dims(compact = cfg.screenHeightDp < 520, narrow = cfg.screenWidthDp < 600)
+        val portrait = cfg.screenWidthDp < 600 && cfg.screenHeightDp > cfg.screenWidthDp
+        // dostępna szerokość rzędów: ekran − pasek − marginesy − odstęp z lewej rzędu (10) i z prawej (≈ 16)
+        dims = Dims(compact = cfg.screenHeightDp < 520, narrow = cfg.screenWidthDp < 600, portrait = portrait,
+            availW = (cfg.screenWidthDp - 56 - 10 - 10 - 16).dp)
         Box(Modifier.fillMaxSize().modernBackdrop(c.bg, c.accent)
             .focusProperties { enter = { ((pendingFocus ?: lastFocus)?.takeIf { it in attached })?.let { requester(it) } ?: FocusRequester.Default } }
             .focusGroup()) {
@@ -521,6 +605,11 @@ class ModernHomeActivity : BaseActivity() {
             }
             Rail()
             if (options) Options()
+        }
+        // (7.6) zmiana sekcji: rzędy i opis hero wchodzą przenikaniem z lekkim przesunięciem (tylko w warstwie – bez przebudowy)
+        LaunchedEffect(section) {
+            if (lowPerfNow) return@LaunchedEffect
+            sectionAnim.snapTo(0f); sectionAnim.animateTo(1f, tween(SECTION_ANIM_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing))
         }
         // zapasowo: element docelowy zniknął (np. rząd po odświeżeniu) – „Odtwórz” w hero
         LaunchedEffect(pendingFocus) {
@@ -584,7 +673,7 @@ class ModernHomeActivity : BaseActivity() {
     private fun HeroInfo() {
         val c = LocalModern.current
         val f = feature ?: remember(section, recent, videos, titles) { defaultFeature() }
-        Column(Modifier.fillMaxWidth(if (dims.narrow) 1f else 0.56f).height(dims.heroH).padding(top = if (dims.compact) 4.dp else 14.dp),
+        Column(Modifier.fillMaxWidth(if (dims.narrow) 1f else 0.56f).height(dims.heroH).sectionFade().padding(top = if (dims.compact) 4.dp else 14.dp),
             verticalArrangement = Arrangement.Bottom) {
             if (f.badge.isNotEmpty() && !dims.compact) BasicText(f.badge, Modifier.padding(bottom = 8.dp).clip(RoundedCornerShape(3.dp))
                 .background(if (f.badge == "NA ŻYWO") c.live else c.accent).padding(horizontal = 7.dp, vertical = 2.dp),
@@ -611,7 +700,7 @@ class ModernHomeActivity : BaseActivity() {
             Row(Modifier.padding(top = if (dims.compact) 8.dp else 14.dp).focusProperties { up = FocusRequester.Cancel },
                 horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 PillButton(HERO_PLAY, f.playLabel, primary = true, icon = "play", toRail = true) { f.play() }
-                PillButton(HERO_INFO, "Więcej informacji", primary = false, icon = ModernIcons.INFO) { f.info() }
+                PillButton(HERO_INFO, if (dims.narrow) "Więcej" else "Więcej informacji", primary = false, icon = ModernIcons.INFO) { f.info() }
             }
         }
     }
@@ -625,7 +714,7 @@ class ModernHomeActivity : BaseActivity() {
         Row(Modifier.height(h).item(key, h / 2, 1.06f, focused, toRail = toRail, onClick = onClick)
             .clip(RoundedCornerShape(h / 2))
             .background(if (primary) (if (focused.value) lighten(c.accent) else c.accent) else if (focused.value) Color.White.copy(alpha = 0.32f) else c.pill)
-            .padding(horizontal = if (dims.compact) 14.dp else 20.dp), verticalAlignment = Alignment.CenterVertically) {
+            .padding(horizontal = if (dims.compact || dims.narrow) 14.dp else 20.dp), verticalAlignment = Alignment.CenterVertically) {
             Canvas(Modifier.size(if (dims.compact) 12.dp else 15.dp)) { if (icon == "play") ModernIcons.play(this, Color.White) else ModernIcons.draw(this, icon, Color.White) }
             BasicText(label.uppercase(), Modifier.padding(start = 9.dp), style = ModernType.button.copy(fontSize = if (dims.compact) 12.sp else 14.sp), maxLines = 1)
         }
@@ -638,7 +727,9 @@ class ModernHomeActivity : BaseActivity() {
     @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
     @Composable
     private fun Shelves() {
-        val list = remember(section, recent, favs, all, videos, titles, minute) { shelves() }
+        // (7.6) postęp programów (co minutę) tylko w sekcjach z kanałami – w pozostałych bez przebudowy rzędów co minutę
+        val tick = if (section == 0 || section == 1) minute else 0L
+        val list = remember(section, recent, favs, all, videos, titles, tick, stMovies, stSeries) { shelves() }
         val state = rememberLazyListState()
         // nowa sekcja albo doładowane rzędy (np. „Kontynuuj” nad „Na skróty”), gdy fokus nie jest w rzędach – od pierwszego rzędu
         // (lista trzyma pozycję wg klucza: rząd dodany wyżej zostałby poza ekranem)
@@ -647,7 +738,7 @@ class ModernHomeActivity : BaseActivity() {
         // zaznaczony rząd przesuwa się pod hero (nagłówek rzędu widoczny) – jak w serwisach VOD
         val spec = remember { ShelfScroll(Ui.dp(if (dims.compact) 28 else 36).toFloat()) }
         CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides spec) {
-            LazyColumn(Modifier.fillMaxSize(), state = state,
+            LazyColumn(Modifier.fillMaxSize().sectionFade(), state = state,
                 contentPadding = PaddingValues(bottom = 80.dp)) {
                 items(list, key = { "$section/${it.id}" }) { s -> ShelfRow(s) }
             }
@@ -733,7 +824,8 @@ class ModernHomeActivity : BaseActivity() {
             RailItem("nav:profile", X25Icons.PROFILE, "Profil i opcje", avatar = true) { openOptions() }
             RailItem("nav:search", X25Icons.SEARCH, "Szukaj") { search() }
             Spacer(Modifier.height(if (dims.compact) 4.dp else 10.dp))
-            NAV.forEachIndexed { i, n -> RailItem("nav:s$i", n.icon, n.label, selected = section == i) { selectSection(i) } }
+            // (7.5) zaznaczenie sekcji – podgląd jej rzędów; OK / dotknięcie – od razu ta zakładka (Domek – kursor na „Ostatnio oglądane”)
+            NAV.forEachIndexed { i, n -> RailItem("nav:s$i", n.icon, n.label, selected = section == i, onFocus = { previewSection(i) }) { openSection(i) } }
             Spacer(Modifier.weight(1f))
             RailItem("nav:settings", X25Action.SETTINGS, "Ustawienia") { X25Actions.run(this@ModernHomeActivity, X25Action(X25Action.SETTINGS)) }
             // launcher: ekran główny się nie zamyka – bez „Wyjścia”
@@ -742,11 +834,11 @@ class ModernHomeActivity : BaseActivity() {
     }
 
     @Composable
-    private fun RailItem(key: String, icon: String, label: String, selected: Boolean = false, avatar: Boolean = false, onClick: () -> Unit) {
+    private fun RailItem(key: String, icon: String, label: String, selected: Boolean = false, avatar: Boolean = false, onFocus: () -> Unit = {}, onClick: () -> Unit) {
         val c = LocalModern.current
         val focused = remember { mutableStateOf(false) }
         val h = dims.railItem
-        Row(Modifier.fillMaxWidth().height(h).item(key, h / 2, 1f, focused, frame = false, onClick = onClick)
+        Row(Modifier.fillMaxWidth().height(h).item(key, h / 2, 1f, focused, frame = false, onFocus = onFocus, onClick = onClick)
             .clip(RoundedCornerShape(h / 2))
             .background(if (focused.value) c.accent else Color.Transparent)
             .padding(horizontal = ((dims.rail - dims.railPad * 2 - h * 0.56f) / 2).coerceAtLeast(2.dp)),
@@ -819,6 +911,8 @@ class ModernHomeActivity : BaseActivity() {
         const val HERO_INFO = "h:info"
         /** Opóźnienie zmiany hero po zaznaczeniu kafelka (szybkie przewijanie nie wczytuje obrazów po drodze). */
         const val FEATURE_DELAY_MS = 300L
+        /** (7.6) Przejście między sekcjami ekranu głównego. */
+        const val SECTION_ANIM_MS = 220
     }
 }
 

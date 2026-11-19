@@ -171,16 +171,23 @@ class ModernTest {
         key(a, KeyEvent.KEYCODE_DPAD_LEFT)
         if (a.focusedKey!!.startsWith("r:")) key(a, KeyEvent.KEYCODE_DPAD_LEFT)
         assertEquals("nav:s0", a.focusedKey); assertTrue(a.railOpenNow)
-        // ▼ OK – sekcja „Na żywo”: fokus na jej pierwszym kafelku
+        // 7.5: OK na Domku – kursor w prawo na rzędy Startu („Ostatnio oglądane”, gdy są)
+        key(a, KeyEvent.KEYCODE_DPAD_CENTER)
+        waitFor { a.focusedKey?.startsWith("r:") == true }
+        val home = if ("channels" in a.shelfIds) "channels" else a.shelfIds[0]
+        assertEquals("r:$home|${a.tileKeys(home)[0]}", a.focusedKey); assertFalse(a.railOpenNow)
+        key(a, KeyEvent.KEYCODE_DPAD_LEFT)
+        if (a.focusedKey!!.startsWith("r:")) key(a, KeyEvent.KEYCODE_DPAD_LEFT)
+        assertEquals("nav:s0", a.focusedKey)
+        // ▼ – zaznaczenie „Na żywo”: podgląd sekcji (fokus zostaje w pasku); OK – od razu ekran Live TV
         key(a, KeyEvent.KEYCODE_DPAD_DOWN)
         assertEquals("nav:s1", a.focusedKey)
-        key(a, KeyEvent.KEYCODE_DPAD_CENTER)
         assertEquals(1, a.sectionNow)
-        waitFor { a.focusedKey?.startsWith("r:") == true }
-        assertEquals("r:${a.shelfIds[0]}|${a.tileKeys(a.shelfIds[0])[0]}", a.focusedKey); assertFalse(a.railOpenNow)
-        // WSTECZ: z treści – pasek ikon; z paska – wyjście
-        a.onBackPressedDispatcher.onBackPressed(); waitFor { a.focusedKey == "nav:s1" }
+        generateSequence { shadowOf(a).nextStartedActivity }.toList()
+        key(a, KeyEvent.KEYCODE_DPAD_CENTER)
+        assertEquals(MainActivity::class.java.name, shadowOf(a).nextStartedActivity?.component?.className)
         assertEquals("nav:s1", a.focusedKey)
+        // WSTECZ z paska – wyjście
         a.onBackPressedDispatcher.onBackPressed(); idle()
         assertTrue(a.isFinishing)
     }

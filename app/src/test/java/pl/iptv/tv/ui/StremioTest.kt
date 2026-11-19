@@ -281,6 +281,96 @@ class StremioTest {
         assertEquals("tt2:1:2", i.getStringExtra(StremioPlayerActivity.EXTRA_VIDEO))
     }
 
+    @Test fun episodeNavigationIsNeverBlockedBySourceLoading() = runBlocking {
+        // 7.4: przewijanie odcinków podczas wczytywania źródeł – kursor idzie tam, gdzie pilot, źródła dopiero po zatrzymaniu
+        StremioAccount.save(StremioApi.Session("AK1", "jan@x.pl"))
+        StremioStore.replaceFromAccount(StremioApi.addonCollection("AK1"))
+        val a = Robolectric.buildActivity(StremioDetailActivity::class.java, StremioDetailActivity.intent(ctx, StremioMetaPreview("tt2", "series", "Serial Testowy"))).setup().visible().get()
+        androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().setInTouchMode(false)
+        val dv = a.window.decorView
+        // układ okna w każdym kroku (Robolectric sam nie rysuje okna w trybie PAUSED)
+        fun frame() { dv.measure(View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY)); dv.layout(0, 0, 1920, 1080) }
+        fun waitFor(cond: () -> Boolean) { repeat(80) { idle(100); frame(); Thread.sleep(10); if (cond()) return } }
+        waitFor { a.meta != null }
+        a.selectSeason(1, null)
+        waitFor { dv.findFocus() != null }
+        fun focusedEpisode() = dv.findFocus()?.let { v -> texts(v).firstOrNull()?.text?.toString() }
+        assertEquals("1. Pilot", focusedEpisode())
+        paths.clear()
+        val t = android.os.SystemClock.uptimeMillis()
+        KeyActivity.lastUserKeyAt = t          // naciśnięcie strzałki (ruch kursora niżej – jak okno przy fokusie)
+        dv.findFocus()!!.focusSearch(View.FOCUS_DOWN)!!.requestFocus()
+        shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(50))
+        assertEquals("2. Drugi", focusedEpisode())
+        assertTrue("źródła czekają na zatrzymanie kursora", a.sourcesPending)
+        assertFalse(paths.any { it.contains("/stream/") })
+        // ▲ od razu – kursor wraca na 1. odcinek (nie jest „przyklejony”), poprzednie zapytanie odwołane
+        val t2 = android.os.SystemClock.uptimeMillis()
+        KeyActivity.lastUserKeyAt = t2
+        dv.findFocus()!!.focusSearch(View.FOCUS_UP)!!.requestFocus()
+        waitFor { !a.sourcesPending && a.groups.isNotEmpty() && a.groups.none { it.loading } }
+        assertEquals("1. Pilot", focusedEpisode())
+        assertEquals("tt2:1:1", a.videoId)
+        assertFalse("mijany odcinek nie był pytany", paths.any { it.contains("tt2%3A1%3A2") || it.contains("tt2:1:2") })
+        // OK na odcinku – kursor na pierwsze źródło, gdy tylko się wczyta
+        dv.findFocus()!!.performClick()
+        waitFor { dv.findFocus()?.let { f -> texts(f).any { it.text.contains("4K") } } == true }
+        assertTrue(dv.findFocus()?.let { f -> texts(f).any { it.text.contains("4K") } } == true)
+    }
+
+    @Test fun polishVoiceDetectionAndAutoLanguage() {
+        // 7.4: lektor / dubbing tylko polskie
+        assertTrue("Lektor PL" in StremioStreams.languages("Film.2023.1080p.Lektor.PL.mkv"))
+        assertTrue("Lektor PL" in StremioStreams.languages("Film 1080p Lektor"))
+        assertFalse("Lektor PL" in StremioStreams.languages("Film.2023.Lektor.UA.1080p"))
+        assertFalse("Dubbing PL" in StremioStreams.languages("Film 2023 iTA dubbing 1080p 🇮🇹"))
+        assertTrue("Dubbing PL" in StremioStreams.languages("Film.2023.DUBBING.PL.1080p"))
+        assertTrue("Dubbing PL" in StremioStreams.languages("Film 2023 PL Dub"))
+        // napisy z wtyczek: polskie, nie portugalskie (dawny prefiks „po”)
+        assertTrue(D.isPolishSubtitle("pol")); assertTrue(D.isPolishSubtitle("pl"))
+        assertFalse(D.isPolishSubtitle("por")); assertFalse(D.isPolishSubtitle("pob"))
+        // plan: opisana polska ścieżka – ona i bez napisów; nieopisane ścieżki + źródło „lektor PL” – polski dźwięk, bez napisów
+        assertEquals(1, D.languagePlan(listOf("eng" to null, "pol" to null), emptyList()).audio)
+        val assumed = D.languagePlan(listOf(null to null), emptyList(), sourceClaimsPolishAudio = true)
+        assertTrue(assumed.polishAudio && assumed.subsOff && !assumed.addonSubs)
+        // ścieżki opisane, żadna polska, a źródło obiecywało lektora – napisy PL i zapamiętanie źródła jako bez lektora
+        val wrong = D.languagePlan(listOf("eng" to null), emptyList(), sourceClaimsPolishAudio = true)
+        assertTrue(wrong.noPolishAudio && wrong.addonSubs && !wrong.polishAudio)
+        val s = StremioStream("a", "u", title = "Film.Lektor.PL.1080p", url = "http://x/lektor-test")
+        assertTrue(s.claimsPolishAudio)
+        StremioStreams.markNoPolishAudio(s)
+        assertFalse(s.claimsPolishAudio); assertFalse("Lektor PL" in s.languages)
+    }
+
+    @Test fun playerIconsSlideOutTheirLabelOnlyWhenFocused() {
+        // 7.4: zaznaczona ikona wysuwa swój podpis, po przejściu na inną – chowa go (podpis inny dla każdej ikony)
+        val a = Robolectric.buildActivity(StremioAddonsActivity::class.java).setup().get(); idle()
+        androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().setInTouchMode(false)
+        val row = android.widget.LinearLayout(a); PlayerChrome.expandingRow(row)
+        val cc = PlayerChrome.expandingButton(a, PlayerIcon.CC, "Napisy") {}
+        val audio = PlayerChrome.expandingButton(a, PlayerIcon.AUDIO, "Ścieżka dźwięku") {}
+        row.addView(cc); row.addView(audio)
+        a.setContentView(row); idle()
+        assertEquals("", cc.text.toString()); assertEquals("", audio.text.toString())
+        cc.requestFocus(); idle()
+        assertEquals("Napisy", cc.text.toString()); assertEquals("", audio.text.toString())
+        audio.requestFocus(); idle()
+        assertEquals("", cc.text.toString()); assertEquals("Ścieżka dźwięku", audio.text.toString())
+        assertEquals("Napisy", cc.contentDescription)
+    }
+
+    @Test fun focusRequestGivesWayToUserKeys() {
+        // 7.4: zlecenie fokusu (np. po wczytaniu listy) nie odbiera kursora, gdy użytkownik nacisnął strzałkę później
+        val a = Robolectric.buildActivity(StremioAddonsActivity::class.java).setup().visible().get(); idle()
+        val rv = androidx.recyclerview.widget.RecyclerView(a)
+        val before = KeyActivity.lastUserKeyAt
+        try {
+            KeyActivity.lastUserKeyAt = android.os.SystemClock.uptimeMillis() + 1000
+            rv.focusPosition(0, since = android.os.SystemClock.uptimeMillis())
+            assertFalse(rv.hasFocus())
+        } finally { KeyActivity.lastUserKeyAt = before }
+    }
+
     @Test fun playerSubtitlesDelayAspectAndNextEpisode() = runBlocking {
         StremioAccount.save(StremioApi.Session("AK1", "jan@x.pl"))
         StremioStore.replaceFromAccount(StremioApi.addonCollection("AK1"))

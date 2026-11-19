@@ -1,6 +1,6 @@
 {
-  "versionCode": 63,
-  "versionName": "7.3",
+  "versionCode": 66,
+  "versionName": "7.6",
   "apk": "D-iptv-Player.apk",
-  "notes": "Szybsze przelaczanie kanalow: jednorazowy blad formatu na starcie nie zatrzymuje juz kanalu na dobor silnika (start od razu zamiast po 4-5 s); zbedne ustawienia kanalow z 7.2 usuwane automatycznie"
+  "notes": "Wszystkie motywy dopasowane do telefonu w pionie, szybsze i plynniejsze Ustawienia, kategorie i pulpity; reczne dopasowanie silnika kanalu (przytrzymaj OK); Stremio: nowy pasek odtwarzacza, przewijanie strzalkami, PiP, poprawny polski lektor i napisy; STube: tylko dzwiek i PiP na telefonie; kanaly bez zacinania jak w 6.5"
 }

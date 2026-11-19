@@ -395,7 +395,8 @@ class X25DashboardActivity : BaseActivity() {
      * Wymiary pulpitu wg ekranu: TV / tablet – pełne; niski ekran (telefon w poziomie) – mniejszy pasek, kafelki i nagłówek,
      * żeby sekcje ostatnich i kafelki funkcji mieściły się bez nachodzenia; wąski (telefon w pionie) – ikony paska od lewej.
      */
-    data class Dims(val compact: Boolean, val narrow: Boolean) {
+    /** (7.6) [portrait] – telefon w pionie: kafelki funkcji w siatce 2 kolumn na resztę ekranu (bez pustej połowy u góry). */
+    data class Dims(val compact: Boolean, val narrow: Boolean, val portrait: Boolean = false) {
         val topH get() = if (compact) 50.dp else 66.dp
         val topIcon get() = if (compact || narrow) 36.dp else 44.dp
         val topGap get() = if (narrow) 6.dp else 10.dp
@@ -417,19 +418,28 @@ class X25DashboardActivity : BaseActivity() {
         val c = LocalX25.current
         val cfg = LocalConfiguration.current
         val narrow = cfg.screenWidthDp < 600
-        dims = Dims(compact = cfg.screenHeightDp < 520, narrow = narrow)
+        dims = Dims(compact = cfg.screenHeightDp < 520, narrow = narrow, portrait = narrow && cfg.screenHeightDp > cfg.screenWidthDp)
         val side = if (narrow) 16.dp else 48.dp
         // wejście fokusu na ekran (okno odzyskuje fokus: start, powrót z innego ekranu) – ostatni element albo pierwszy kafelek, nie ikona paska
         Box(Modifier.fillMaxSize()
             .focusProperties { enter = { entryTarget()?.let { requester(it) } ?: FocusRequester.Default } }
             .focusGroup()) {
-            Column(Modifier.fillMaxSize().padding(top = dims.padTop, bottom = if (dims.compact) 6.dp else 16.dp)) {
+            Column(Modifier.fillMaxSize().dashboardEnter().padding(top = dims.padTop, bottom = if (dims.compact) 6.dp else 16.dp)) {
                 TopBar(side)
+                if (dims.portrait) {
+                    // (7.6) telefon w pionie: nagłówek pod paskiem, ostatnie, a kafelki w siatce na resztę ekranu
+                    Box(Modifier.fillMaxWidth().padding(start = side, end = side, top = 18.dp, bottom = 6.dp)) { Hero(Modifier) }
+                    if (recents.isNotEmpty()) RecentRow(side)
+                    if (editingId != null) SectionLabel("TRYB EDYCJI · OK / WSTECZ – gotowe", side, c.ring)
+                    else SectionLabel("Twoje funkcje · przytrzymaj – edycja", side)
+                    FunctionGrid(side, Modifier.weight(1f))
+                } else {
                 Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = side)) { Hero(Modifier.align(Alignment.BottomStart)) }
                 if (recents.isNotEmpty()) RecentRow(side)
                 if (editingId != null) SectionLabel("TRYB EDYCJI   ◄ ► przesuń · OK / WSTECZ – gotowe · MENU – opcje kafelka", side, c.ring)
                 else SectionLabel("Twoje funkcje   ·   przytrzymaj OK – edycja kafelka", side)
                 FunctionRow(side)
+                }
             }
             if (flyout.isNotEmpty()) Flyout(narrow)
         }
@@ -604,8 +614,26 @@ class X25DashboardActivity : BaseActivity() {
         }
     }
 
+    /** (7.6) Kafelki funkcji w pionie: siatka 2 kolumn (kafelek na całą szerokość komórki), przewijanie w pionie. */
     @Composable
-    private fun FnTile(t: DashTile, m: Modifier) {
+    private fun FunctionGrid(side: androidx.compose.ui.unit.Dp, m: Modifier) {
+        val state = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+        val visible = X25Layout.visible(tiles)
+        androidx.compose.foundation.lazy.grid.LazyVerticalGrid(androidx.compose.foundation.lazy.grid.GridCells.Fixed(2),
+            m.fillMaxWidth().rowEntry("t:").focusGroup(), state = state,
+            contentPadding = PaddingValues(start = side, end = side, top = dims.rowPad, bottom = 24.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(visible.size, key = { visible[it].id }) { i -> FnTile(visible[i], Modifier, fill = true) }
+        }
+        LaunchedEffect(pendingFocus) {
+            val id = pendingFocus?.takeIf { it.startsWith("t:") }?.removePrefix("t:") ?: return@LaunchedEffect
+            val i = visible.indexOfFirst { it.id == id }
+            if (i >= 0 && state.layoutInfo.visibleItemsInfo.none { it.index == i }) state.scrollToItem(i)
+        }
+    }
+
+    @Composable
+    private fun FnTile(t: DashTile, m: Modifier, fill: Boolean = false) {
         val c = LocalX25.current
         var focused by remember { mutableStateOf(false) }
         val editing = editingId == t.id
@@ -616,7 +644,7 @@ class X25DashboardActivity : BaseActivity() {
         val sub = X25Actions.subtitle(t.action)
         val dim = editingId != null && !editing
         val base = if (t.type == X25Action.LIVE || t.big) c.accent.copy(alpha = 0.30f) else c.panel.copy(alpha = 0.88f)
-        Box(m.size(if (t.big) dims.tileBigW else dims.tileW, dims.tileH)
+        Box((if (fill) m.fillMaxWidth().height(dims.tileH) else m.size(if (t.big) dims.tileBigW else dims.tileW, dims.tileH))
             .focusRequester(requester(key))
             .onFocusChanged { if (it.isFocused != focused) { focused = it.isFocused; if (it.isFocused) onFocused(key, title, sub) } }
             .x25Clickable(onClick = { if (editingId != null) stopEditing() else runTile(t) }, onLong = { if (editingId == null) tileMenu(t) }, onKey = { e -> tileKey(t, e) })

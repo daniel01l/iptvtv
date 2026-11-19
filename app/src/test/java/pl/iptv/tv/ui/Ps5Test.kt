@@ -322,6 +322,15 @@ class Ps5Test {
         val m = Robolectric.buildActivity(MainActivity::class.java, i).setup().get(); idle()
         val started = generateSequence { shadowOf(m).nextStartedActivity }.map { it.component?.className }.toList()
         assertFalse(started.toString(), Ps5HomeActivity::class.java.name in started)
+        // 7.4: lista już istniała pod pulpitem (REORDER_TO_FRONT → onNewIntent) – też zostaje; dawniej od razu wracał pulpit
+        val ctl = Robolectric.buildActivity(MainActivity::class.java).setup(); idle()
+        generateSequence { shadowOf(ctl.get()).nextStartedActivity }.toList()
+        ctl.newIntent(i); idle()
+        val again = generateSequence { shadowOf(ctl.get()).nextStartedActivity }.map { it.component?.className }.toList()
+        assertFalse(again.toString(), Ps5HomeActivity::class.java.name in again)
+        // HOME (bez wejścia z pulpitu) nadal otwiera pulpit
+        ctl.newIntent(android.content.Intent(ctx, MainActivity::class.java).putExtra(MainActivity.EXTRA_SKIP_START, true)); idle()
+        assertEquals(Ps5HomeActivity::class.java.name, shadowOf(ctl.get()).nextStartedActivity?.component?.className)
     }
 
     @Test fun appLibraryWithSystemSettings() {

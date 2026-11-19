@@ -15,8 +15,10 @@ import java.util.concurrent.ConcurrentHashMap
  * przez dekoder systemu); [async] – kolejka dekodera (0 – wg ustawień, 1 – asynchroniczna, 2 – synchroniczna);
  * [container] – rodzaj strumienia (0 – rozpoznanie automatyczne, 1 – HLS, 2 – zwykły strumień TS). Profil wyłącza tunelowanie.
  */
-data class EngineProfile(val software: Boolean = false, val ffmpeg: Boolean = false, val async: Int = 0, val container: Int = 0) {
-    fun encode() = "sw=${b(software)};ff=${b(ffmpeg)};async=$async;fmt=$container"
+data class EngineProfile(val software: Boolean = false, val ffmpeg: Boolean = false, val async: Int = 0, val container: Int = 0,
+                         val buffer: Int = 0) {
+    /** (7.5) [buffer] – 0: zwykły zapas, 1: duży (start 3 s, po przycięciu 8 s, do 90 s) dla zacinających się kanałów. */
+    fun encode() = "sw=${b(software)};ff=${b(ffmpeg)};async=$async;fmt=$container" + if (buffer != 0) ";buf=$buffer" else ""
     private fun b(v: Boolean) = if (v) 1 else 0
 
     /** Opis dla użytkownika (komunikat na ekranie, ustawienia). */
@@ -25,12 +27,14 @@ data class EngineProfile(val software: Boolean = false, val ffmpeg: Boolean = fa
         if (ffmpeg) "dźwięk FFmpeg" else null,
         when (async) { 1 -> "kolejka asynchroniczna"; 2 -> "kolejka synchroniczna"; else -> null },
         when (container) { 1 -> "strumień HLS"; 2 -> "strumień TS"; else -> null },
+        if (buffer == 1) "duży bufor" else null,
     ).joinToString(", ")
 
     companion object {
         fun decode(s: String): EngineProfile? = runCatching {
             val m = s.split(';').filter { '=' in it }.associate { it.substringBefore('=') to it.substringAfter('=') }
-            EngineProfile(m["sw"] == "1", m["ff"] == "1", m["async"]?.toInt()?.coerceIn(0, 2) ?: 0, m["fmt"]?.toInt()?.coerceIn(0, 2) ?: 0)
+            EngineProfile(m["sw"] == "1", m["ff"] == "1", m["async"]?.toInt()?.coerceIn(0, 2) ?: 0, m["fmt"]?.toInt()?.coerceIn(0, 2) ?: 0,
+                m["buf"]?.toInt()?.coerceIn(0, 1) ?: 0)
         }.getOrNull()
     }
 }

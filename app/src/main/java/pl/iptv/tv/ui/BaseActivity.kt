@@ -90,6 +90,7 @@ open class BaseActivity : AppCompatActivity() {
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
         // PS5: podpowiedzi przycisków wg ostatnio użytego urządzenia (pilot / pad)
         Ps5Input.onKey(event)
+        if (event.action == android.view.KeyEvent.ACTION_DOWN && event.keyCode in NAV_KEYS) KeyActivity.lastUserKeyAt = event.eventTime
         if (throttledRepeat(event)) return true
         if (miniBar?.handleKey(event) == true) return true
         return super.dispatchKeyEvent(event)

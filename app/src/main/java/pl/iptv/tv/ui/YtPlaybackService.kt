@@ -37,6 +37,7 @@ class YtPlaybackService : MediaSessionService() {
         }
         fun videoOf(b: Bundle) = YtVideo(b.getString(ARG_ID).orEmpty(), b.getString(ARG_TITLE).orEmpty(), b.getString(ARG_CHANNEL).orEmpty(), b.getString(ARG_THUMB).orEmpty())
         private val COMMANDS = listOf(CMD_LOAD, CMD_BACKGROUND, CMD_STOP)
+        private val NAV_COMMANDS = setOf(Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM, Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_STOP)
     }
 
     private var session: MediaSession? = null
@@ -45,11 +46,27 @@ class YtPlaybackService : MediaSessionService() {
         super.onCreate()
         val exo = YtEngine.ensurePlayer(this)
         // tytuł, kanał i miniatura w powiadomieniu / kontrolerach (źródło strumienia nie niesie metadanych)
-        val forwarding = object : ForwardingPlayer(exo) { override fun getMediaMetadata() = YtEngine.metadata() }
+        val forwarding = object : ForwardingPlayer(exo) {
+            override fun getMediaMetadata() = YtEngine.metadata()
+            // (7.5) powiadomienie / ekran blokady: ⏭ – następny materiał (kolejka / propozycje), ⏮ – od początku
+            override fun getAvailableCommands(): Player.Commands = super.getAvailableCommands().buildUpon()
+                .addAll(Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM, Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_STOP).build()
+            override fun isCommandAvailable(command: Int) = command in NAV_COMMANDS || super.isCommandAvailable(command)
+            override fun seekToNext() = YtEngine.next()
+            override fun seekToNextMediaItem() = YtEngine.next()
+            override fun seekToPrevious() = exo.seekTo(0)
+            override fun seekToPreviousMediaItem() = exo.seekTo(0)
+            override fun stop() = YtEngine.stop()
+        }
         val open = PendingIntent.getActivity(this, 0,
             Intent(this, YtPlayerActivity::class.java).putExtra(YtPlayerActivity.EXTRA_RESUME_CURRENT, true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        session = MediaSession.Builder(this, forwarding).setSessionActivity(open).setCallback(callback).build()
+        // (7.5) przycisk „Zatrzymaj” w powiadomieniu (obok ⏮ ⏯ ⏭) – kończy odtwarzanie i usługę
+        val stopButton = androidx.media3.session.CommandButton.Builder()
+            .setDisplayName("Zatrzymaj").setIconResId(android.R.drawable.ic_menu_close_clear_cancel)
+            .setSessionCommand(SessionCommand(CMD_STOP, Bundle.EMPTY)).build()
+        session = MediaSession.Builder(this, forwarding).setSessionActivity(open).setCallback(callback)
+            .setCustomLayout(com.google.common.collect.ImmutableList.of(stopButton)).build()
         YtEngine.onStopRequest = { stopSelf() }
     }
 

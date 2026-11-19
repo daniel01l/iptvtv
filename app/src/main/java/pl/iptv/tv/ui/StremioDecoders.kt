@@ -176,12 +176,27 @@ object StremioDecoders {
      * Plan języka dla źródła ([audio] / [text] – (język, etykieta) ścieżek): jest polski dźwięk → ta ścieżka i napisy wyłączone;
      * brak → napisy polskie: wbudowana polska ścieżka napisów ([LangPlan.embeddedText]) albo napisy z wtyczek ([LangPlan.addonSubs]).
      */
-    data class LangPlan(val audio: Int?, val subsOff: Boolean, val embeddedText: Int?, val addonSubs: Boolean)
+    /**
+     * [polishAudio] – w źródle jest polski dźwięk (wybrana ścieżka [audio] albo – gdy plik nie opisuje języków – deklaracja
+     * lektora / dubbingu w opisie źródła); [noPolishAudio] – źródło deklarowało polski dźwięk, a opisane ścieżki są w innych językach.
+     */
+    data class LangPlan(val audio: Int?, val subsOff: Boolean, val embeddedText: Int?, val addonSubs: Boolean,
+                        val polishAudio: Boolean = audio != null, val noPolishAudio: Boolean = false)
 
-    fun languagePlan(audio: List<Pair<String?, String?>>, text: List<Pair<String?, String?>>): LangPlan {
+    /** Język nieopisany w pliku (brak, „und”, „unknown”). */
+    fun undefinedLanguage(language: String?) = language.isNullOrBlank() || language.lowercase() in setOf("und", "unknown", "mis", "zxx", "mul")
+
+    fun languagePlan(audio: List<Pair<String?, String?>>, text: List<Pair<String?, String?>>, sourceClaimsPolishAudio: Boolean = false): LangPlan {
         val pl = audio.indexOfFirst { (lang, label) -> isPolish(lang, label) }
         if (pl >= 0) return LangPlan(pl, subsOff = true, embeddedText = null, addonSubs = false)
+        // (7.4) jedna / nieopisane ścieżki, a źródło to „lektor PL” – to polski dźwięk: bez napisów
+        if (sourceClaimsPolishAudio && audio.all { (lang, _) -> undefinedLanguage(lang) })
+            return LangPlan(null, subsOff = true, embeddedText = null, addonSubs = false, polishAudio = true)
         val t = text.indexOfFirst { (lang, label) -> isPolish(lang, label) }
-        return LangPlan(null, subsOff = false, embeddedText = t.takeIf { it >= 0 }, addonSubs = t < 0)
+        return LangPlan(null, subsOff = false, embeddedText = t.takeIf { it >= 0 }, addonSubs = t < 0,
+            noPolishAudio = sourceClaimsPolishAudio && audio.isNotEmpty())
     }
+
+    /** (7.4) Polskie napisy z wtyczki: „pl”, „pol”, „pl-PL”, „Polish” – nie „por” / „pob” (portugalski, dawny błąd prefiksu „po”). */
+    fun isPolishSubtitle(lang: String): Boolean = isPolish(lang, null) || lang.trim().lowercase().let { it == "polish" || it == "polski" }
 }

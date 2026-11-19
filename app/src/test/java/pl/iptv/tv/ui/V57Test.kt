@@ -158,7 +158,10 @@ class V57Test {
         assertEquals(1, Prefs.playerEngine)
         assertTrue(label(0).startsWith("▶ Silnik: dekoder programowy"))
         // do szybkiego menu ikon
-        lv.performItemClick(lv.getChildAt(4), 4, 4); idle()
+        // 7.5: menu ma też pozycje dopasowania silnika kanału – „Szybkie menu ikon” szukane po nazwie
+        assertTrue((0 until lv.adapter.count).any { label(it).contains("Dopasowanie silnika") })
+        val mini = (0 until lv.adapter.count).first { label(it).contains("Szybkie menu ikon") }
+        lv.performItemClick(lv.getChildAt(mini), mini, mini.toLong()); idle()
         assertFalse(d.isShowing)
         assertEquals(View.VISIBLE, a.findViewById<View>(R.id.miniMenu).visibility)
         Prefs.playerEngine = 0; Prefs.hwAccel = true

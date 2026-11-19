@@ -164,14 +164,24 @@ fun prefetchPicon(c: android.content.Context, ch: Channel) {
  * Ustawia fokus na elemencie listy, czekając aż RecyclerView go narysuje
  * (po pokazaniu panelu elementy nie istnieją jeszcze w pierwszej klatce).
  */
-fun RecyclerView.focusPosition(pos: Int, childId: Int? = null, tries: Int = 20, fallback: View? = null) {
+fun RecyclerView.focusPosition(pos: Int, childId: Int? = null, tries: Int = 20, fallback: View? = null,
+                               since: Long = android.os.SystemClock.uptimeMillis()) {
+    // (7.4) użytkownik nacisnął klawisz po zleceniu – kolejne próby nie odbierają mu kursora (dawniej przez 0,6 s każdy ruch
+    // pilotem był cofany na zadany element: w Stremio kursor „przyklejał się” do odcinka do wznowienia)
+    val key = KeyActivity.lastUserKeyAt
+    if (key > since && key <= android.os.SystemClock.uptimeMillis()) return
     if (adapter?.itemCount ?: 0 == 0) { fallback?.requestFocus(); return }
     val p = pos.coerceIn(0, adapter!!.itemCount - 1)
     val v = findViewHolderForAdapterPosition(p)?.itemView?.let { iv -> childId?.let { iv.findViewById<View>(it) } ?: iv }
     if (v != null && v.isShown && v.requestFocus()) return
     if (tries <= 0) { fallback?.requestFocus(); return }
     if (v == null) scrollToPosition(p)
-    postDelayed({ focusPosition(p, childId, tries - 1, fallback) }, 30)
+    postDelayed({ focusPosition(p, childId, tries - 1, fallback, since) }, 30)
+}
+
+/** Czas ostatniego naciśnięcia klawisza przez użytkownika ([BaseActivity.dispatchKeyEvent]). */
+object KeyActivity {
+    @Volatile var lastUserKeyAt = 0L
 }
 
 /**

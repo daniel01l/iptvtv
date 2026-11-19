@@ -391,27 +391,32 @@ class Ps5HomeActivity : BaseActivity() {
     // ================= UI =================
 
     /** Wymiary wg ekranu: TV – pełne, niski ekran (telefon w poziomie) – mniejsze kafelki i karty, wąski – mniejsze marginesy. */
-    data class Dims(val compact: Boolean, val narrow: Boolean) {
+    /**
+     * (7.6) [portrait] – telefon w pionie: karty jedna pod drugą na całą szerokość ([availW]), mniejsze kafelki aplikacji.
+     */
+    data class Dims(val compact: Boolean, val narrow: Boolean, val portrait: Boolean = false, val availW: Dp = 0.dp) {
         val side get() = if (narrow) 16.dp else if (compact) 28.dp else 56.dp
         val topH get() = if (compact) 44.dp else 56.dp
-        val tile get() = if (compact) 58.dp else 84.dp
-        val bigH get() = if (compact) 160.dp else 230.dp
-        val smallH get() = if (compact) 48.dp else 70.dp
-        val heroW get() = if (compact) 260.dp else 380.dp
-        val midW get() = if (compact) 200.dp else 290.dp
+        val tile get() = if (compact) 58.dp else if (portrait) 72.dp else 84.dp
+        val bigH get() = if (compact) 160.dp else if (portrait) 200.dp else 230.dp
+        val smallH get() = if (compact) 48.dp else if (portrait) 64.dp else 70.dp
+        val heroW get() = if (portrait) availW else if (compact) 260.dp else 380.dp
+        val midW get() = if (portrait) availW else if (compact) 200.dp else 290.dp
+        val serviceW get() = if (portrait) availW else if (compact) 250.dp else 340.dp
         val gap get() = if (compact) 8.dp else 12.dp
-        val label get() = if (compact) 20.sp else 28.sp
+        val label get() = if (compact) 20.sp else if (portrait) 24.sp else 28.sp
     }
     private var dims = Dims(compact = false, narrow = false)
 
     @Composable
     private fun Home() {
         val cfg = LocalConfiguration.current
-        dims = Dims(compact = cfg.screenHeightDp < 520, narrow = cfg.screenWidthDp < 600)
+        val portrait = cfg.screenWidthDp < 600 && cfg.screenHeightDp > cfg.screenWidthDp
+        dims = Dims(compact = cfg.screenHeightDp < 520, narrow = cfg.screenWidthDp < 600, portrait = portrait, availW = (cfg.screenWidthDp - 32).dp)
         Box(Modifier.fillMaxSize()
             .focusProperties { enter = { ((pendingFocus ?: lastFocus)?.takeIf { it in attached })?.let { requester(it) } ?: FocusRequester.Default } }
             .focusGroup()) {
-            Column(Modifier.fillMaxSize().padding(top = if (dims.compact) 6.dp else 14.dp)) {
+            Column(Modifier.fillMaxSize().dashboardEnter().padding(top = if (dims.compact) 6.dp else 14.dp)) {
                 TopBar()
                 Crossfade(tab, animationSpec = tween(160), label = "tab") { t -> AppRow(t) }
                 SelectedLabel()
@@ -532,6 +537,26 @@ class Ps5HomeActivity : BaseActivity() {
         val tallH = dims.bigH - dims.smallH - g
         // na TV Compose domyślnie trzyma zaznaczony element w ~30% szerokości – karty przewijają się tylko, gdy wychodzą poza ekran
         androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides SmoothScroll) {
+        // (7.6) telefon w pionie: karty jedna pod drugą (przewijanie w pionie, cała szerokość)
+        if (dims.portrait) {
+            androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().rowEntry("c:").focusGroup(),
+                contentPadding = PaddingValues(start = dims.side, end = dims.side, top = 8.dp, bottom = 56.dp), verticalArrangement = Arrangement.spacedBy(g)) {
+                item(key = "hero") { HeroCard() }
+                item(key = "stube") { ServiceCard(stube = true) }
+                item(key = "stremio") { ServiceCard(stube = false) }
+                item(key = "add") { AddAppCard(dims.smallH) }
+                item(key = "q1") {
+                    if (tab == 0) QuickCard("c:q1", X25Action.GUIDE, "Przewodnik TV", "Co teraz w telewizji", act(X25Action.GUIDE))
+                    else QuickCard("c:q1", X25Action.HISTORY, "Historia i postęp", "Wróć do filmów", act(X25Action.HISTORY))
+                }
+                item(key = "second") { SecondCard(dims.bigH) }
+                item(key = "storage") { StorageCard() }
+                item(key = "settings") { QuickCard("c:settings", X25Action.SETTINGS, "Ustawienia", "Wygląd, listy, odtwarzanie", act(X25Action.SETTINGS)) }
+                item(key = "options") { QuickCard("c:options", X25Icons.MORE, "Opcje ekranu głównego", "Przełączniki motywu PS5") { openOptions() } }
+                item(key = "apps") { QuickCard("c:apps", X25Action.APPS, "Aplikacje", "Zainstalowane aplikacje", act(X25Action.APPS)) }
+            }
+            return@CompositionLocalProvider
+        }
         LazyRow(Modifier.fillMaxWidth().rowEntry("c:").focusGroup(), contentPadding = PaddingValues(horizontal = dims.side, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(g)) {
             item(key = "hero") { HeroCard() }
@@ -583,7 +608,7 @@ class Ps5HomeActivity : BaseActivity() {
         val c = LocalPs5.current
         val p = if (stube) "c:yt" else "c:st"
         val name = if (stube) "STube" else "Stremio"
-        val w = if (dims.compact) 250.dp else 340.dp
+        val w = dims.serviceW
         Column(Modifier.size(w, dims.bigH).clip(RoundedCornerShape(14.dp)).background(c.card)
             .border(1.dp, Color.White.copy(alpha = 0.07f), RoundedCornerShape(14.dp)).padding(10.dp),
             verticalArrangement = Arrangement.spacedBy(if (dims.compact) 6.dp else 10.dp)) {

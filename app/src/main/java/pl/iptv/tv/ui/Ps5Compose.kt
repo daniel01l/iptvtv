@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -149,3 +150,22 @@ class Ps5Option(val label: String, val sub: String = "", val switch: Boolean? = 
 
 /** (7.3) Sztywność sprężyny przewijania list na pulpitach (ok. 250–300 ms do zatrzymania, bez odbicia). */
 const val SCROLL_STIFFNESS = 450f
+
+/**
+ * (7.6) Wejście pulpitu (X25, PS5): treść przenika z lekkim uniesieniem (260 ms) – tylko w warstwie rysowania, bez ponownego
+ * składania; w trybie słabszych urządzeń od razu.
+ */
+@Composable
+fun Modifier.dashboardEnter(): Modifier {
+    val low = runCatching { pl.iptv.tv.data.Prefs.lowPerf }.getOrDefault(false)
+    val a = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(if (low) 1f else 0f) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        a.animateTo(1f, androidx.compose.animation.core.tween(DASHBOARD_ENTER_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+    }
+    return this.then(Modifier.graphicsLayer {
+        alpha = a.value
+        translationY = (1f - a.value) * 16.dp.toPx()
+    })
+}
+
+const val DASHBOARD_ENTER_MS = 260

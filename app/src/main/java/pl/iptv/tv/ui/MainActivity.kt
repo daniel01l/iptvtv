@@ -28,6 +28,8 @@ import pl.iptv.tv.data.StartActions
 class MainActivity : BaseActivity() {
     override val miniPlayer = true
     companion object {
+        /** (7.6) Kategoria pod kursorem pilota otwiera się po tej chwili (dawniej 250 ms). */
+        const val GROUP_FOCUS_DELAY_MS = 180L
         const val EXTRA_FROM_BOOT = "from_boot"
         /** Ustawiane przez launcher przy kolejnych naciśnięciach HOME. */
         const val EXTRA_SKIP_START = "skip_start"
@@ -58,7 +60,7 @@ class MainActivity : BaseActivity() {
         if (searching) closeSearch()
         groupAdapter.selected = g
         pendingGroup = g
-        handler.removeCallbacks(applyPendingGroup); handler.postDelayed(applyPendingGroup, 250)
+        handler.removeCallbacks(applyPendingGroup); handler.postDelayed(applyPendingGroup, GROUP_FOCUS_DELAY_MS)
     }
     override val videoBackground = false
     private lateinit var preview: androidx.media3.ui.PlayerView
@@ -296,7 +298,9 @@ class MainActivity : BaseActivity() {
         super.onNewIntent(intent)
         if (intent.getBooleanExtra(EXTRA_FROM_BOOT, false) && initialLoadDone) runStartAction()
         // HOME (launcher) przy motywie X25 – pulpit
-        else if (intent.getBooleanExtra(EXTRA_SKIP_START, false) && X25Theme.dashboardOn) X25Theme.openDashboard(this)
+        // (7.4) „Live TV” z pulpitu (lista już istniała pod pulpitem) – lista zostaje; dawniej od razu wracał pulpit
+        else if (intent.getBooleanExtra(EXTRA_SKIP_START, false) && !intent.getBooleanExtra(EXTRA_FROM_DASHBOARD, false) && X25Theme.dashboardOn)
+            X25Theme.openDashboard(this)
     }
 
     override fun onResume() {
@@ -656,7 +660,15 @@ class MainActivity : BaseActivity() {
         applyGroup(g)
     }
 
-    private fun applyGroup(g: String) { appliedGroup = g; channelAdapter.items = Repository.channelsFor(g) }
+    private fun applyGroup(g: String) {
+        val changed = appliedGroup != g
+        appliedGroup = g; channelAdapter.items = Repository.channelsFor(g)
+        // (7.6) nowa kategoria od pierwszego kanału (dawniej lista zostawała w miejscu przewinięcia poprzedniej), z krótkim przenikaniem
+        if (changed) {
+            channelsRv.scrollToPosition(0)
+            if (!Prefs.lowPerf) { channelsRv.alpha = 0.35f; channelsRv.animate().alpha(1f).setDuration(140).withLayer().start() }
+        }
+    }
 
     // ---------- wyszukiwarka ----------
     private fun openSearch() {

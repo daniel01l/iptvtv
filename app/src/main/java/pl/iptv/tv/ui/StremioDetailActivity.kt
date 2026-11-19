@@ -50,6 +50,8 @@ class StremioDetailActivity : BaseActivity() {
         const val EXTRA_TYPE = "type"; const val EXTRA_ID = "id"; const val EXTRA_NAME = "name"; const val EXTRA_POSTER = "poster"; const val EXTRA_VIDEO = "video"
         fun intent(c: Context, m: StremioMetaPreview, videoId: String? = null) = Intent(c, StremioDetailActivity::class.java)
             .putExtra(EXTRA_TYPE, m.type).putExtra(EXTRA_ID, m.id).putExtra(EXTRA_NAME, m.name).putExtra(EXTRA_POSTER, m.poster).putExtra(EXTRA_VIDEO, videoId)
+        /** (7.4) Źródła odcinka zaznaczonego pilotem – dopiero po tej chwili bez ruchu (szybkie przewijanie bez zapytań). */
+        const val EPISODE_SOURCES_DELAY_MS = 350L
     }
 
     private val type get() = intent.getStringExtra(EXTRA_TYPE).orEmpty()
@@ -74,6 +76,8 @@ class StremioDetailActivity : BaseActivity() {
     private val episodeAdapter = EpisodeAdapter()
     val sourceAdapter = SourceAdapter()
     private var sourcesJob: Job? = null
+    /** Wczytywanie źródeł czeka na zatrzymanie kursora na odcinku ([EPISODE_SOURCES_DELAY_MS]). */
+    var sourcesPending = false; private set
     private var season = 1
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -92,7 +96,8 @@ class StremioDetailActivity : BaseActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (meta != null) lifecycleScope.launch { progress = StremioStore.progressOf(metaId); updateResume(); episodeAdapter.notifyDataSetChanged() }
+        // odświeżenie postępu bez przebudowy listy (te same widoki – fokus zostaje na odcinku)
+        if (meta != null) lifecycleScope.launch { progress = StremioStore.progressOf(metaId); updateResume(); episodeAdapter.notifyItemRangeChanged(0, episodeAdapter.itemCount) }
     }
 
     private fun build(): View {
@@ -167,8 +172,29 @@ class StremioDetailActivity : BaseActivity() {
         val p = progress ?: return
         val m = meta
         if (m?.isSeries == true) m.videos.firstOrNull { it.id == p.videoId }?.let { selectSeason(it.season, it) }
-        // źródła wczytane – fokus na pierwszym (wznowienie od zapisanej pozycji w odtwarzaczu)
-        sources.post { sources.focusPosition(sourceAdapter.firstSource()) }
+        // fokus na pierwszym źródle, gdy tylko się wczyta (wznowienie od zapisanej pozycji w odtwarzaczu)
+        focusSourcesWhenReady()
+    }
+
+    /**
+     * (7.4) Fokus na pierwszym źródle – od razu, gdy źródła już są, inaczej po wczytaniu pierwszych wyników. Dawniej OK na
+     * odcinku próbował przenieść kursor na listę, która jeszcze się wczytywała – nic się nie działo. Ruch pilotem w międzyczasie
+     * odwołuje przeniesienie (kursor nie „ucieka”).
+     */
+    private var sourceFocusAt = 0L
+
+    fun focusSourcesWhenReady() {
+        sourceFocusAt = android.os.SystemClock.uptimeMillis()
+        applySourceFocus()
+    }
+
+    private fun applySourceFocus() {
+        val at = sourceFocusAt
+        if (at == 0L) return
+        if (KeyActivity.lastUserKeyAt.let { it > at && it <= android.os.SystemClock.uptimeMillis() }) { sourceFocusAt = 0; return }
+        if (sourceAdapter.items.none { it is SourceItem.Source || it is SourceItem.Quality }) return
+        sourceFocusAt = 0
+        sources.post { sources.focusPosition(sourceAdapter.firstSource(), since = at) }
     }
 
     fun selectSeason(s: Int, ep: StremioVideo?) {
@@ -182,21 +208,33 @@ class StremioDetailActivity : BaseActivity() {
         episodes.post { episodes.focusPosition(episodeAdapter.items.indexOf(e).coerceAtLeast(0)) }
     }
 
-    fun selectEpisode(e: StremioVideo) {
+    /**
+     * Wybór odcinka. (7.4) Tylko poprzedni i nowy wiersz odświeżane (dawniej cała lista – przy przewijaniu kursor skakał
+     * na inny odcinek); [debounce] – zaznaczenie pilotem: źródła wczytywane dopiero, gdy kursor zatrzyma się na odcinku
+     * (szybkie przewijanie nie uruchamia zapytań do wtyczek dla każdego mijanego odcinka).
+     */
+    fun selectEpisode(e: StremioVideo, debounce: Boolean = false) {
         if (videoId == e.id) return
         videoId = e.id
-        episodeAdapter.selected = e.id; episodeAdapter.notifyDataSetChanged()
-        loadSources()
+        val old = episodeAdapter.items.indexOfFirst { it.id == episodeAdapter.selected }
+        episodeAdapter.selected = e.id
+        if (old >= 0) episodeAdapter.notifyItemChanged(old)
+        episodeAdapter.items.indexOf(e).takeIf { it >= 0 }?.let { episodeAdapter.notifyItemChanged(it) }
+        loadSources(if (debounce) EPISODE_SOURCES_DELAY_MS else 0)
     }
 
     /** Źródła z włączonych wtyczek (równolegle), po [StremioStreams.PER_ADDON] na wtyczkę z każdej rozdzielczości. */
-    fun loadSources() {
+    fun loadSources(delayMs: Long = 0) {
         sourcesJob?.cancel()
         val vid = videoId
         val streamType = if (meta?.isSeries == true) "series" else type
         val label = meta?.videos?.firstOrNull { it.id == vid }?.label?.takeIf { meta?.isSeries == true }
         sourcesTitle.text = "Źródła" + (label?.let { " – $it" } ?: "")
+        if (delayMs > 0) { groups = emptyList(); sourceAdapter.set(emptyList(), "Wczytywanie źródeł…") }
+        sourcesPending = delayMs > 0
         sourcesJob = lifecycleScope.launch {
+            if (delayMs > 0) kotlinx.coroutines.delay(delayMs)
+            sourcesPending = false
             val addons = StremioStore.enabledAddons().filter { it.supports("stream", streamType, vid) }
             if (addons.isEmpty()) {
                 groups = emptyList(); sourceAdapter.set(emptyList(), "Brak włączonych wtyczek ze źródłami dla tego tytułu. Włącz je w Stremio → 🧩 Wtyczki."); return@launch
@@ -206,8 +244,9 @@ class StremioDetailActivity : BaseActivity() {
             addons.mapIndexed { i, a -> async {
                 val r = runCatching { StremioApi.streams(a, streamType, vid) }
                 groups = groups.toMutableList().also { g -> g[i] = r.fold({ StremioSourceGroup(a, StremioStreams.limit(it), total = it.size) }, { StremioSourceGroup(a, emptyList(), it.message ?: "błąd") }) }
-                if (videoId == vid) sourceAdapter.set(groups, null)
+                if (videoId == vid) { sourceAdapter.set(groups, null); applySourceFocus() }
             } }.forEach { it.await() }
+            sourceFocusAt = 0                         // wszystkie wtyczki odpowiedziały (także bez źródeł) – bez czekania na fokus
         }
     }
 
@@ -262,6 +301,9 @@ class StremioDetailActivity : BaseActivity() {
     // ---------------- listy ----------------
 
     inner class EpisodeAdapter : RecyclerView.Adapter<EpisodeAdapter.VH>() {
+        // (7.4) stałe identyfikatory: odświeżenie listy zachowuje widoki, więc i zaznaczony odcinek
+        init { setHasStableIds(true) }
+        override fun getItemId(position: Int) = items[position].id.hashCode().toLong()
         var items: List<StremioVideo> = emptyList()
         var selected = ""
         inner class VH(val root: LinearLayout, val t: TextView, val s: TextView) : RecyclerView.ViewHolder(root)
@@ -272,9 +314,14 @@ class StremioDetailActivity : BaseActivity() {
             val t = StremioUi.text(parent.context, "", 15f, lines = 2); val s = StremioUi.text(parent.context, "", 12f, "text2", lines = 1)
             root.addView(t); root.addView(s)
             val vh = VH(root, t, s)
-            root.setOnClickListener { items.getOrNull(vh.bindingAdapterPosition)?.let { selectEpisode(it); sources.post { sources.focusPosition(sourceAdapter.firstSource()) } } }
-            // zaznaczenie odcinka pilotem od razu wczytuje jego źródła (bez OK) – jak w Stremio
-            root.setOnFocusChangeListener { _, f -> if (f) items.getOrNull(vh.bindingAdapterPosition)?.let { selectEpisode(it) } }
+            root.setOnClickListener { items.getOrNull(vh.bindingAdapterPosition)?.let {
+                // OK: źródła od razu (bez opóźnienia przewijania), kursor na pierwsze źródło, gdy się wczyta
+                if (videoId == it.id && sourcesPending) loadSources()      // czekało na zatrzymanie kursora – od razu
+                else selectEpisode(it)
+                focusSourcesWhenReady()
+            } }
+            // zaznaczenie odcinka pilotem wczytuje jego źródła (bez OK) – jak w Stremio; z krótkim opóźnieniem przy przewijaniu
+            root.setOnFocusChangeListener { _, f -> if (f) items.getOrNull(vh.bindingAdapterPosition)?.let { selectEpisode(it, debounce = true) } }
             Ui.style(root)
             return vh
         }
@@ -293,6 +340,9 @@ class StremioDetailActivity : BaseActivity() {
      * Wtyczki wczytują się równolegle – kolejne wyniki dopisywane bez utraty zaznaczenia (fokus wraca na ten sam element).
      */
     inner class SourceAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+        // (7.4) stałe identyfikatory: wyniki kolejnych wtyczek dopisywane bez utraty zaznaczenia (te same widoki)
+        init { setHasStableIds(true) }
+        override fun getItemId(position: Int) = keyOf(items[position]).hashCode().toLong()
         var items: List<SourceItem> = emptyList(); private set
         /** Wszystkie źródła w kolejności wyświetlania (także w zwiniętych grupach). */
         var sourceItems: List<StremioStream> = emptyList(); private set

@@ -65,14 +65,16 @@ class SettingsActivity : BaseActivity() {
             b.setOnFocusChangeListener { _, f ->
                 handler.removeCallbacks(tabSwitch)
                 // tylko ruch pilotem (nie zaznaczenie przy otwarciu ekranu)
-                if (f && i != tab && i != PARENTAL_TAB && android.os.SystemClock.uptimeMillis() - lastKeyAt < 400) { pendingTab = i; handler.postDelayed(tabSwitch, 250) }
+                if (f && i != tab && i != PARENTAL_TAB && android.os.SystemClock.uptimeMillis() - lastKeyAt < 400) { pendingTab = i; handler.postDelayed(tabSwitch, TAB_FOCUS_DELAY_MS) }
             }
             b.layoutParams = if (portrait) LinearLayout.LayoutParams(-2, -2).apply { marginEnd = Ui.dp(4) }
                 else LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = Ui.dp(4) }
             tabs += b; tabCol.addView(b)
         }
         if (portrait) {
-            tabStrip = android.widget.HorizontalScrollView(this).apply { isFocusable = false; isHorizontalScrollBarEnabled = false; addView(tabCol) }
+            // (7.6) wygaszone krawędzie paska kart – widać, że w bok jest więcej kart
+            tabStrip = android.widget.HorizontalScrollView(this).apply { isFocusable = false; isHorizontalScrollBarEnabled = false; addView(tabCol)
+                isHorizontalFadingEdgeEnabled = true; setFadingEdgeLength(Ui.dp(28)) }
             body.addView(tabStrip, LinearLayout.LayoutParams(-1, -2))
         } else body.addView(ScrollView(this).apply { isFocusable = false; addView(tabCol) }, LinearLayout.LayoutParams(Ui.dp(if (narrow) 150 else 240), -1))
         // pion: treść przycięta do szerokości ekranu (bez wystawania i poziomego „rozjeżdżania”), pasek przewijania poza treścią
@@ -83,7 +85,9 @@ class SettingsActivity : BaseActivity() {
         scroll.addView(container)
         // podgląd wyglądu przypięty nad przewijaną treścią karty
         sticky = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(Ui.dp(if (portrait) 4 else 16), 0, Ui.dp(4), Ui.dp(8)) }
-        val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL
+            // (7.6) Nowoczesny: treść na lekkiej, zaokrąglonej powierzchni (sam kształt – bez bitmap i bez dodatkowego przerysowania tła)
+            if (ModernTheme.active) background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = Ui.dp(16).toFloat(); setColor(0x12FFFFFF) } }
         right.addView(sticky, LinearLayout.LayoutParams(-1, -2))
         right.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         body.addView(right, if (portrait) LinearLayout.LayoutParams(-1, 0, 1f) else LinearLayout.LayoutParams(0, -1, 1f))
@@ -140,7 +144,46 @@ class SettingsActivity : BaseActivity() {
         if (i != tab) { Prefs.settingsOpen = emptyList(); Prefs.settingsClosed = emptyList(); lastKey = null }
         // karta kontroli rodzicielskiej wymaga PIN-u, gdy kontrola jest włączona
         if (i == 5 && Parental.enabled && !Parental.unlocked) { ParentalUi.require(this) { tab = i; build() }; return }
+        val from = tab
         tab = i; build()
+        if (i != from) animateTabIn(if (i > from) 1 else -1)
+    }
+
+    /**
+     * (7.6) Płynne przejście treści nowej karty: krótkie przenikanie z przesunięciem w stronę karty (160 ms, na warstwie GPU –
+     * bez przerysowywania wierszy w każdej klatce), treść od góry. W trybie słabszych urządzeń – bez animacji.
+     */
+    private fun animateTabIn(dir: Int) {
+        scroll.scrollTo(0, 0)
+        if (Prefs.lowPerf) return
+        val body = scroll
+        body.animate().cancel()
+        body.alpha = 0f; body.translationX = Ui.dp(24).toFloat() * dir
+        body.animate().alpha(1f).translationX(0f).setDuration(TAB_ANIM_MS)
+            .setInterpolator(android.view.animation.DecelerateInterpolator()).withLayer().start()
+    }
+
+    /** (7.6) Telefon / tablet: przesunięcie palcem w bok po treści – sąsiednia karta. */
+    private val swipe by lazy {
+        android.view.GestureDetector(this, object : android.view.GestureDetector.SimpleOnGestureListener() {
+            override fun onFling(e1: android.view.MotionEvent?, e2: android.view.MotionEvent, vx: Float, vy: Float): Boolean {
+                val a = e1 ?: return false
+                val dx = e2.x - a.x; val dy = e2.y - a.y
+                if (kotlin.math.abs(dx) < Ui.dp(90) || kotlin.math.abs(dx) < kotlin.math.abs(dy) * 2 || kotlin.math.abs(vx) < Ui.dp(400)) return false
+                // przesunięcie po pasku kart przewija pasek (nie zmienia karty)
+                tabStrip?.let { hs -> val r = android.graphics.Rect(); hs.getGlobalVisibleRect(r); if (r.contains(a.rawX.toInt(), a.rawY.toInt())) return false }
+                val next = tab + if (dx < 0) 1 else -1
+                if (next !in TAB_NAMES.indices) return false
+                switchTab(next)
+                return true
+            }
+        })
+    }
+
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        // gest obserwowany „w tle” – dotknięcia i przewijanie treści działają jak dotąd
+        runCatching { swipe.onTouchEvent(ev) }
+        return super.dispatchTouchEvent(ev)
     }
 
     /** Buduje bieżącą kartę; zachowuje fokus na tym samym wierszu (po tytule). */
@@ -1687,6 +1730,10 @@ class SettingsActivity : BaseActivity() {
     }
 
     companion object {
+        /** (7.6) Karta pod kursorem pilota otwiera się po tej chwili (dawniej 250 ms). */
+        const val TAB_FOCUS_DELAY_MS = 180L
+        /** (7.6) Przejście treści przy zmianie karty. */
+        const val TAB_ANIM_MS = 160L
         private const val REQ_FILE = 10; private const val REQ_IMAGE = 11; private const val REQ_LIST_FILE = 12
         private const val REQ_BACKUP_EXPORT = 13; private const val REQ_BACKUP_IMPORT = 14; private const val REQ_SEND_FILE = 15
         private const val REQ_APK_INSTALL = 16; private const val REQ_APK_SEND = 17

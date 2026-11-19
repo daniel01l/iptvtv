@@ -214,6 +214,28 @@ class PlaybackLifecycleTest {
         assertTrue(Playback.canJudgeFreeze(hasTarget = true, attached = true, shown = true))
     }
 
+    @Test fun secondFrozenChannelSwitchesWholeSessionAndFrozenChannelStartsSoftware() {
+        // 7.4: kanał, który zamarzł, przy ponownym włączeniu od razu na programowym; drugi zamrożony kanał – cała sesja (jak 6.5)
+        Prefs.playerEngine = Playback.ENGINE_HARDWARE; Prefs.hwAccel = true; Prefs.freezeFallback = true
+        val a = Repository.channels[0]; val b = Repository.channels[1]; val c = Repository.channels[2]
+        val view = PlayerView(ctx)
+        Playback.play(ctx, a, a.url); Playback.attach(view); idle()
+        Playback.simulateFreeze(); idle()
+        assertEquals(a.key, Playback.softwareChannel)
+        Playback.play(ctx, b, b.url); idle()
+        assertFalse("inny kanał – sprzętowy", Playback.softwareDecoding)
+        Playback.play(ctx, a, a.url); idle()
+        assertTrue("zamrożony wcześniej – od razu programowy", Playback.softwareDecoding)
+        assertSame(Playback.player, view.player)
+        Playback.play(ctx, b, b.url); idle()
+        Playback.simulateFreeze(); idle()
+        assertTrue(Playback.sessionSoftware); assertNull("cała sesja", Playback.softwareChannel)
+        Playback.play(ctx, c, c.url); idle()
+        assertTrue(Playback.softwareDecoding)
+        Playback.stop()
+        assertTrue(Playback.frozenChannels.isEmpty()); assertFalse(Playback.softwareDecoding)
+    }
+
     @Test fun recognizedHlsSurvivesRestart() {
         // 7.3: adres rozpoznany jako HLS pamiętany po zimnym starcie (bez pierwszego, nieudanego startu)
         Prefs.hlsStreams = ""

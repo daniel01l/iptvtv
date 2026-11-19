@@ -25,7 +25,10 @@ class PlayerIcon(private val kind: String, private val tint: ColorStateList = Co
         const val SPEED = "speed"; const val QUALITY = "quality"; const val AUDIO = "audio"; const val CC = "cc"; const val EQ = "eq"
         const val CHAPTERS = "chapters"; const val QUEUE = "queue"; const val PIP = "pip"; const val AUTOPLAY = "autoplay"; const val NEXT = "next"
         const val DELAY = "delay"; const val STYLE = "style"; const val ASPECT = "aspect"; const val INFO = "info"; const val RELATED = "related"
-        val ALL = listOf(SPEED, QUALITY, AUDIO, CC, EQ, CHAPTERS, QUEUE, PIP, AUTOPLAY, NEXT, DELAY, STYLE, ASPECT, INFO, RELATED)
+        // (7.5) sterowanie odtwarzaczem Stremio (dolny pasek) i tryb samego dźwięku STube
+        const val PLAY = "play"; const val PAUSE = "pause"; const val PREV = "prev"; const val REW = "rew"; const val FWD = "fwd"; const val AUDIO_ONLY = "audio_only"
+        val ALL = listOf(SPEED, QUALITY, AUDIO, CC, EQ, CHAPTERS, QUEUE, PIP, AUTOPLAY, NEXT, DELAY, STYLE, ASPECT, INFO, RELATED,
+            PLAY, PAUSE, PREV, REW, FWD, AUDIO_ONLY)
     }
 
     private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
@@ -71,6 +74,12 @@ class PlayerIcon(private val kind: String, private val tint: ColorStateList = Co
             STYLE -> { f.textSize = s * 0.62f; f.isFakeBoldText = false; f.textAlign = Paint.Align.CENTER; c.drawText("Aa", x(0.5f), y(0.74f), f) }
             ASPECT -> { rect(0.06f, 0.2f, 0.94f, 0.8f, 0.08f); line(0.2f, 0.36f, 0.2f, 0.5f); line(0.2f, 0.36f, 0.34f, 0.36f); line(0.8f, 0.64f, 0.8f, 0.5f); line(0.8f, 0.64f, 0.66f, 0.64f) }
             INFO -> { c.drawCircle(x(0.5f), y(0.5f), s * 0.4f, p); line(0.5f, 0.46f, 0.5f, 0.72f); c.drawCircle(x(0.5f), y(0.3f), s * 0.055f, f) }
+            PLAY -> tri(0.26f, 0.14f, 0.26f, 0.86f, 0.86f, 0.5f)
+            PAUSE -> { r.set(x(0.22f), y(0.16f), x(0.42f), y(0.84f)); c.drawRoundRect(r, s * 0.04f, s * 0.04f, f); r.set(x(0.58f), y(0.16f), x(0.78f), y(0.84f)); c.drawRoundRect(r, s * 0.04f, s * 0.04f, f) }
+            PREV -> { tri(0.88f, 0.18f, 0.88f, 0.82f, 0.38f, 0.5f); line(0.2f, 0.2f, 0.2f, 0.8f) }
+            REW -> { tri(0.52f, 0.2f, 0.52f, 0.8f, 0.1f, 0.5f); tri(0.92f, 0.2f, 0.92f, 0.8f, 0.5f, 0.5f) }
+            FWD -> { tri(0.08f, 0.2f, 0.08f, 0.8f, 0.5f, 0.5f); tri(0.48f, 0.2f, 0.48f, 0.8f, 0.9f, 0.5f) }
+            AUDIO_ONLY -> { r.set(x(0.14f), y(0.14f), x(0.86f), y(0.86f)); c.drawArc(r, 180f, 180f, false, p); rect(0.1f, 0.5f, 0.3f, 0.86f, 0.06f); rect(0.7f, 0.5f, 0.9f, 0.86f, 0.06f) }
             else -> c.drawCircle(x(0.5f), y(0.5f), s * 0.3f, p)
         }
     }
@@ -114,6 +123,29 @@ object PlayerChrome {
         tag = "keepcolor nozoom"
         setOnClickListener { onClick() }
         setOnFocusChangeListener { v, has -> v.animate().scaleX(if (has) 1.06f else 1f).scaleY(if (has) 1.06f else 1f).setDuration(110).start() }
+    }
+
+    /**
+     * (7.4) Okrągła ikona, która po zaznaczeniu wysuwa swój podpis (np. „Napisy”), a po przejściu na inną ikonę go chowa –
+     * zawsze widać nazwę tylko zaznaczonej funkcji. Płynna zmiana szerokości: [LayoutTransition] rodzica ([expandingRow]).
+     */
+    fun expandingButton(c: Context, icon: String, label: String, onClick: () -> Unit): TextView = button(c, icon, "", onClick).apply {
+        contentDescription = label
+        val base = onFocusChangeListener
+        setOnFocusChangeListener { v, has ->
+            base?.onFocusChange(v, has)
+            text = if (has) (contentDescription?.toString() ?: label) else ""      // podpis z opisu – zmienny (np. ⏯ Pauza / Odtwórz)
+            compoundDrawablePadding = if (has) Ui.dp(9) else 0
+            setPadding(Ui.dp(if (has) 16 else 12), Ui.dp(9), Ui.dp(if (has) 18 else 12), Ui.dp(9))
+        }
+    }
+
+    /** Rząd na [expandingButton]: animowana zmiana szerokości przycisków (wysuwanie / chowanie podpisu). */
+    fun expandingRow(row: android.view.ViewGroup) {
+        row.layoutTransition = android.animation.LayoutTransition().apply {
+            enableTransitionType(android.animation.LayoutTransition.CHANGING)
+            setDuration(android.animation.LayoutTransition.CHANGING, 160)
+        }
     }
 
     /** Kolory paska postępu PlayerView (DefaultTimeBar) i krok przewijania pilotem na pasku. */

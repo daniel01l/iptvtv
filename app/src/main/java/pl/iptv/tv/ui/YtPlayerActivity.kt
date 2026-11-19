@@ -94,6 +94,7 @@ class YtPlayerActivity : AppCompatActivity() {
     private lateinit var chaptersBtn: TextView
     private lateinit var queueBtn: TextView
     private lateinit var pipBtn: TextView
+    private lateinit var audioOnlyBtn: TextView
 
     /** Klient usługi (MediaController); null – rozłączony (ekran schowany). */
     var client: YtClient? = null; private set
@@ -194,6 +195,8 @@ class YtPlayerActivity : AppCompatActivity() {
         queueBtn = barButton(PlayerIcon.QUEUE, "Następne") { openPanel(TAB_RELATED) }
         autoplayBtn = barButton(PlayerIcon.AUTOPLAY, "") { toggleAutoplay() }
         pipBtn = barButton(PlayerIcon.PIP, "Okno") { enterPip() }
+        // (7.5) telefon: sam dźwięk – obraz odpięty (bez dekodowania), słuchanie przy wyłączonym / zablokowanym ekranie
+        audioOnlyBtn = barButton(PlayerIcon.AUDIO_ONLY, "Tylko dźwięk") { toggleAudioOnly() }.apply { visibility = if (Tutorial.isTv(this@YtPlayerActivity)) View.GONE else View.VISIBLE }
         optionsScroll = android.widget.HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; isFocusable = false; addView(optionsBar)
             clipChildren = false; clipToPadding = false }
         infoBox.addView(titleView); infoBox.addView(channelView)
@@ -236,7 +239,8 @@ class YtPlayerActivity : AppCompatActivity() {
             client = c
             c.player.addListener(playerListener)
             playerView.player = c.player
-            c.setBackground(false)
+            c.setBackground(YtEngine.audioOnly)
+            applyAudioOnlyView()
             val same = YtEngine.video?.id == videoId
             when {
                 same && YtEngine.error != null -> showFallback(YtEngine.error!!)
@@ -317,7 +321,7 @@ class YtPlayerActivity : AppCompatActivity() {
 
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(state: Int) { if (state == Player.STATE_READY) status.visibility = View.GONE }
-        override fun onIsPlayingChanged(isPlaying: Boolean) { keepScreen(); if (isPlaying) hideAmbient() }
+        override fun onIsPlayingChanged(isPlaying: Boolean) { keepScreen(); updateAutoPip(); if (isPlaying) hideAmbient() }
         override fun onTracksChanged(tracks: Tracks) = updateButtons()
     }
 
@@ -470,7 +474,8 @@ class YtPlayerActivity : AppCompatActivity() {
         eqBtn.text = if (Prefs.ytEqPreset == YtEq.FLAT) "Dźwięk" else YtEq.PRESETS.getOrElse(Prefs.ytEqPreset) { "Dźwięk" }
         queueBtn.text = "Następne" + StubeQueue.cached.size.takeIf { it > 0 }?.let { " ($it)" }.orEmpty()
         autoplayBtn.text = autoplayLabel()
-        pipBtn.visibility = if (pipSupported) View.VISIBLE else View.GONE
+        pipBtn.visibility = if (pipSupported && !YtEngine.audioOnly) View.VISIBLE else View.GONE
+        audioOnlyBtn.text = if (YtEngine.audioOnly) "Obraz" else "Tylko dźwięk"
         updateUpNext()
         updateShelf()
     }
@@ -593,6 +598,44 @@ class YtPlayerActivity : AppCompatActivity() {
         val ratio = player?.videoSize?.let { v -> if (v.width > 0 && v.height > 0) Rational(v.width, v.height) else null } ?: Rational(16, 9)
         val safe = ratio.toFloat().let { if (it > 2.39f) Rational(239, 100) else if (it < 1 / 2.39f) Rational(100, 239) else ratio }
         return runCatching { enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(safe).build()) }.getOrDefault(false)
+    }
+
+    /**
+     * (7.5) Telefon / tablet: wyjście z aplikacji (HOME, gest) w trakcie filmu – od razu pływające okno (jak YouTube).
+     * Nie na TV, nie w trybie samego dźwięku (wtedy gra w tle z powiadomieniem) i nie w pauzie.
+     */
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (autoPipAllowed()) enterPip()
+    }
+
+    private fun autoPipAllowed() = pipSupported && !Tutorial.isTv(this) && !YtEngine.audioOnly && !isInPip && player?.isPlaying == true
+
+    /** Android 12+: płynne przejście w okno przy wyjściu z aplikacji (system animuje przejście zamiast przełączenia). */
+    private fun updateAutoPip() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || !pipSupported || Tutorial.isTv(this)) return
+        runCatching { setPictureInPictureParams(PictureInPictureParams.Builder().setAutoEnterEnabled(autoPipAllowed()).build()) }
+    }
+
+    /**
+     * (7.5) Tylko dźwięk (telefon): ścieżka obrazu wyłączona w silniku (dekoder obrazu zwolniony – mniej baterii, bez błędów
+     * dekodera przy wyłączonym ekranie), powierzchnia obrazu odpięta; ekran może zgasnąć – dźwięk gra dalej w usłudze
+     * z powiadomieniem (odtwórz / pauza, poprzedni / następny, zatrzymaj).
+     */
+    fun toggleAudioOnly() {
+        YtEngine.audioOnly = !YtEngine.audioOnly
+        client?.setBackground(YtEngine.audioOnly)
+        applyAudioOnlyView()
+        updateButtons(); updateAutoPip(); keepScreen()
+        toast(if (YtEngine.audioOnly) "Tylko dźwięk – możesz wyłączyć ekran, film gra dalej" else "Obraz włączony")
+    }
+
+    /** Powierzchnia obrazu: w trybie samego dźwięku schowana (zwolniona), status z tytułem zamiast obrazu. */
+    private fun applyAudioOnlyView() {
+        val on = YtEngine.audioOnly
+        playerView.videoSurfaceView?.visibility = if (on) View.INVISIBLE else View.VISIBLE
+        if (on) { status.visibility = View.VISIBLE; status.text = "♪ " + video.title.ifBlank { "STube" } + "\n\nTylko dźwięk" }
+        else if (status.text.endsWith("Tylko dźwięk")) status.visibility = View.GONE
     }
 
     override fun onPictureInPictureModeChanged(inPip: Boolean, newConfig: Configuration) {
@@ -763,7 +806,8 @@ class YtPlayerActivity : AppCompatActivity() {
 
     /** Ekran nie gaśnie tylko w trakcie odtwarzania – w pauzie system może włączyć wygaszacz / uśpić TV (oszczędzanie energii). */
     private fun keepScreen() {
-        if (player?.playWhenReady == true) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // (7.5) tylko dźwięk – ekran może zgasnąć (oszczędzanie baterii), dźwięk gra dalej w usłudze
+        if (player?.playWhenReady == true && !YtEngine.audioOnly) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 

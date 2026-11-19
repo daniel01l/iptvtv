@@ -132,13 +132,183 @@ object ChannelEngineOptimizer {
 
     private fun post(r: () -> Unit) { main.post(r) }
 
+    // ================= (7.5) ręczne dopasowanie – kanał działa, ale się zacina =================
+
+    /** Najwyżej tyle prób ręcznego dopasowania. */
+    const val MANUAL_MAX = 8
+    /** Odtwarzanie każdej próby (pomiar płynności po pierwszej klatce). */
+    const val MANUAL_PLAY_MS = 2_500L
+    /** Limit na pojawienie się pierwszej klatki w próbie. */
+    const val MANUAL_START_MS = 2_500L
+    /** Całe dopasowanie najwyżej tyle (kolejna próba nie rusza po przekroczeniu). */
+    const val MANUAL_BUDGET_MS = 18_000L
+    /** Ręczne dopasowanie jednego kanału najwyżej tyle razy w sesji (bez pętli prób na słabszych TV). */
+    const val MANUAL_PER_SESSION = 2
+
+    /** Wynik pomiaru próby: płynność wg wyświetlonych / zgubionych klatek i przycięć. */
+    data class ProbeResult(val started: Boolean, val firstFrameMs: Long = -1, val frames: Int = 0, val dropped: Int = 0,
+                           val rebuffers: Int = 0, val playedMs: Long = 0, val frameRate: Float = -1f) {
+        private val expected: Float get() = if (frameRate > 0f && playedMs > 0) frameRate * playedMs / 1000f else 0f
+        /** Bez przycięć, prawie bez zgubionych klatek i (gdy znana liczba klatek na sekundę) co najmniej 85 % klatek. */
+        val smooth: Boolean get() = started && rebuffers == 0 && dropped <= 2 && (expected <= 0f || frames >= expected * 0.85f)
+        val score: Double get() = if (!started) -1e9 else 1000.0 - rebuffers * 200.0 - dropped * 3.0 - firstFrameMs / 100.0 +
+            (if (expected > 0f) 100.0 * minOf(1f, frames / expected) else 0.0)
+    }
+
+    enum class ManualStart { STARTED, RUNNING, LIMIT, CRASHED }
+
+    /** Testy: podmiana pomiaru (bez prawdziwego odtwarzacza). */
+    @Volatile var measureOverride: (suspend (EngineProfile) -> ProbeResult)? = null
+    private val manualRuns = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+    /**
+     * Kandydaci ręcznego dopasowania – od najmniej inwazyjnych (większy zapas, kolejka dekodera, dźwięk FFmpeg) po dekoder
+     * programowy (na końcu: na wielu TV klatkuje obraz HD). Bez ustawień, które właśnie się zacinają ([current]).
+     */
+    fun manualCandidates(url: String, current: EngineProfile?): List<EngineProfile> {
+        val mime = Playback.guessMime(url)
+        val ts = url.lowercase().substringBefore('?').substringBefore('#').endsWith(".ts")
+        val unknown = mime == null && !ts
+        val hls = mime == androidx.media3.common.MimeTypes.APPLICATION_M3U8
+        val now = current ?: EngineProfile()
+        return buildList {
+            if (current != null) add(EngineProfile())                         // zapamiętany profil się zacina – najpierw ustawienia domyślne
+            add(EngineProfile(buffer = 1))                                     // strumień przycina się z braku zapasu
+            add(EngineProfile(async = 2))                                      // kolejka asynchroniczna gubi klatki na części TV
+            add(EngineProfile(ffmpeg = true))                                  // dźwięk, którego dekoder systemu nie nadąża
+            add(EngineProfile(async = 2, buffer = 1))
+            if (unknown) add(EngineProfile(container = 1, buffer = 1))
+            if (hls) add(EngineProfile(container = 2, buffer = 1))
+            add(EngineProfile(software = true, buffer = 1))
+            add(EngineProfile(software = true))
+        }.distinct().filter { it != now }.take(MANUAL_MAX)
+    }
+
+    /** Ręczne dopasowanie dla bieżącego kanału (przytrzymanie OK → ustawienia silnika). */
+    fun startManual(c: Context, ch: Channel, url: String): ManualStart {
+        if (running) return ManualStart.RUNNING
+        // poprzednie dopasowanie tego kanału przerwało działanie aplikacji (np. awaria dekodera słabszego TV) – bez powtórki
+        val crashed = runCatching { Prefs.engineManualRunning }.getOrDefault("")
+        if (crashed.isNotEmpty()) { runCatching { Prefs.engineManualRunning = "" }; if (crashed == ch.key) return ManualStart.CRASHED }
+        val n = manualRuns.merge(ch.key, 1, Int::plus) ?: 1
+        if (n > MANUAL_PER_SESSION) return ManualStart.LIMIT
+        val current = Playback.profile
+        val list = manualCandidates(url, current)
+        cancel()
+        Playback.holdForProbe()
+        runCatching { Prefs.engineManualRunning = ch.key }
+        runningUrl = url; lastTried = emptyList()
+        val app = c.applicationContext
+        job = scope.launch {
+            val t0 = android.os.SystemClock.uptimeMillis()
+            val tried = mutableListOf<EngineProfile>()
+            var best: Pair<EngineProfile, ProbeResult>? = null
+            try {
+                for ((i, p) in list.withIndex()) {
+                    if (!isActive) return@launch
+                    if (i > 0 && android.os.SystemClock.uptimeMillis() - t0 > MANUAL_BUDGET_MS) break
+                    post { onStatus?.invoke(Status.Testing(ch.name, i + 1, list.size, p.label)) }
+                    tried += p; lastTried = tried.toList()
+                    val r = runCatching { measure(app, ch, url, p) }.getOrDefault(ProbeResult(false))
+                    if (r.started && (best == null || r.score > best!!.second.score)) best = p to r
+                    if (r.smooth) break                                    // płynne – dalej nie trzeba szukać
+                }
+            } finally { runCatching { Prefs.engineManualRunning = "" } }
+            if (!isActive) return@launch
+            val found = best?.first
+            when {
+                found == null -> {}                                            // nic nie ruszyło – ustawienia bez zmian
+                found == EngineProfile() -> ChannelEngines.forget(ch.key)      // domyślne są najlepsze – bez zapisanego profilu
+                else -> ChannelEngines.save(ch.key, url, found)
+            }
+            post {
+                if (runningUrl != url) return@post
+                runningUrl = null
+                onStatus?.invoke(if (found != null) Status.Found(ch.name, found.label) else Status.Failed(ch.name))
+                Playback.restartAfterProbe(app, ch, url)
+            }
+        }
+        return ManualStart.STARTED
+    }
+
+    /** Usunięcie dopasowanych ustawień kanału – znowu ustawienia domyślne (i możliwy ponowny dobór). */
+    fun resetChannel(key: String, url: String) {
+        ChannelEngines.forget(key)
+        manualRuns.remove(key); triedThisSession.remove("$key|$url")
+    }
+
+    /**
+     * Pomiar jednej próby: odtwarzacz z profilem na wątku testów, bez dźwięku, obraz do niewidocznej powierzchni
+     * (ImageReader – klatki odbierane i od razu zwalniane, dekoder pracuje jak przy oglądaniu). Po pierwszej klatce
+     * [MANUAL_PLAY_MS] odtwarzania: wyświetlone i zgubione klatki, przycięcia. Zawsze kończy się `release()`.
+     */
+    suspend fun measure(c: Context, ch: Channel, url: String, profile: EngineProfile): ProbeResult {
+        measureOverride?.let { return it(profile) }
+        val h = Handler(thread.looper)
+        val first = CompletableDeferred<Long>()
+        val calls = Playback.StreamCalls(Playback.streamHttp)
+        var player: ExoPlayer? = null
+        var reader: android.media.ImageReader? = null
+        var dropped = 0; var rebuffers = 0; var ready = false
+        val t0 = android.os.SystemClock.uptimeMillis()
+        h.post {
+            runCatching {
+                val p = Playback.buildPlayer(c, profile, thread.looper)
+                player = p
+                p.volume = 0f
+                if (android.os.Build.VERSION.SDK_INT >= 23) {
+                    reader = android.media.ImageReader.newInstance(1280, 720, android.graphics.ImageFormat.PRIVATE, 4).also { r ->
+                        r.setOnImageAvailableListener({ rr -> runCatching { rr.acquireLatestImage()?.close() } }, h)
+                        p.setVideoSurface(r.surface)
+                    }
+                }
+                p.addListener(object : Player.Listener {
+                    override fun onRenderedFirstFrame() { first.complete(android.os.SystemClock.uptimeMillis() - t0) }
+                    override fun onPlaybackStateChanged(s: Int) {
+                        if (s == Player.STATE_READY) {
+                            ready = true
+                            if (p.currentTracks.groups.none { it.type == androidx.media3.common.C.TRACK_TYPE_VIDEO } || reader == null)
+                                first.complete(android.os.SystemClock.uptimeMillis() - t0)
+                        } else if (s == Player.STATE_BUFFERING && ready) rebuffers++
+                    }
+                    override fun onPlayerError(error: PlaybackException) { first.complete(-1) }
+                })
+                p.addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+                    override fun onDroppedVideoFrames(t: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, count: Int, elapsedMs: Long) { dropped += count }
+                })
+                p.setMediaSource(Playback.mediaSource(c, ch, url, Playback.mimeFor(url, null, profile), calls))
+                p.playWhenReady = true
+                p.prepare()
+            }.onFailure { first.complete(-1) }
+        }
+        try {
+            val ff = withTimeoutOrNull(MANUAL_START_MS) { first.await() } ?: -1L
+            if (ff < 0) return ProbeResult(false)
+            kotlinx.coroutines.delay(MANUAL_PLAY_MS)
+            val res = CompletableDeferred<ProbeResult>()
+            h.post {
+                val p = player
+                res.complete(ProbeResult(true, ff, p?.videoDecoderCounters?.renderedOutputBufferCount ?: 0, dropped, rebuffers,
+                    MANUAL_PLAY_MS, p?.videoFormat?.frameRate ?: -1f))
+            }
+            return withTimeoutOrNull(1_000) { res.await() } ?: ProbeResult(true, ff)
+        } finally {
+            val released = CompletableDeferred<Unit>()
+            h.post {
+                runCatching { player?.release() }; calls.close(); runCatching { reader?.close() }
+                released.complete(Unit)
+            }
+            withContext(kotlinx.coroutines.NonCancellable) { withTimeoutOrNull(3_000) { released.await() } }
+        }
+    }
+
     /** Przerwanie doboru (inny kanał, zamknięcie odtwarzacza); bieżąca próba kończy się zwolnieniem odtwarzacza testowego. */
     fun cancel() { job?.cancel(); job = null; runningUrl = null }
 
     fun cancelUnless(url: String) { if (runningUrl != null && runningUrl != url) cancel() }
 
     /** Testy: nowa sesja (dobór możliwy ponownie). */
-    fun resetSession() { cancel(); triedThisSession.clear(); lastTried = emptyList() }
+    fun resetSession() { cancel(); triedThisSession.clear(); manualRuns.clear(); lastTried = emptyList() }
 
     /**
      * Jedna próba: odtwarzacz z profilem na wątku testów, bez dźwięku, obraz do niewidocznej powierzchni. Sukces – pierwsza

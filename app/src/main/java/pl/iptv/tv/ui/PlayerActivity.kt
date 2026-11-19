@@ -1750,11 +1750,48 @@ class PlayerActivity : BaseActivity() {
                 "⇄ Kolejka dekodera: " + listOf("automatycznie", "asynchroniczna", "synchroniczna")[Prefs.asyncDecoder.coerceIn(0, 2)] to {
                     Prefs.asyncDecoder = (Prefs.asyncDecoder.coerceIn(0, 2) + 1) % 3; restartEngine()
                 },
+                // (7.5) ustawienia silnika bieżącego kanału: ręczne dopasowanie (kanał się zacina) i usunięcie zapamiętanych
+                channelEngineEntry(),
+                "🔧 Dopasowanie silnika (automatyczne)" to { Ui.dismissOpenDialogs(this); manualEngineFit() },
+                pl.iptv.tv.data.ChannelEngines.get(list[pos].key)?.let { _ ->
+                    "♻ Usuń dopasowane ustawienia" to {
+                        val ch = list[pos]
+                        ChannelEngineOptimizer.resetChannel(ch.key, Playback.url ?: ch.url)
+                        Ui.dismissOpenDialogs(this); restartEngine(); toast("Kanał ${ch.name}: ustawienia domyślne")
+                    }
+                },
                 "ℹ Bieżący dekoder" to { Dialogs.confirm(this, "Bieżący dekoder", Playback.decoderInfo()) {} },
                 if (Prefs.miniMenuEnabled && Prefs.okLongAction == 0) "▦ Szybkie menu ikon" to {
                     Ui.dismissOpenDialogs(this); openMini()
                 } else null,
             )
+        }
+    }
+
+    /** Opis zapamiętanych ustawień silnika bieżącego kanału (pozycja informacyjna w menu). */
+    private fun channelEngineEntry(): Pair<String, () -> Unit> {
+        val e = pl.iptv.tv.data.ChannelEngines.get(list[pos].key)
+        val t = when {
+            e == null -> "Kanał: ustawienia domyślne"
+            e.testedFailed -> "Kanał: nie otworzył się na żadnym silniku"
+            else -> "Kanał: " + (e.profile?.label ?: "ustawienia domyślne")
+        }
+        return "ℹ $t" to {}
+    }
+
+    /**
+     * (7.5) Ręczne dopasowanie silnika – kanał gra, ale się zacina / buforuje / gubi klatki. Do [ChannelEngineOptimizer.MANUAL_MAX]
+     * prób w tle (po kolei, każda z pełnym zwolnieniem odtwarzacza); postęp i wynik w komunikacie odtwarzacza.
+     */
+    private fun manualEngineFit() {
+        if (isCatchup) { toast("Dopasowanie silnika – tylko dla kanału na żywo"); return }
+        val ch = list[pos]
+        val url = Playback.url?.takeIf { it == ch.url } ?: ch.url
+        when (ChannelEngineOptimizer.startManual(this, ch, url)) {
+            ChannelEngineOptimizer.ManualStart.STARTED -> {}
+            ChannelEngineOptimizer.ManualStart.RUNNING -> toast("Dopasowanie silnika już trwa")
+            ChannelEngineOptimizer.ManualStart.LIMIT -> toast("Dopasowanie dla tego kanału było już wykonane – usuń ustawienia albo uruchom aplikację ponownie")
+            ChannelEngineOptimizer.ManualStart.CRASHED -> toast("Poprzednie dopasowanie tego kanału przerwało aplikację – zmień silnik ręcznie")
         }
     }
 

@@ -64,6 +64,8 @@ object YtEngine {
     val active get() = video != null && player != null
     /** Ekran bez powierzchni wideo – ścieżka obrazu wyłączona (sam dźwięk w tle, mniej pracy dekodera). */
     var background = false; private set
+    /** (7.5) Tryb samego dźwięku (telefon) – do końca filmu / sesji; ekran po powrocie nie włącza obrazu. */
+    @Volatile var audioOnly = false
 
     val listeners = CopyOnWriteArraySet<Listener>()
     /** Usługa: koniec odtwarzania → zatrzymanie usługi (powiadomienie znika). */
@@ -178,7 +180,7 @@ object YtEngine {
         loadJob?.cancel()
         main.removeCallbacks(startTimeout); main.removeCallbacks(tick)
         player?.let { it.stop(); it.clearMediaItems() }
-        video = null; playable = null; segments = emptyList(); error = null; background = false
+        video = null; playable = null; segments = emptyList(); error = null; background = false; audioOnly = false
         listeners.forEach { it.onStopped() }
         onStopRequest?.invoke()
     }

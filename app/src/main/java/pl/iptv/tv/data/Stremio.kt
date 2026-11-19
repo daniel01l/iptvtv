@@ -143,7 +143,14 @@ data class StremioStream(
     private val text get() = "$name\n$title\n$description\n$filename"
     val quality: String get() = StremioStreams.quality(text)
     val hdr: List<String> get() = StremioStreams.hdr(text)
-    val languages: List<String> get() = StremioStreams.languages(text)
+    /** (7.4) Oznaczenia języka; lektor / dubbing PL pomijane, gdy odtwarzacz sprawdził, że źródło nie ma polskiej ścieżki. */
+    val languages: List<String> get() = StremioStreams.languages(text).let { l ->
+        if (StremioStreams.verifiedNoPolishAudio(this)) l - setOf("Lektor PL", "Dubbing PL", "Audio PL") else l
+    }
+    /** Źródło deklaruje polski dźwięk (lektor / dubbing). */
+    val claimsPolishAudio: Boolean get() = languages.any { it == "Lektor PL" || it == "Dubbing PL" || it == "Audio PL" }
+    /** Klucz źródła (zapamiętana weryfikacja języka). */
+    val key: String get() = infoHash.ifBlank { url }.let { if (fileIdx >= 0) "$it#$fileIdx" else it }
     val sizeBytes: Long get() = if (videoSize > 0) videoSize else StremioStreams.size(text)
     /** Pierwsza linia opisu (nazwa pliku / wydania). */
     val headline: String get() = (title.ifBlank { description }).lineSequence().firstOrNull { it.isNotBlank() }?.trim() ?: name.replace('\n', ' ')
@@ -207,12 +214,59 @@ object StremioStreams {
                 out += String(intArrayOf(a, b), 0, 2); i += 2
             } else i++
         }
-        val s = t.lowercase()
-        if (Regex("\\blektor\\b").containsMatchIn(s)) out += "Lektor PL"
-        if (Regex("\\bdubbing\\b|\\bdub(bing)? ?pl\\b").containsMatchIn(s)) out += "Dubbing PL"
-        if (Regex("napisy ?pl|\\bpl ?sub|\\bplsub").containsMatchIn(s)) out += "Napisy PL"
-        if (out.none { it == "🇵🇱" } && Regex("\\b(pl|polish|polski)\\b").containsMatchIn(s)) out += "PL"
-        if (Regex("\\bmulti\\b").containsMatchIn(s)) out += "Multi"
+        out += polishTags(tokens(t), onlyPolishFlag = out.contains("🇵🇱") && out.count { it.length == 4 } == 1, hasPolishFlag = out.contains("🇵🇱"))
+        if ("multi" in tokens(t)) out += "Multi"
+        return out.toList()
+    }
+
+    /** (7.5) Całe wyrazy / tokeny (litery i cyfry, także polskie znaki), małymi literami – bez dopasowań „pl” w środku słów. */
+    fun tokens(t: String): List<String> = t.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }
+
+    private val PL = setOf("pl", "pol", "polski", "polska", "polskie", "polish", "polsky")
+    private val OTHER = setOf("ua", "ukr", "ru", "rus", "cz", "cze", "cs", "sk", "slo", "ita", "it", "ger", "de", "deu", "fr", "fre", "fra",
+        "es", "spa", "hu", "hun", "lt", "lv", "ee", "tr", "eng", "en", "nl", "ro", "bg", "hr", "srb", "jp", "jpn", "kor")
+    private val DUB = setOf("dub", "dubbing", "dubbed", "dubbingiem")
+    private val SUB = setOf("sub", "subs", "subbed", "subtitles", "subtitle", "napisy", "napisami", "srt", "hardsub", "softsub")
+    private val AUDIO = setOf("audio", "dźwięk", "dzwiek", "ścieżka", "sciezka", "voice", "voiceover")
+    private val JOINED_DUB = setOf("pldub", "dubpl", "pldubbing", "dubbingpl")
+    private val JOINED_SUB = setOf("plsub", "plsubs", "subpl", "subspl", "napisypl")
+    private val JOINED_LEKTOR = setOf("lektorpl", "pllektor")
+
+    /**
+     * (7.5) Oznaczenia polskiej wersji z tokenów:
+     * - „Lektor PL” – „lektor” (bez innego języka obok, np. „lektor UA”), „lektor PL”, „PL lektor”;
+     * - „Dubbing PL” – dubbing z oznaczeniem PL obok („dubbing PL”, „PL dub”, „polski dubbing”) albo dubbing przy jedynej fladze 🇵🇱;
+     * - „Audio PL” – polska ścieżka dźwiękowa („audio PL”, „PL audio”);
+     * - „Napisy PL” – same napisy (np. „napisy PL”, „PL sub”, „plsub”) – NIE lektor ani dubbing;
+     * - „PL” – samo oznaczenie języka bez kontekstu (niepewne: tylko podbija kolejność, nie oznacza lektora).
+     */
+    fun polishTags(tk: List<String>, onlyPolishFlag: Boolean = false, hasPolishFlag: Boolean = false): List<String> {
+        val out = LinkedHashSet<String>()
+        fun near(i: Int, set: Set<String>) = tk.getOrNull(i - 1) in set || tk.getOrNull(i + 1) in set
+        val plNearSubs = mutableSetOf<Int>()                 // indeksy „PL” należące do oznaczenia napisów
+        val plNearAudio = mutableSetOf<Int>()
+        for ((i, w) in tk.withIndex()) {
+            when {
+                w in JOINED_LEKTOR -> out += "Lektor PL"
+                w == "lektor" -> if (!near(i, OTHER)) { out += "Lektor PL"; if (tk.getOrNull(i + 1) in PL) plNearAudio += i + 1; if (tk.getOrNull(i - 1) in PL) plNearAudio += i - 1 }
+                w in JOINED_DUB -> out += "Dubbing PL"
+                w in DUB -> when {
+                    near(i, PL) -> { out += "Dubbing PL"; if (tk.getOrNull(i + 1) in PL) plNearAudio += i + 1; if (tk.getOrNull(i - 1) in PL) plNearAudio += i - 1 }
+                    onlyPolishFlag && !near(i, OTHER) -> out += "Dubbing PL"
+                }
+                w in AUDIO && near(i, PL) -> { out += "Audio PL"; if (tk.getOrNull(i + 1) in PL) plNearAudio += i + 1; if (tk.getOrNull(i - 1) in PL) plNearAudio += i - 1 }
+                w in JOINED_SUB -> out += "Napisy PL"
+                w in SUB -> {
+                    // „napisy” to polskie słowo – polskie napisy; inne („sub”, „subs”) – tylko z oznaczeniem PL obok
+                    if (w == "napisy" || w == "napisami") { if (!near(i, OTHER)) out += "Napisy PL" }
+                    else if (near(i, PL)) out += "Napisy PL"
+                    if (tk.getOrNull(i + 1) in PL) plNearSubs += i + 1; if (tk.getOrNull(i - 1) in PL) plNearSubs += i - 1
+                }
+            }
+        }
+        // samo „PL” – tylko gdy nie jest częścią oznaczenia napisów / dźwięku i bez flagi 🇵🇱 (flaga już mówi o języku)
+        val bare = tk.withIndex().any { (i, w) -> w in PL && i !in plNearSubs && i !in plNearAudio }
+        if (bare && !hasPolishFlag && out.none { it.endsWith(" PL") }) out += "PL"
         return out.toList()
     }
 
@@ -229,11 +283,29 @@ object StremioStreams {
     /** Kolejność rozdzielczości na liście źródeł (od najwyższej; nieokreślona i CAM na końcu). */
     val QUALITY_ORDER = listOf("4K", "1440p", "1080p", "720p", "480p", "", "CAM")
 
+    /**
+     * (7.4) Źródła, które deklarowały polskiego lektora / dubbing, a w odtwarzaczu okazały się bez polskiej ścieżki
+     * (ścieżki z opisanym językiem, żadna polska). Na liście źródeł nie mają już oznaczenia lektora (najwyżej [MAX_NOT_PL]).
+     */
+    private val notPolish: MutableSet<String> by lazy {
+        java.util.Collections.synchronizedSet(LinkedHashSet(runCatching { Prefs.stremioNotPolish.split('\n').filter { it.isNotBlank() } }.getOrDefault(emptyList())))
+    }
+    const val MAX_NOT_PL = 500
+
+    fun verifiedNoPolishAudio(s: StremioStream): Boolean = s.key.isNotBlank() && s.key.hashCode().toString() in notPolish
+
+    fun markNoPolishAudio(s: StremioStream) {
+        if (s.key.isBlank()) return
+        notPolish += s.key.hashCode().toString()
+        val l = synchronized(notPolish) { notPolish.toList() }.takeLast(MAX_NOT_PL)
+        runCatching { Prefs.stremioNotPolish = l.joinToString("\n") }
+    }
+
     /** Polska wersja: 0 – dubbing / lektor, 1 – napisy PL / flaga / „PL”, 2 – brak. */
     fun polishRank(s: StremioStream): Int {
         val l = s.languages
         return when {
-            "Dubbing PL" in l || "Lektor PL" in l -> 0
+            "Dubbing PL" in l || "Lektor PL" in l || "Audio PL" in l -> 0
             "Napisy PL" in l || "🇵🇱" in l || "PL" in l || s.subtitles.any { it.lang.lowercase().let { x -> x == "pl" || x == "pol" } } -> 1
             else -> 2
         }

@@ -53,12 +53,15 @@ object Prefs {
     var engineOptimizer: Boolean get() = bool("engine_optimizer", true); set(v) = putBool("engine_optimizer", v)
     /** Wersja zasad doboru silnika, z którą zapisano profile kanałów (starsze usuwane – [pl.iptv.tv.data.ChannelEngines.load]). */
     var engineProfilesVersion: Int get() = int("engine_profiles_v", 0); set(v) = putInt("engine_profiles_v", v)
+    /** (7.5) Kanał, dla którego trwa ręczne dopasowanie silnika – po awarii aplikacji w trakcie prób bez powtórki (pętla awarii). */
+    var engineManualRunning: String get() = str("engine_manual_running"); set(v) = sp.edit().putString("engine_manual_running", v).commit().let { }
     /** Adresy bez rozszerzenia rozpoznane jako HLS (po jednym w linii) – po ponownym uruchomieniu kanał od razu jako HLS. */
     var hlsStreams: String get() = str("hls_streams"); set(v) = put("hls_streams", v)
     /** Akceleracja sprzętowa obrazu: wyłączona = dekoder programowy (zgodność), niezależnie od silnika. */
     var hwAccel: Boolean get() = bool("hw_accel", true); set(v) = putBool("hw_accel", v)
     /** Przytrzymanie OK w odtwarzaczu: 0 = od razu menu odtwarzania (silnik, akceleracja), 1 = szybkie menu ikon z kafelkiem „Silnik i akceleracja” (domyślnie). */
-    var okLongAction: Int get() = int("ok_long", 1); set(v) = putInt("ok_long", v)
+    /** (7.5) domyślnie 0 – przytrzymanie OK od razu otwiera ustawienia silnika kanału (szybkie menu ikon – pozycja w tym menu). */
+    var okLongAction: Int get() = int("ok_long", 0); set(v) = putInt("ok_long", v)
 
     /** Domyślne parametry trybu dla słabszych urządzeń. */
     fun resetLowPerfParams() = remove("low_max_h", "low_buf_min", "low_buf_max", "low_buf_mb", "low_epg_ahead", "low_desc", "low_epg_kbps", "low_zap_ms", "low_clean")
@@ -150,6 +153,8 @@ object Prefs {
     var stremioSubDelay: Int get() = int("stremio_sub_delay", 0); set(v) = putInt("stremio_sub_delay", v)
     var stremioAspect: Int get() = int("stremio_aspect", 0); set(v) = putInt("stremio_aspect", v)
     var stremioSubLang: String get() = str("stremio_sub_lang", "pol"); set(v) = put("stremio_sub_lang", v)
+    /** Źródła Stremio bez polskiej ścieżki mimo oznaczenia lektora (skróty kluczy, po jednym w linii). */
+    var stremioNotPolish: String get() = str("stremio_not_pl"); set(v) = put("stremio_not_pl", v)
     /** Serwer strumieniujący źródła P2P (TorrServer / serwer Stremio), np. „192.168.1.10:11470”; pusty – szukanie na tym urządzeniu. */
     var torrentServer: String get() = str("torrent_server"); set(v) = put("torrent_server", v)
     // ---- motyw X25 ----

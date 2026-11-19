@@ -92,8 +92,53 @@ object Playback {
     /** Tylko testy: symulacja błędu odtwarzania. */
     fun simulateError(code: Int) = recovery.onPlayerError(androidx.media3.common.PlaybackException("test", null, code))
 
+    /**
+     * (7.4) Pomiar płynności kanału: czas od przełączenia do pierwszej klatki, zgubione klatki, przycięcia (buforowanie po
+     * starcie). W logu „Playback” przy każdym przełączeniu i w oknie „Bieżący dekoder”.
+     */
+    class ChannelStats(val name: String, val engine: String) {
+        var firstFrameMs = -1L; var dataMs = -1L; var dropped = 0; var rebuffers = 0; var startedAt = android.os.SystemClock.uptimeMillis()
+        /** Wyświetlone klatki (próbki strażnika) – średnia liczba klatek na sekundę od pierwszej klatki. */
+        var frames = 0; var framesAt = 0L
+        val fps: Float get() = if (firstFrameMs < 0 || framesAt <= startedAt + firstFrameMs) 0f
+            else frames * 1000f / (framesAt - startedAt - firstFrameMs)
+        fun summary(now: Long = android.os.SystemClock.uptimeMillis()) =
+            "$name [$engine]: start ${if (firstFrameMs >= 0) "$firstFrameMs ms" else "bez obrazu"}, ${(now - startedAt) / 1000} s, " +
+                "${"%.1f".format(java.util.Locale.ROOT, fps)} kl/s, zgubione klatki $dropped, przycięcia $rebuffers"
+    }
+    @Volatile var stats: ChannelStats? = null; private set
+    private var lastState = androidx.media3.common.Player.STATE_IDLE
+
+    private fun closeStats() { stats?.let { android.util.Log.i(TAG, "pomiar • ${it.summary()}") } }
+
+    private val measure = object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+        override fun onDroppedVideoFrames(t: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, count: Int, elapsedMs: Long) {
+            stats?.let { it.dropped += count }
+        }
+        override fun onDownstreamFormatChanged(t: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                                               data: androidx.media3.exoplayer.source.MediaLoadData) {
+            val s = stats ?: return
+            if (s.dataMs < 0 && data.trackType != androidx.media3.common.C.TRACK_TYPE_TEXT) {
+                s.dataMs = android.os.SystemClock.uptimeMillis() - s.startedAt
+                android.util.Log.i(TAG, "pierwsze dane • ${s.name} po ${s.dataMs} ms")
+            }
+        }
+        override fun onVideoDecoderInitialized(t: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, decoderName: String,
+                                               initializedTimestampMs: Long, initializationDurationMs: Long) {
+            videoDecoder = decoderName
+            android.util.Log.i(TAG, "dekoder obrazu $decoderName (inicjalizacja $initializationDurationMs ms)")
+        }
+    }
+
     private val recovery = object : androidx.media3.common.Player.Listener {
         override fun onIsPlayingChanged(playing: Boolean) { isPlayingNow = playing }
+        override fun onRenderedFirstFrame() {
+            val s = stats ?: return
+            if (s.firstFrameMs < 0) {
+                s.firstFrameMs = android.os.SystemClock.uptimeMillis() - s.startedAt
+                android.util.Log.i(TAG, "pierwsza klatka • ${s.name} po ${s.firstFrameMs} ms [${s.engine}]")
+            }
+        }
         override fun onPlayerError(e: androidx.media3.common.PlaybackException) {
             val p = player ?: return
             // adres bez rozszerzenia, a serwer podaje listę HLS (np. Xtream „…/123”) – druga próba jako HLS (jak zewnętrzne odtwarzacze)
@@ -134,6 +179,9 @@ object Playback {
             else { p.stop(); calls?.cancelActive(); onFatal?.invoke(e) }   // stop = zwolnienie dekoderów (słabsze urządzenia nie zacinają kolejnych kanałów)
         }
         override fun onPlaybackStateChanged(s: Int) {
+            // przycięcie = buforowanie prosto z odtwarzania (nie stop → przygotowanie przy przełączeniu)
+            if (s == androidx.media3.common.Player.STATE_BUFFERING && lastState == androidx.media3.common.Player.STATE_READY && reachedReady) stats?.let { it.rebuffers++ }
+            lastState = s
             if (s == androidx.media3.common.Player.STATE_READY) { retries = 0; reachedReady = true }
             // początek buforowania liczony tylko przy przejściu do niego (READY→BUFFERING→BUFFERING nie zeruje licznika)
             if (s == androidx.media3.common.Player.STATE_BUFFERING) { if (bufferingSince == 0L) bufferingSince = android.os.SystemClock.uptimeMillis() }
@@ -147,6 +195,8 @@ object Playback {
         override fun run() {
             val p = player ?: return
             val now = android.os.SystemClock.uptimeMillis()
+            // pomiar: wyświetlone klatki bieżącego kanału (licznik dekodera od jego włączenia)
+            p.videoDecoderCounters?.let { dc -> stats?.let { s -> if (s.firstFrameMs >= 0) { s.frames = dc.renderedOutputBufferCount; s.framesAt = now } } }
             // zbyt długie buforowanie: dawniej samo prepare() (bez działania – odtwarzacz nie był w stanie IDLE)
             // i przeskok na krawędź na żywo, co co 15 s zrzucało bufor i zacinało obraz w kółko
             if (bufferingSince > 0 && now - bufferingSince > STALL_MS && p.playWhenReady && url != null) {
@@ -177,12 +227,22 @@ object Playback {
     private fun onFrozen() {
         val c = lastCtx
         if (!softwareDecoding && pl.iptv.tv.data.Prefs.freezeFallback && c != null) {
-            android.util.Log.w(TAG, "zamrożony obraz na dekoderze sprzętowym – przejście na programowy • ${diagnostics()}")
-            sessionSoftware = true; softwareChannel = channelKey
+            channelKey?.let { frozenChannels += it }
+            // (7.4) drugi kanał z zamrożonym obrazem – dekoder sprzętowy urządzenia zawodny: programowy dla całej sesji (jak 6.5);
+            // pierwszy – tylko ten kanał (fałszywy alarm nie psuje pozostałych)
+            val session = frozenChannels.size >= SESSION_SOFTWARE_AFTER
+            android.util.Log.w(TAG, "zamrożony obraz na dekoderze sprzętowym – przejście na programowy" +
+                (if (session) " (cała sesja)" else "") + " • ${diagnostics()}")
+            sessionSoftware = true; softwareChannel = if (session) null else channelKey
             rebuild(c)
             onDecoderFallback?.invoke()
         } else recover("zamrożony obraz")
     }
+
+    /** Kanały, na których w tej sesji zamarzł obraz dekodera sprzętowego – kolejne włączenie od razu na programowym. */
+    val frozenChannels: MutableSet<String> = java.util.Collections.synchronizedSet(HashSet())
+    /** Po zamrożeniu obrazu na tylu różnych kanałach – dekoder programowy dla całej sesji. */
+    const val SESSION_SOFTWARE_AFTER = 2
 
     /** Tylko testy: zgłoszenie zamrożonego obrazu jak przez strażnika. */
     fun simulateFreeze() = onFrozen()
@@ -297,8 +357,17 @@ object Playback {
         val list = runCatching { androidx.media3.exoplayer.mediacodec.MediaCodecUtil.getDecoderInfos(f.sampleMimeType ?: "", false, false) }.getOrDefault(emptyList())
         val hw = list.count { it.hardwareAccelerated }
         return "${f.sampleMimeType} ${f.width}×${f.height} • dekodery: $hw sprzętowe, ${list.size - hw} programowe • silnik: ${ENGINES.getOrNull(pl.iptv.tv.data.Prefs.playerEngine)} • akceleracja: ${if (pl.iptv.tv.data.Prefs.hwAccel) "wł." else "wył."}" +
-            if (sessionSoftware) " • awaryjnie dekoder programowy (obraz zamarzał)" else ""
+            (if (sessionSoftware) " • awaryjnie dekoder programowy (obraz zamarzał)" else "") +
+            (stats?.let { "\n\nDekoder: ${videoDecoder ?: "?"}\nPomiar: ${it.summary()}" } ?: "")
     }
+
+    /** Nazwa dekodera obrazu bieżącego kanału (np. c2.android.avc.decoder). */
+    @Volatile var videoDecoder: String? = null; private set
+
+    /** Krótki opis silnika (pomiar w logu). */
+    fun engineLabel(): String = listOfNotNull(
+        when { softwareDecoding -> "programowy"; pl.iptv.tv.data.Prefs.playerEngine == ENGINE_TUNNELING -> "tunelowanie"; else -> "sprzętowy" },
+        profile?.label, if (pl.iptv.tv.data.Prefs.lowPerf) "słabsze urządzenia" else null).joinToString(", ")
 
     fun get(c: Context): ExoPlayer {
         player?.let { p -> if (p.applicationLooper == android.os.Looper.myLooper()) return p; releasePlayer(); url = null; target = null }
@@ -306,7 +375,7 @@ object Playback {
     }
 
     private fun create(c: Context): ExoPlayer = buildPlayer(c, profile).also { p ->
-        player = p; p.addListener(recovery); listeners.forEach { p.addListener(it) }
+        player = p; p.addListener(recovery); listeners.forEach { p.addListener(it) }; p.addAnalyticsListener(measure)
         if (pl.iptv.tv.BuildConfig.DEBUG) p.addAnalyticsListener(loadLog)
         main.removeCallbacks(watchdog); main.postDelayed(watchdog, 3000)
     }
@@ -358,7 +427,12 @@ object Playback {
             setParameters(b)
         }
         val start = if (P.lowLatency) 800 else START_BUFFER_MS
-        val load = if (low) {
+        val load = if (profile?.buffer == 1) {
+            // (7.5) profil kanału „duży bufor” (ręczne dopasowanie zacinającego się kanału): więcej zapasu przed startem i po przycięciu
+            DefaultLoadControl.Builder().setBufferDurationsMs(30_000, 90_000, BIG_START_BUFFER_MS, BIG_REBUFFER_MS)
+                .apply { if (low) setTargetBufferBytes(P.lowBufMb.coerceIn(8, 256) * 1024 * 1024) }
+                .setPrioritizeTimeOverSizeThresholds(!low).build()
+        } else if (low) {
             val min = P.lowBufMinS.coerceIn(2, 60) * 1000; val max = (P.lowBufMaxS.coerceIn(2, 120) * 1000).coerceAtLeast(min)
             DefaultLoadControl.Builder().setBufferDurationsMs(min, max, start, REBUFFER_MS)
                 .setTargetBufferBytes(P.lowBufMb.coerceIn(8, 256) * 1024 * 1024).setPrioritizeTimeOverSizeThresholds(false).build()
@@ -415,6 +489,9 @@ object Playback {
     /** Zapas przed startem i po przycięciu (ms). */
     const val START_BUFFER_MS = 2_000
     const val REBUFFER_MS = 5_000
+    /** Profil „duży bufor” ([pl.iptv.tv.data.EngineProfile.buffer]). */
+    const val BIG_START_BUFFER_MS = 3_000
+    const val BIG_REBUFFER_MS = 8_000
 
     /**
      * Strumienie TS jak w zewnętrznych odtwarzaczach: klatki kluczowe inne niż IDR (częste w IPTV – bez tego obraz
@@ -492,6 +569,7 @@ object Playback {
      */
     fun warmUp(c: Context) {
         val app = c.applicationContext
+        val warmStart = android.os.SystemClock.uptimeMillis()
         Thread({
             runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND) }
             loadRememberedHls()
@@ -505,6 +583,7 @@ object Playback {
                 looper.quitSafely()
             }
             warmed = true
+            android.util.Log.i(TAG, "rozgrzewanie gotowe po ${android.os.SystemClock.uptimeMillis() - warmStart} ms")
         }, "PlaybackWarmUp").start()
     }
 
@@ -517,11 +596,15 @@ object Playback {
         // (7.3) awaryjny dekoder programowy tylko dla kanału, na którym obraz zamarzł – inny kanał znów na sprzętowym
         val leaveSoftware = sessionSoftware && softwareChannel != null && softwareChannel != ch.key
         if (leaveSoftware) { sessionSoftware = false; softwareChannel = null }
-        if (want != profile || (leaveSoftware && player != null)) {
+        // (7.4) kanał, na którym w tej sesji już zamarzł obraz – od razu programowy (bez kolejnych 8 s zamrożenia)
+        val enterSoftware = !sessionSoftware && ch.key in frozenChannels && pl.iptv.tv.data.Prefs.freezeFallback
+        if (enterSoftware) { sessionSoftware = true; softwareChannel = ch.key }
+        val switchEngine = (leaveSoftware != enterSoftware) && player != null
+        if (want != profile || switchEngine) {
             // inne ustawienia silnika – nowy odtwarzacz (stary całkowicie zwolniony), obraz na tym samym widoku
             // (7.3) sam rodzaj strumienia (HLS / TS) – ten sam odtwarzacz, bez przebudowy (płynne przełączanie)
             val view = target
-            val rebuild = !sameEngine(want, profile) || leaveSoftware
+            val rebuild = !sameEngine(want, profile) || switchEngine
             profile = want
             if (player != null && rebuild) {
                 releasePlayer(); url = null
@@ -545,6 +628,7 @@ object Playback {
         // osobna grupa połączeń dla nowego strumienia; poprzednia zamykana po podmianie źródła (niżej)
         val previousCalls = calls
         val streamCalls = StreamCalls(streamHttp); calls = streamCalls
+        lastState = androidx.media3.common.Player.STATE_IDLE          // buforowanie po przełączeniu to nie przycięcie
         p.setMediaSource(mediaSource(c, ch, streamUrl, mimeFor(streamUrl, mime, profile), streamCalls))
         p.playWhenReady = true
         p.prepare()
@@ -552,7 +636,10 @@ object Playback {
         // nie zgłosi błędu) – nowy kanał nie czeka, aż dostawca zwolni miejsce po poprzednim
         previousCalls?.close()
         android.util.Log.i(TAG, "start ${ch.name}${if (clean) " (czysty start)" else ""}")
-        if (streamUrl != url) { recoveries = 0; recoveryWindow = 0 }          // nowy kanał – licznik odwieszeń od zera
+        if (streamUrl != url) {
+            recoveries = 0; recoveryWindow = 0                                // nowy kanał – licznik odwieszeń od zera
+            closeStats(); stats = ChannelStats(ch.name, engineLabel())
+        }
         url = streamUrl; channelKey = ch.key; lastMime = mime
         retries = 0; stuck = 0; bufferingSince = 0; hadError = false; reachedReady = false
         // po błędzie: świeża powierzchnia obrazu (to samo, co wcześniej dawało dopiero otwarcie menu)
@@ -709,10 +796,11 @@ object Playback {
     fun stop() {
         ChannelEngineOptimizer.cancel()
         main.removeCallbacks(startCheck)
+        closeStats(); stats = null
         releasePlayer()
         profile = null
         hadError = false; retries = 0; recoveries = 0; recoveryWindow = 0
-        sessionSoftware = false; softwareChannel = null          // ręczna zmiana silnika / wyjście – znowu ustawienia użytkownika
+        sessionSoftware = false; softwareChannel = null; frozenChannels.clear()          // ręczna zmiana silnika / wyjście – znowu ustawienia użytkownika
         url = null; channelKey = null; target = null; lastMime = null
     }
 }
