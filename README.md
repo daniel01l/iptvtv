@@ -4,7 +4,7 @@
 
 **Odtwarzacz telewizji internetowej (IPTV) dla Android TV, telefonów i tabletów**
 
-Program TV · Archiwum · Nagrywanie · Wyniki meczów na żywo
+Program TV · Archiwum · Nagrywanie · STube · Stremio · Wyniki meczów na żywo
 
 [**⬇ Pobierz najnowszą wersję**](../../releases/latest)
 
@@ -37,13 +37,30 @@ Program TV · Archiwum · Nagrywanie · Wyniki meczów na żywo
 - Oglądanie bieżącego programu od początku
 
 ### Oglądanie
-- Zmiana kanału strzałkami, numerem lub z listy
+- Szybkie przełączanie kanałów strzałkami, numerem lub z listy
 - **OK** – informacje o programie i lista kanałów z bieżącymi audycjami
-- **Przytrzymanie OK** – szybkie menu: program TV, opis, ulubione, nagrywanie, audio i napisy
+- **Przytrzymanie OK** – ustawienia silnika odtwarzania dla kanału i szybkie menu: program TV, opis, ulubione, nagrywanie, audio i napisy
+- **Dopasowanie silnika** – gdy kanał się nie otwiera albo zacina, aplikacja sama sprawdza w tle inne ustawienia odtwarzania i zapamiętuje najlepsze dla tego kanału (ustawienia można w każdej chwili usunąć)
+- Automatyczne przejście na dekoder programowy, gdy obraz zamarza
 - Wybór ścieżki dźwiękowej i napisów, zmiana proporcji obrazu
 - Obraz w obrazie (PiP) na telefonie
 - Automatyczne wznawianie przerwanej transmisji
 - Tryb dla słabszych telewizorów
+
+### STube – YouTube bez reklam
+- Filmy, muzyka, transmisje na żywo i subskrypcje, z pomijaniem sponsorowanych fragmentów (SponsorBlock)
+- Logowanie kontem YouTube kodem QR, playlisty, „Do obejrzenia później”, historia i wznawianie
+- Kolejka, autoodtwarzanie, rozdziały, jakość, prędkość, korektor dźwięku
+- Na telefonie: **tylko dźwięk** przy wyłączonym ekranie (sterowanie z powiadomienia) i pływające okno (PiP)
+- Sterowanie z telefonu przez przeglądarkę
+
+### Stremio – filmy i seriale
+- Logowanie kontem Stremio (także kodem QR) i wtyczki z konta
+- Katalogi filmów i seriali, wyszukiwarka, „Oglądaj dalej” zsynchronizowane z kontem
+- Źródła pogrupowane według jakości (4K, 1080p…), polska wersja (lektor, dubbing, napisy) na górze
+- Automatyczne polskie napisy i polski dźwięk, gdy są dostępne
+- Wbudowany odtwarzacz: przewijanie strzałkami, napisy z opóźnieniem i stylem, następny odcinek, pływające okno (PiP) na telefonie
+- Źródła P2P przez TorrServer lub serwer Stremio
 
 ### Nagrywanie
 - Nagrywanie bieżącej audycji lub zaplanowane z programu TV
@@ -57,12 +74,13 @@ Program TV · Archiwum · Nagrywanie · Wyniki meczów na żywo
 - Automatyczne wyszukiwanie kanału, który transmituje mecz
 
 ### Wygląd i wygoda
-- 7 motywów z możliwością zmiany kolorów i czcionek
-- 4 układy menu głównego
+- 5 motywów: **Nowoczesny** (domyślny, z ekranem głównym w stylu serwisu VOD), Klasyczny, Xbox, **X25 Dashboard** i **PS5** – każdy z własnym ekranem głównym
+- Zmiana kolorów, gradientów i czcionek oraz **zapis własnych motywów**
+- Dopasowanie do telefonu w pionie i w poziomie, tabletu i telewizora
 - Zegar, data i pogoda w menu
 - Kontrola rodzicielska z kodem PIN
 - Własne ustawienie przycisków pilota
-- Uruchamianie razem z telewizorem
+- Uruchamianie razem z telewizorem, tryb ekranu głównego (launcher)
 - Automatyczne aktualizacje
 - Wbudowana instrukcja obsługi
 
@@ -87,6 +105,8 @@ Program TV · Archiwum · Nagrywanie · Wyniki meczów na żywo
 Aplikacja wysyła tylko dane potrzebne do aktywacji: kod urządzenia, numer instalacji, wersję aplikacji, model urządzenia i czas połączenia.
 
 Aplikacja **nie wysyła** list kanałów, adresów, haseł, historii oglądania ani plików. Nie zawiera reklam ani narzędzi śledzących.
+
+STube i Stremio łączą się bezpośrednio z usługami, z których korzystasz (YouTube, SponsorBlock, Stremio i włączone wtyczki). Postęp oglądania trafia na konto Stremio tylko wtedy, gdy włączysz synchronizację.
 
 ## Kontakt
 
