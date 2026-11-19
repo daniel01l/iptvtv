@@ -32,7 +32,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -324,7 +323,7 @@ class Ps5HomeActivity : BaseActivity() {
     private fun openVideo(v: WatchProgress) { X25Theme.selectSound(this); X25Actions.playVideo(this, v.toVideo()) }
     private fun openTitle(t: StremioProgress) {
         X25Theme.selectSound(this)
-        startActivity(StremioDetailActivity.intent(this, pl.iptv.tv.data.StremioMetaPreview(t.metaId, t.type, t.name, t.poster), t.videoId.ifBlank { null }))
+        startActivity(StremioPlayerActivity.resumeIntent(this, t))   // (7.8) od razu odtwarzanie
     }
 
     /** Duża karta „Ostatnio odtwarzane” – zależnie od zakładki: kanał TV albo najnowszy film / tytuł. */

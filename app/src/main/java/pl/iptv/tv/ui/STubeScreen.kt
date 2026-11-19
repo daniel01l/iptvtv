@@ -43,6 +43,8 @@ class STubeRow(val id: String, val title: String, val load: suspend (page: Strin
     var error: String? = null
     /** Ostatnio zaznaczony kafelek (powrót ▲▼ na tę samą pozycję – jak w Leanback). */
     var lastFocus = 0
+    /** Okładki kwadratowe (muzyka, miksy, biblioteka) zamiast miniatur 16:9. */
+    var square = false
     /** Rząd playlisty: otwarta playlista ([STubeScreen.playlistRow]). */
     var source: YtPlaylist? = null
     val adapter = STubeTileAdapter(this)
@@ -58,7 +60,10 @@ object STubeScreen {
     const val ACT_LOGIN = "login"; const val ACT_SMARTTUBE_SEARCH = "st_search"; const val ACT_RETRY = "retry"
 
     /** Wymiary kafelków (dp). */
-    const val TILE_W = 236; const val THUMB_H = 126; const val CHANNEL_W = 150; const val AVATAR = 96
+    const val TILE_W = 236; const val THUMB_H = 126; const val CHANNEL_W = 150; const val AVATAR = 112
+
+    /** Bok kwadratowej okładki (dp) – proporcjonalnie do wysokości miniatury wybranego układu. */
+    fun squareSide(l: StubeTheme.Layout) = (l.thumbH * 1.3).toInt()
 
     /**
      * Kolejność rzędów: [wyniki], Dla Ciebie (konto, źródło „Moje”) albo zachęta do logowania, Na czasie, Muzyka, Subskrypcje (konto).
@@ -75,6 +80,8 @@ object STubeScreen {
     const val ROW_LIBRARY = "library"; const val ROW_CHANNELS = "channels"; const val ROW_PLAYLIST = "playlist"
     /** „Twoje miksy” – gotowe playlisty z historii ([StubeMixes]); id playlisty miksu: [PL_MIX] + id. */
     const val ROW_MIXES = "mixes"; const val PL_MIX = "mix:"
+    /** Rzędy z kwadratowymi okładkami (jak w aplikacjach muzycznych na TV). */
+    val SQUARE_ROWS = setOf(ROW_MUSIC, ROW_MIXES, ROW_LIBRARY)
     /** Identyfikatory playlist specjalnych (nie są playlistami YouTube). */
     const val PL_LATER = "local:later"; const val PL_HISTORY = "local:history"; const val PL_LIKED = "liked"; const val PL_CHANNEL = "channel:"
 
@@ -110,7 +117,7 @@ object STubeScreen {
                 .let { STubePage(it.videos.map(STubeTile::Video), it.nextPage) }
             else -> YouTubeRepository.playlistVideos(p.id, page).let { STubePage(it.videos.map(STubeTile::Video), it.nextPage) }
         }
-    }.also { it.source = p }
+    }.also { it.source = p; it.square = p.id.startsWith(PL_MIX) }
 
     fun rowIds(loggedIn: Boolean, personal: Boolean, query: String?, hasContinue: Boolean = false, hasMixes: Boolean = false): List<String> = buildList {
         if (!query.isNullOrBlank()) add(ROW_SEARCH)
@@ -172,7 +179,7 @@ object STubeScreen {
                 ROW_LIBRARY -> STubeRow(id, "Biblioteka / Playlisty") { p -> libraryPage(logged, p) }
                 else -> STubeRow(id, "Kanały") { _ -> STubePage(YouTubeRepository.subscriptions().map(STubeTile::Channel)) }
             }
-        }
+        }.onEach { it.square = it.id in SQUARE_ROWS }
     }
 
     /** Wiek filmu z daty publikacji ISO 8601 („3 godz. temu”, „2 dni temu”) – podpis kafelków subskrypcji; null przy braku daty. */
@@ -211,14 +218,15 @@ class STubeTileAdapter(private val row: STubeRow) : RecyclerView.Adapter<STubeTi
              val progress: WatchBar?) : RecyclerView.ViewHolder(root)
 
     override fun getItemCount() = row.tiles.size
-    override fun getItemViewType(position: Int) = if (row.tiles[position] is STubeTile.Channel) 1 else 0
+    override fun getItemViewType(position: Int) = if (row.tiles[position] is STubeTile.Channel) 1 else if (row.square) 2 else 0
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
         val c = parent.context
-        val channel = viewType == 1
+        val channel = viewType == 1; val sq = viewType == 2
         val lay = StubeTheme.layout
-        val w = Ui.dp(if (channel) STubeScreen.CHANNEL_W else lay.tileW)
-        val imgW = w - Ui.dp(12); val imgH = Ui.dp(if (channel) STubeScreen.AVATAR else lay.thumbH)
+        val side = STubeScreen.squareSide(lay)
+        val w = Ui.dp(if (channel) STubeScreen.CHANNEL_W else if (sq) side + 12 else lay.tileW)
+        val imgW = w - Ui.dp(12); val imgH = Ui.dp(if (channel) STubeScreen.AVATAR else if (sq) side else lay.thumbH)
         val root = LinearLayout(c).apply {
             orientation = LinearLayout.VERTICAL; tag = "item"; isFocusable = true; isClickable = true
             setPadding(Ui.dp(6), Ui.dp(6), Ui.dp(6), Ui.dp(8))
@@ -311,7 +319,9 @@ class STubeTileAdapter(private val row: STubeRow) : RecyclerView.Adapter<STubeTi
                 h.title.text = t.p.title
                 h.sub.text = when {
                     t.p.id.startsWith("local:") -> "Na tym urządzeniu"
-                    t.p.id.startsWith(STubeScreen.PL_MIX) -> pl.iptv.tv.data.StubeMixes.byId(t.p.id.removePrefix(STubeScreen.PL_MIX))?.subtitle ?: "Gotowy miks"
+                    count >= 0 && !t.p.id.startsWith(STubeScreen.PL_MIX) -> "Playlista • $count"
+                    t.p.id.startsWith(STubeScreen.PL_MIX) -> "${pl.iptv.tv.data.StubeMixes.MIN_PLAYLIST}+ utworów • " +
+                        (pl.iptv.tv.data.StubeMixes.byId(t.p.id.removePrefix(STubeScreen.PL_MIX))?.subtitle ?: "Gotowy miks")
                     t.p.id == STubeScreen.PL_LIKED -> "Konto YouTube"
                     else -> "Playlista"
                 }

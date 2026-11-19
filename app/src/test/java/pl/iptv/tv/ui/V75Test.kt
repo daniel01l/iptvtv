@@ -39,6 +39,7 @@ class V75Test {
     @Before fun setup() {
         Playback.stop()
         db = Room.inMemoryDatabaseBuilder(ctx, StubeDatabase::class.java).allowMainThreadQueries().build()
+            .also { it.openHelper.writableDatabase }   // otwarta od razu – zamknięcie w tearDown nie trafia na otwieranie w tle (zakleszczenie Room)
         StubeHistory.useDatabase(db)
         ChannelEngines.resetForTest(); ChannelEngineOptimizer.resetSession()
         Prefs.engineOptimizer = true; Prefs.engineProfilesVersion = ChannelEngines.PROFILES_VERSION; Prefs.engineManualRunning = ""

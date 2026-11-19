@@ -2,6 +2,7 @@ package pl.iptv.tv.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Entity
 import androidx.room.PrimaryKey
@@ -37,6 +38,12 @@ data class StremioProgress(
     val createdAt: Long = 0,
     /** Zapisane już na koncie Stremio. */
     val synced: Boolean = false,
+    /** (7.8) Dla odcinka [videoId] pojawiło się już okienko „Następny odcinek” – „Wznów” / „Oglądaj dalej” otwiera następny. */
+    @ColumnInfo(defaultValue = "0") val nextShown: Boolean = false,
+    /** (7.8) Ostatnio używane źródło (wtyczka, grupa, jakość) – wznowienie wybiera to samo źródło. */
+    @ColumnInfo(defaultValue = "''") val addonUrl: String = "",
+    @ColumnInfo(defaultValue = "''") val bingeGroup: String = "",
+    @ColumnInfo(defaultValue = "''") val quality: String = "",
 ) {
     val fraction: Float get() = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
     val finished: Boolean get() = durationMs > 0 && positionMs >= durationMs * 0.92
@@ -56,6 +63,16 @@ interface StremioDao {
     @Upsert suspend fun upsertProgress(p: List<StremioProgress>)
     @Query("UPDATE stremio_progress SET synced = 1 WHERE metaId IN (:ids)") suspend fun markSynced(ids: List<String>)
     @Query("DELETE FROM stremio_progress") suspend fun clearProgress()
+}
+
+/** (7.8) Decyzja przy wznawianiu („Wznów”, „Oglądaj dalej”): następny odcinek tylko, gdy okienko „Następny odcinek” już się pojawiło. */
+object StremioResume {
+    data class Target(val videoId: String, val label: String, val next: Boolean)
+
+    fun target(p: StremioProgress, meta: StremioMeta?): Target {
+        if (p.type == "series" && (p.nextShown || p.finished)) meta?.next(p.videoId)?.let { return Target(it.id, it.label, true) }
+        return Target(p.videoId.ifBlank { p.metaId }, p.videoLabel, false)
+    }
 }
 
 // ================= konto =================
@@ -123,7 +140,30 @@ object StremioStore {
             val defaults = StremioApi.defaultAddons.mapIndexedNotNull { i, u -> runCatching { StremioApi.manifest(u) }.getOrNull()?.let { StremioAddonState(it.transportUrl, it.manifestJson, true, i) } }
             if (defaults.isNotEmpty()) { withContext(Dispatchers.IO) { d.upsertAddons(defaults) }; rows = defaults }
         }
-        return rows.mapNotNull { r -> runCatching { StremioAddon.parse(r.transportUrl, org.json.JSONObject(r.manifest)) to r.enabled }.getOrNull() }.also { addonsCache = it }
+        // (7.8) parsowanie manifestów poza głównym wątkiem
+        return withContext(Dispatchers.Default) {
+            rows.mapNotNull { r -> runCatching { StremioAddon.parse(r.transportUrl, org.json.JSONObject(r.manifest)) to r.enabled }.getOrNull() }
+        }.also { addonsCache = it }
+    }
+
+    /**
+     * (7.8) Odświeżenie wtyczek: z konta (dodane, usunięte, nowe manifesty) i ponowne pobranie manifestów wtyczek dodanych ręcznie.
+     * Zwraca liczbę wtyczek po odświeżeniu; bez konta – tylko ręczne i domyślne.
+     */
+    suspend fun refreshAddons(): Int {
+        if (StremioAccount.loggedIn) {
+            val list = StremioApi.addonCollection(StremioAccount.authKey)
+            if (list.isNotEmpty()) replaceFromAccount(list)
+        }
+        val d = dao()
+        if (d != null) {
+            val custom = withContext(Dispatchers.IO) { runCatching { d.addons() }.getOrDefault(emptyList()) }.filter { it.custom }
+            for (c in custom) {
+                val a = runCatching { StremioApi.manifest(c.transportUrl) }.getOrNull() ?: continue
+                withContext(Dispatchers.IO) { d.upsertAddons(listOf(c.copy(manifest = a.manifestJson))) }
+            }
+        }
+        return addons().size
     }
 
     suspend fun enabledAddons() = addons().filter { it.second }.map { it.first }
@@ -172,7 +212,9 @@ object StremioStore {
         if (p.positionMs < 5_000) return
         val d = dao() ?: return
         val old = withContext(Dispatchers.IO) { d.progressOf(p.metaId) }
-        val row = p.copy(createdAt = old?.createdAt?.takeIf { it > 0 } ?: p.updatedAt, synced = false)
+        val same = old != null && old.videoId == p.videoId
+        val row = p.copy(createdAt = old?.createdAt?.takeIf { it > 0 } ?: p.updatedAt, synced = false,
+            nextShown = p.nextShown || (same && old!!.nextShown))
         withContext(Dispatchers.IO) { d.upsertProgress(listOf(row)) }
         if (push) pushPending()
     }
@@ -200,7 +242,9 @@ object StremioStore {
         val remote = StremioApi.library(StremioAccount.authKey).filter { !it.removed && (it.timeOffset > 0 || it.videoId.isNotBlank()) }
         val local = withContext(Dispatchers.IO) { d.progress(10_000) }.associateBy { it.metaId }
         val newer = remote.filter { r -> (local[r.id]?.updatedAt ?: 0) < r.lastWatched }.map { r ->
-            StremioProgress(r.id, r.type, r.name, r.poster, r.videoId, videoLabel(r.videoId), r.timeOffset, r.duration, r.lastWatched, r.lastWatched, synced = true)
+            val old = local[r.id]?.takeIf { it.videoId == r.videoId }
+            StremioProgress(r.id, r.type, r.name, r.poster, r.videoId, videoLabel(r.videoId), r.timeOffset, r.duration, r.lastWatched, r.lastWatched, synced = true,
+                nextShown = old?.nextShown ?: false, addonUrl = old?.addonUrl.orEmpty(), bingeGroup = old?.bingeGroup.orEmpty(), quality = old?.quality.orEmpty())
         }
         withContext(Dispatchers.IO) { d.upsertProgress(newer) }
         pushPending()

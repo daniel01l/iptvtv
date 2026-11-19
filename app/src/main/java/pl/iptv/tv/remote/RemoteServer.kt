@@ -207,7 +207,7 @@ object RemoteServer {
         // bez podanego EPG lista dostaje dotychczasowy adres programu TV (nie trzeba go wpisywać ponownie)
         val p = Playlists.add(name.ifBlank { "Lista z telefonu" }, source, epg.trim().ifBlank { Prefs.effectiveEpgUrl }, exp)
         main.post {
-            Toast.makeText(app, "📥 Otrzymano listę: ${p.name}" + (if (count > 0) " ($count kanałów)" else ""), Toast.LENGTH_LONG).show()
+            pl.iptv.tv.ui.I18n.makeToast(app, "📥 Otrzymano listę: ${p.name}" + (if (count > 0) " ($count kanałów)" else ""), Toast.LENGTH_LONG).show()
             if (activate || Prefs.remoteAutoActivate) CoroutineScope(Dispatchers.Main).launch {
                 runCatching { Repository.switchPlaylist(p.id) }; listener?.invoke()
             } else listener?.invoke()

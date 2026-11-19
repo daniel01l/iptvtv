@@ -156,7 +156,7 @@ object Updater {
         }
     }
 
-    private fun toast(c: Context, s: String) = main.post { Toast.makeText(c.applicationContext, s, Toast.LENGTH_LONG).show() }
+    private fun toast(c: Context, s: String) = main.post { pl.iptv.tv.ui.I18n.makeToast(c.applicationContext, s, Toast.LENGTH_LONG).show() }
 
     /** Plik odebrany z telefonu / pobrany: sprawdź i zainstaluj. Zwraca (sukces, komunikat). */
     fun handleIncoming(c: Context, f: File): Pair<Boolean, String> {
@@ -201,8 +201,8 @@ class InstallReceiver : BroadcastReceiver() {
             }
             PackageInstaller.STATUS_SUCCESS -> {}
             PackageInstaller.STATUS_FAILURE_CONFLICT, PackageInstaller.STATUS_FAILURE_INCOMPATIBLE ->
-                Toast.makeText(c, "Aktualizacja nieudana: ${Updater.SIG_MISMATCH}", Toast.LENGTH_LONG).show()
-            else -> Toast.makeText(c, "Aktualizacja nieudana: ${i.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: ""}", Toast.LENGTH_LONG).show()
+                pl.iptv.tv.ui.I18n.makeToast(c, "Aktualizacja nieudana: ${Updater.SIG_MISMATCH}", Toast.LENGTH_LONG).show()
+            else -> pl.iptv.tv.ui.I18n.makeToast(c, "Aktualizacja nieudana: ${i.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: ""}", Toast.LENGTH_LONG).show()
         }
     }
 }

@@ -139,7 +139,7 @@ class PermissionWizard(private val a: Activity, private val onDone: () -> Unit =
     private fun finish() {
         running = false
         val granted = steps(a).count { it.granted(a) }
-        android.widget.Toast.makeText(a, "Uprawnienia: $granted/${steps(a).size} nadane", android.widget.Toast.LENGTH_SHORT).show()
+        I18n.makeToast(a, "Uprawnienia: $granted/${steps(a).size} nadane", android.widget.Toast.LENGTH_SHORT).show()
         onDone()
     }
 }

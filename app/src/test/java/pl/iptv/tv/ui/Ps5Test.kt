@@ -40,6 +40,7 @@ class Ps5Test {
 
     @Before fun setup() {
         db = Room.inMemoryDatabaseBuilder(ctx, StubeDatabase::class.java).allowMainThreadQueries().build()
+            .also { it.openHelper.writableDatabase }   // otwarta od razu – zamknięcie w tearDown nie trafia na otwieranie w tle (zakleszczenie Room)
         StubeHistory.useDatabase(db); X25Store.clearCache()
         Prefs.permissionsAsked = true; Prefs.setupDone = true
         Prefs.ps5Home = true; Prefs.ps5Panel = true; Prefs.ps5Sounds = true; Prefs.x25Dashboard = true

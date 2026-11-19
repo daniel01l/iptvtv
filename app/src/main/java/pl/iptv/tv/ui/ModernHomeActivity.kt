@@ -35,7 +35,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -114,6 +113,8 @@ class ModernHomeActivity : BaseActivity() {
         val key: String, val title: String, val meta: List<String> = emptyList(), val time: String = "", val badge: String = "",
         val desc: String = "", val images: List<String> = emptyList(), val logo: Boolean = false, val fraction: Float = -1f,
         val playLabel: String = "Odtwórz", val play: () -> Unit, val info: () -> Unit,
+        /** (7.8) Kanały: przycisk „Program TV” obok „Więcej informacji” – przewodnik TV ustawiony na tym kanale. */
+        val guide: (() -> Unit)? = null,
     )
 
     data class Tile(val key: String, val title: String, val sub: String, val image: String, val kind: Kind, val feature: Feature,
@@ -142,6 +143,8 @@ class ModernHomeActivity : BaseActivity() {
     private var featureJob: Job? = null
 
     private var pendingFocus by mutableStateOf<String?>(null)
+    /** (7.8) Zmiana wymusza przewinięcie rzędów na górę (OK na Domku – pierwszy rząd musi być złożony, żeby dostać fokus). */
+    private var topTick by mutableIntStateOf(0)
     private var lastFocus: String? = null
     /** Ostatnio zaznaczony element treści (hero / rzędy) – tu wraca fokus z paska ikon. */
     private var lastContent: String? = null
@@ -271,7 +274,21 @@ class ModernHomeActivity : BaseActivity() {
             p?.let { timeRange(it.start, it.end) } ?: "", "NA ŻYWO", p?.desc?.ifBlank { null } ?: "Telewizja na żywo · ${c.group}",
             listOfNotNull(c.logo.ifBlank { null } ?: c.epgIcon), logo = true, playLabel = "Oglądaj",
             play = { X25Actions.playChannel(this, c) },
-            info = { startActivity(Intent(this, GuideActivity::class.java).putExtra(GuideActivity.EXTRA_CHANNEL, c.key)) })
+            // (7.8) „Więcej informacji” – opis bieżącego programu; „Program TV” – przewodnik TV na tym kanale
+            info = { channelInfo(c) },
+            guide = { startActivity(Intent(this, GuideActivity::class.java).putExtra(GuideActivity.EXTRA_CHANNEL, c.key)) })
+    }
+
+    /** (7.8) Okno z opisem programu emitowanego teraz na kanale [c]; przycisk „Program TV” otwiera przewodnik. */
+    private fun channelInfo(c: Channel) {
+        val p = runCatching { Repository.current(c) }.getOrNull()
+        val msg = if (p == null) "Brak informacji o programie dla tego kanału.\n\nKanał: ${c.name}" else
+            listOfNotNull(timeRange(p.start, p.end), p.category.takeIf { it.isNotBlank() }, c.name).joinToString("  ·  ") +
+                (p.desc.takeIf { it.isNotBlank() }?.let { "\n\n$it" } ?: "")
+        Ui.dialog(this).setTitle(p?.fullTitle?.ifBlank { null } ?: c.name).setMessage(msg)
+            .setPositiveButton("Zamknij", null)
+            .setNeutralButton("Program TV") { _, _ -> startActivity(Intent(this, GuideActivity::class.java).putExtra(GuideActivity.EXTRA_CHANNEL, c.key)) }
+            .show()
     }
 
     private fun channelTile(shelf: String, c: Channel): Tile {
@@ -299,7 +316,7 @@ class ModernHomeActivity : BaseActivity() {
             listOf(if (t.type == "series") "Serial" else "Film", t.videoLabel).filter { it.isNotBlank() }, badge = "KONTYNUUJ",
             desc = "Obejrzano ${(t.fraction * 100).toInt()}%. Odtwarzanie od miejsca, w którym skończyłeś, ze źródeł włączonych wtyczek.",
             images = listOf(bg, t.poster).filter { it.isNotBlank() }, fraction = t.fraction, playLabel = "Wznów",
-            play = { startActivity(StremioDetailActivity.intent(this, preview, t.videoId.ifBlank { null })) },
+            play = { startActivity(StremioPlayerActivity.resumeIntent(this, t)) },   // (7.8) od razu odtwarzanie
             info = { startActivity(StremioDetailActivity.intent(this, preview, null)) })
     }
 
@@ -362,8 +379,9 @@ class ModernHomeActivity : BaseActivity() {
             Shelf("sthist", "Filmy i seriale", titles.map { titleTile(it) }),
         )
         else -> listOf(
-            Shelf("continue", "Kontynuuj oglądanie", videos.filter { it.positionMs > 0 && !it.finished }.map { videoTile(it) }),
+            // (7.8) Start: zawsze najpierw Live TV, pod nim STube, na końcu Stremio
             Shelf("channels", if (recent.isNotEmpty()) "Ostatnio oglądane" else "Kanały TV", recent.ifEmpty { all.take(12) }.map { channelTile("channels", it) }),
+            Shelf("continue", "Kontynuuj oglądanie", videos.filter { it.positionMs > 0 && !it.finished }.map { videoTile(it) }),
             Shelf("stcontinue", "Filmy i seriale", titles.map { titleTile(it) }),
             Shelf("shortcuts", "Na skróty", listOf(
                 actionTile("live", X25Action.LIVE, "Telewizja", "Wszystkie kanały na żywo.", act(X25Action.LIVE)),
@@ -456,6 +474,7 @@ class ModernHomeActivity : BaseActivity() {
         when (i) {
             0 -> {
                 if (section != 0) { section = 0; rowLast.clear() }
+                topTick++
                 feature = defaultFeature(0)
                 val list = shelves(0)
                 val target = list.firstOrNull { it.id == "channels" } ?: list.firstOrNull()
@@ -715,6 +734,7 @@ class ModernHomeActivity : BaseActivity() {
                 horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 PillButton(HERO_PLAY, f.playLabel, primary = true, icon = "play", toRail = true) { f.play() }
                 PillButton(HERO_INFO, if (dims.narrow) "Więcej" else "Więcej informacji", primary = false, icon = ModernIcons.INFO) { f.info() }
+                f.guide?.let { g -> PillButton(HERO_GUIDE, if (dims.narrow) "Program" else "Program TV", primary = false, icon = X25Action.GUIDE) { g() } }
             }
         }
     }
@@ -748,9 +768,9 @@ class ModernHomeActivity : BaseActivity() {
         // nowa sekcja albo doładowane rzędy (np. „Kontynuuj” nad „Na skróty”), gdy fokus nie jest w rzędach – od pierwszego rzędu
         // (lista trzyma pozycję wg klucza: rząd dodany wyżej zostałby poza ekranem)
         val ids = list.map { it.id }
-        LaunchedEffect(section, ids) { if (focusedNow?.startsWith("r:") != true) state.scrollToItem(0) }
+        LaunchedEffect(section, ids, topTick) { if (focusedNow?.startsWith("r:") != true) state.scrollToItem(0) }
         // zaznaczony rząd przesuwa się pod hero (nagłówek rzędu widoczny) – jak w serwisach VOD
-        val spec = remember { ShelfScroll(Ui.dp(if (dims.compact) 28 else 36).toFloat()) }
+        val spec = remember { ShelfScroll(Ui.dp(if (dims.compact) 28 else 36).toFloat(), Ui.dp(if (dims.compact) 40 else 50).toFloat()) }
         CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides spec) {
             LazyColumn(Modifier.fillMaxSize().sectionFade(), state = state,
                 contentPadding = PaddingValues(bottom = 80.dp)) {
@@ -924,6 +944,7 @@ class ModernHomeActivity : BaseActivity() {
     companion object {
         const val HERO_PLAY = "h:play"
         const val HERO_INFO = "h:info"
+        const val HERO_GUIDE = "h:guide"
         /** Opóźnienie zmiany hero po zaznaczeniu kafelka (szybkie przewijanie nie wczytuje obrazów po drodze). */
         const val FEATURE_DELAY_MS = 300L
         /** (7.6) Przejście między sekcjami ekranu głównego. */
@@ -938,7 +959,7 @@ class ModernHomeActivity : BaseActivity() {
  * kolejne rzędy „wjeżdżają” pod hero jak w serwisach VOD, łagodną animacją.
  */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-class ShelfScroll(private val header: Float) : androidx.compose.foundation.gestures.BringIntoViewSpec {
+class ShelfScroll(private val header: Float, private val labelBelow: Float = 0f) : androidx.compose.foundation.gestures.BringIntoViewSpec {
     override val scrollAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float> =
         androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = SCROLL_STIFFNESS)      // (7.3) jak [SmoothScroll]
 
@@ -947,7 +968,7 @@ class ShelfScroll(private val header: Float) : androidx.compose.foundation.gestu
      * aż cały rząd się zmieści. Zawsze osiągalne (bez żądania przewinięcia poza koniec listy – inaczej pętla animacji).
      */
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
-        val bottom = header / 3
+        val bottom = header / 3 + labelBelow        // podpisy pod kafelkami (tytuł + opis) też mają być widoczne
         return when {
             offset < header -> offset - header
             offset + size > containerSize - bottom -> minOf(offset + size - containerSize + bottom, offset - header)

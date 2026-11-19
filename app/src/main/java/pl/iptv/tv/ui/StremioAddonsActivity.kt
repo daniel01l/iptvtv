@@ -30,7 +30,8 @@ class StremioAddonsActivity : BaseActivity() {
         val header = LinearLayout(this).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
         header.addView(StremioUi.text(this, "Wtyczki Stremio", 26f, "accent", bold = true), LinearLayout.LayoutParams(0, -2, 1f))
         header.addView(StremioUi.button(this, "＋ Dodaj z adresu") { addByUrl() })
-        if (StremioAccount.loggedIn) header.addView(StremioUi.button(this, "⟳ Z konta") { refreshFromAccount() }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
+        // (7.8) odświeżanie zawsze: zmiany we wtyczkach na koncie (dodane / usunięte / nowe manifesty) i ręczne wtyczki
+        header.addView(StremioUi.button(this, if (StremioAccount.loggedIn) "⟳ Odśwież z konta" else "⟳ Odśwież") { refreshFromAccount() }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
         header.addView(StremioUi.button(this, "✖") { finish() }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
         root.addView(header)
         status = StremioUi.text(this, "OK – włącz / wyłącz wtyczkę w wyszukiwaniu i źródłach · przytrzymaj OK – usuń", 14f, "text2").apply { setPadding(Ui.dp(4), Ui.dp(8), 0, Ui.dp(10)) }
@@ -59,15 +60,26 @@ class StremioAddonsActivity : BaseActivity() {
         if (url.isBlank()) return@input
         lifecycleScope.launch {
             runCatching { StremioStore.addCustom(url) }
-                .onSuccess { Toast.makeText(this@StremioAddonsActivity, "Dodano: ${it.name}", Toast.LENGTH_SHORT).show(); load() }
-                .onFailure { Toast.makeText(this@StremioAddonsActivity, "Nie udało się dodać: ${it.message}", Toast.LENGTH_LONG).show() }
+                .onSuccess { I18n.makeToast(this@StremioAddonsActivity, "Dodano: ${it.name}", Toast.LENGTH_SHORT).show(); load() }
+                .onFailure { I18n.makeToast(this@StremioAddonsActivity, "Nie udało się dodać: ${it.message}", Toast.LENGTH_LONG).show() }
         }
     }
 
-    private fun refreshFromAccount() = lifecycleScope.launch {
-        runCatching { StremioStore.replaceFromAccount(StremioApi.addonCollection(StremioAccount.authKey)) }
-            .onFailure { Toast.makeText(this@StremioAddonsActivity, "Błąd: ${it.message}", Toast.LENGTH_LONG).show() }
-        load()
+    private var refreshing = false
+
+    private fun refreshFromAccount() {
+        if (refreshing) return
+        refreshing = true
+        status.text = "Odświeżanie wtyczek…"
+        lifecycleScope.launch {
+            runCatching { StremioStore.refreshAddons() }
+                .onSuccess { n -> I18n.makeToast(this@StremioAddonsActivity, "Wtyczki odświeżone ($n)", Toast.LENGTH_SHORT).show() }
+                .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it
+                    I18n.makeToast(this@StremioAddonsActivity, "Błąd odświeżania: ${it.message}", Toast.LENGTH_LONG).show() }
+            refreshing = false
+            status.text = "OK – włącz / wyłącz wtyczkę w wyszukiwaniu i źródłach · przytrzymaj OK – usuń"
+            load()
+        }
     }
 
     private fun removeMenu(a: StremioAddon) = Dialogs.menu(this, a.name, listOf(

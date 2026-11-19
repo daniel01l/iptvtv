@@ -39,6 +39,7 @@ import pl.iptv.tv.data.YtPlayable
 import pl.iptv.tv.data.YtStreams
 import pl.iptv.tv.data.YtVideo
 import pl.iptv.tv.data.YtKeyless
+import pl.iptv.tv.data.YtLyrics
 import coil.load
 
 /**
@@ -95,6 +96,11 @@ class YtPlayerActivity : AppCompatActivity() {
     private lateinit var queueBtn: TextView
     private lateinit var pipBtn: TextView
     private lateinit var audioOnlyBtn: TextView
+    private lateinit var musicBtn: TextView
+    /** (7.9) Widok muzyczny: okładka, sterowanie, kolejka i tekst – zamiast paska wideo przy utworach. */
+    lateinit var stage: YtMusicStage; private set
+    private var stageSig = ""
+    private var stageBackground: Boolean? = null
 
     /** Klient usługi (MediaController); null – rozłączony (ekran schowany). */
     var client: YtClient? = null; private set
@@ -162,6 +168,9 @@ class YtPlayerActivity : AppCompatActivity() {
             setShadowLayer(6f, 0f, 2f, Color.BLACK)
         }
         root.addView(status, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
+        // widok muzyczny nad obrazem i komunikatem wczytywania, pod nakładkami (SponsorBlock, odliczanie autoodtwarzania)
+        stage = YtMusicStage(this, stageHost).apply { visibility = View.GONE }
+        root.addView(stage, FrameLayout.LayoutParams(-1, -1))
         // komunikat SponsorBlock – duży, w rogu, czytelny z kanapy
         skipLabel = TextView(this).apply {
             setTextColor(Color.WHITE); textSize = 18f; visibility = View.GONE; setPadding(Ui.dp(18), Ui.dp(10), Ui.dp(18), Ui.dp(10))
@@ -197,6 +206,7 @@ class YtPlayerActivity : AppCompatActivity() {
         pipBtn = barButton(PlayerIcon.PIP, "Okno") { enterPip() }
         // (7.5) telefon: sam dźwięk – obraz odpięty (bez dekodowania), słuchanie przy wyłączonym / zablokowanym ekranie
         audioOnlyBtn = barButton(PlayerIcon.AUDIO_ONLY, "Tylko dźwięk") { toggleAudioOnly() }.apply { visibility = if (Tutorial.isTv(this@YtPlayerActivity)) View.GONE else View.VISIBLE }
+        musicBtn = barButton(PlayerIcon.MUSIC, "Widok muzyczny") { setMusicView(true) }.apply { visibility = View.GONE }
         optionsScroll = android.widget.HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; isFocusable = false; addView(optionsBar)
             clipChildren = false; clipToPadding = false }
         infoBox.addView(titleView); infoBox.addView(channelView)
@@ -241,6 +251,7 @@ class YtPlayerActivity : AppCompatActivity() {
             playerView.player = c.player
             c.setBackground(YtEngine.audioOnly)
             applyAudioOnlyView()
+            stageBackground = null; updateStage()
             val same = YtEngine.video?.id == videoId
             when {
                 same && YtEngine.error != null -> showFallback(YtEngine.error!!)
@@ -321,7 +332,7 @@ class YtPlayerActivity : AppCompatActivity() {
 
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(state: Int) { if (state == Player.STATE_READY) status.visibility = View.GONE }
-        override fun onIsPlayingChanged(isPlaying: Boolean) { keepScreen(); updateAutoPip(); if (isPlaying) hideAmbient() }
+        override fun onIsPlayingChanged(isPlaying: Boolean) { keepScreen(); updateAutoPip(); if (isPlaying) hideAmbient(); if (::stage.isInitialized) stage.updatePlay() }
         override fun onTracksChanged(tracks: Tracks) = updateButtons()
     }
 
@@ -340,6 +351,7 @@ class YtPlayerActivity : AppCompatActivity() {
         val ch = p?.channel?.ifBlank { null } ?: video.channel
         channelView.text = listOfNotNull(ch.ifBlank { null }?.let { "📺 $it" }, if (live) "● NA ŻYWO" else null).joinToString("  •  ")
         channelView.visibility = if (channelView.text.isNullOrBlank()) View.GONE else View.VISIBLE
+        updateStage()
     }
 
     // ---------------- rozdziały ----------------
@@ -478,6 +490,7 @@ class YtPlayerActivity : AppCompatActivity() {
         audioOnlyBtn.text = if (YtEngine.audioOnly) "Obraz" else "Tylko dźwięk"
         updateUpNext()
         updateShelf()
+        updateStage()
     }
 
     // ---------------- autoodtwarzanie i półka muzyczna ----------------
@@ -585,6 +598,84 @@ class YtPlayerActivity : AppCompatActivity() {
         upNextLabel.visibility = if (text.isNotEmpty() && playerView.isControllerFullyVisible && !isInPip && !shelfShown) View.VISIBLE else View.GONE
     }
 
+    // ---------------- widok muzyczny (7.9) ----------------
+
+    /** Widok muzyczny na ekranie: utwór (nie transmisja), włączony ([Prefs.ytMusicView]), poza trybem PiP i oknem awaryjnym. */
+    val stageWanted: Boolean get() = Prefs.ytMusicView && isMusic && !live && !isInPip && fallbackDialog?.isShowing != true
+    val stageShown get() = ::stage.isInitialized && stage.visibility == View.VISIBLE
+
+    private fun stageArtist() = (current?.channel?.ifBlank { null } ?: video.channel).removeSuffix("- Topic").trim()
+    private fun stageThumb() = video.thumb.ifBlank { "https://i.ytimg.com/vi/$videoId/hqdefault.jpg" }
+
+    /** Pokazuje / chowa widok muzyczny wg [stageWanted]; odświeża tytuł, okładkę i listę „Następne”. */
+    private fun updateStage() {
+        if (!::stage.isInitialized || !::musicBtn.isInitialized) return
+        val want = stageWanted
+        val was = stage.visibility == View.VISIBLE
+        if (want) {
+            stage.bind(videoId, titleView.text.toString(), stageArtist(), stageThumb())
+            val sig = "$videoId|${StubeQueue.version}|${related.size}"
+            if (sig != stageSig) { stageSig = sig; stage.refresh() } else stage.updatePlay()
+        }
+        if (want != was) {
+            stage.visibility = if (want) View.VISIBLE else View.GONE
+            playerView.useController = !want && !isInPip
+            if (want) {
+                playerView.hideController(); infoBox.visibility = View.GONE; upNextLabel.visibility = View.GONE; shelf.visibility = View.GONE
+                if (panel?.isOpen != true) stage.focusDefault()
+            }
+        }
+        // widok muzyczny zasłania obraz – dekoder obrazu niepotrzebny (oszczędność); teledysk / zwykły widok włącza go z powrotem
+        client?.let { if (stageBackground != want) { stageBackground = want; it.setBackground(want || YtEngine.audioOnly) } }
+        musicBtn.visibility = if (!want && !Prefs.ytMusicView && isMusic && !live && !isInPip) View.VISIBLE else View.GONE
+    }
+
+    /** Przełącznik widoku: muzyka (okładka, kolejka, tekst) ↔ teledysk (zwykły odtwarzacz wideo z paskiem). */
+    fun setMusicView(on: Boolean) {
+        Prefs.ytMusicView = on
+        updateStage()
+        if (on) playerView.hideController() else playerView.showController()
+    }
+
+    private val stageHost = object : YtMusicStage.Host {
+        override val player: Player? get() = this@YtPlayerActivity.player
+        override fun playPause() { player?.let { if (it.isPlaying) it.pause() else it.play() }; stage.updatePlay() }
+        override fun previous() { YtEngine.previous(this@YtPlayerActivity) }
+        override fun next() { YtEngine.next() }
+        override fun shuffle(): Boolean {
+            YtEngine.shuffle = !YtEngine.shuffle
+            if (YtEngine.shuffle) lifecycleScope.launch { StubeQueue.shuffle(); stageSig = ""; updateStage() }
+            toast(if (YtEngine.shuffle) "Losowa kolejność włączona" else "Losowa kolejność wyłączona")
+            return YtEngine.shuffle
+        }
+        override fun repeat(): Boolean {
+            YtEngine.repeatOne = !YtEngine.repeatOne
+            toast(if (YtEngine.repeatOne) "Powtarzanie utworu" else "Powtarzanie wyłączone")
+            return YtEngine.repeatOne
+        }
+        override fun toVideo() = setMusicView(false)
+        override fun options() = optionsMenu()
+        override fun pick(e: YtMusicStage.Entry) {
+            val q = e.queue
+            if (q != null) lifecycleScope.launch {
+                StubeQueue.remove(q.id)
+                if (q.isVideo) playNow(q.toVideo()) else { QueueUi.play(this@YtPlayerActivity, q); YtEngine.stop(); finish() }
+            } else e.video?.let { playNow(it) }
+        }
+        /** Bieżący utwór, potem kolejka STube / TV; pusta kolejka – propozycje (podobne utwory). */
+        override fun entries(): List<YtMusicStage.Entry> {
+            val cur = YtMusicStage.Entry(titleView.text.toString(), stageArtist(), stageThumb(), video, current = true)
+            val queued = StubeQueue.cached.filter { !(it.isVideo && it.ref == videoId) }.map { YtMusicStage.Entry(it.title, it.subtitle, it.thumb, if (it.isVideo) it.toVideo() else null, it) }
+            val rest = queued.ifEmpty { related.filter { it.id != videoId }.take(25).map { YtMusicStage.Entry(it.title, it.channel, it.thumb, it) } }
+            return listOf(cur) + rest
+        }
+        override fun wantLyrics() {
+            val id = videoId; val title = titleView.text.toString(); val ch = stageArtist()
+            val sec = (player?.duration?.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L) / 1000
+            lifecycleScope.launch { val t = YtLyrics.find(title, ch, sec); if (videoId == id && ::stage.isInitialized) stage.setLyrics(t) }
+        }
+    }
+
     // ---------------- obraz w obrazie (PiP) ----------------
 
     val pipSupported: Boolean get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
@@ -641,7 +732,8 @@ class YtPlayerActivity : AppCompatActivity() {
     override fun onPictureInPictureModeChanged(inPip: Boolean, newConfig: Configuration) {
         super.onPictureInPictureModeChanged(inPip, newConfig)
         // w oknie PiP: sam obraz (bez paska i nakładek); powrót – pełny odtwarzacz
-        playerView.useController = !inPip
+        playerView.useController = !inPip && !stageShown
+        updateStage()
         if (inPip) { infoBox.visibility = View.GONE; upNextLabel.visibility = View.GONE; panel?.close(); hideAmbient() }
         // okno PiP zamknięte (✕) – koniec odtwarzania; rozwinięte – ekran wraca do zwykłego trybu
         else if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) { YtEngine.stop(); finish() }
@@ -734,6 +826,7 @@ class YtPlayerActivity : AppCompatActivity() {
             if (groups(C.TRACK_TYPE_TEXT).isNotEmpty()) add("💬 Napisy" to { subtitlesMenu() })
             add("🎚 Dźwięk: " + YtEq.PRESETS.getOrElse(Prefs.ytEqPreset) { "Płaski" } to { eqPanel(); Unit })
             if (chapters.isNotEmpty()) add("☰ Rozdziały (${chapters.size})" to { chaptersMenu() })
+            if (isMusic && !live) add(if (Prefs.ytMusicView) "🎬 Teledysk (wideo)" to { setMusicView(false) } else "🎵 Widok muzyczny" to { setMusicView(true) })
             add("📋 Propozycje i kolejka" to { openPanel(TAB_RELATED) })
             add("🔁 " + autoplayLabel() to { toggleAutoplay() })
             if (pipSupported) add("⧉ Obraz w obrazie (PiP)" to { enterPip(); Unit })
@@ -894,7 +987,7 @@ class YtPlayerActivity : AppCompatActivity() {
         updateChapterLabel(); updateUpNext(); updateShelf()
     }
 
-    private fun toast(s: String) = android.widget.Toast.makeText(this, s, android.widget.Toast.LENGTH_SHORT).show()
+    private fun toast(s: String) = I18n.makeToast(this, s, android.widget.Toast.LENGTH_SHORT).show()
 
     /** Pozycja do historii oglądania (pasek na kafelku STube, wznawianie) – zapis w silniku. */
     fun saveProgress() = YtEngine.saveProgress()
@@ -944,6 +1037,20 @@ class YtPlayerActivity : AppCompatActivity() {
         if (panel?.isOpen == true) return super.dispatchKeyEvent(event)
         if (event.keyCode == KeyEvent.KEYCODE_MENU) { if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) optionsMenu(); return true }
         if (event.keyCode == KeyEvent.KEYCODE_WINDOW) { if (event.action == KeyEvent.ACTION_DOWN) enterPip(); return true }
+        // widok muzyczny prowadzi fokus sam (przyciski, pasek, lista, tekst); klawisze multimedialne działają jak w odtwarzaczu
+        if (stageShown) {
+            val down = event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { if (down) stageHost.playPause(); return true }
+                KeyEvent.KEYCODE_MEDIA_PLAY -> { if (down) p?.play(); return true }
+                KeyEvent.KEYCODE_MEDIA_PAUSE -> { if (down) p?.pause(); return true }
+                KeyEvent.KEYCODE_MEDIA_NEXT -> { if (down) YtEngine.next(); return true }
+                KeyEvent.KEYCODE_MEDIA_PREVIOUS -> { if (down) YtEngine.previous(this); return true }
+                KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { if (down && p != null) p.seekTo(p.currentPosition + SEEK_STEP_MS); return true }
+                KeyEvent.KEYCODE_MEDIA_REWIND -> { if (down && p != null) p.seekTo((p.currentPosition - SEEK_STEP_MS).coerceAtLeast(0)); return true }
+            }
+            return super.dispatchKeyEvent(event)
+        }
         val hidden = !playerView.isControllerFullyVisible
         if (hidden && (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER || event.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER)) {
             // OK: wyłącznie pokazanie paska (oba zdarzenia pochłonięte – puszczenie OK nie „klika” przycisku ⏯)

@@ -80,5 +80,5 @@ object X25Actions {
         else -> ""
     }
 
-    fun toast(a: Activity, t: String) = Toast.makeText(a, t, Toast.LENGTH_SHORT).show()
+    fun toast(a: Activity, t: String) = I18n.makeToast(a, t, Toast.LENGTH_SHORT).show()
 }

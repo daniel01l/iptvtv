@@ -88,6 +88,7 @@ class IptvApp : Application(), coil.ImageLoaderFactory {
         pl.iptv.tv.data.Activation.init(this)
         if (pl.iptv.tv.data.Activation.enabled) activationLoop()
         pl.iptv.tv.ui.Ui.init(this)
+        pl.iptv.tv.ui.I18n.init(this)                       // (7.8) język interfejsu (słownik tylko dla języka innego niż polski)
         // świeża instalacja (nie aktualizacja): motyw PS5 jako domyślny; pomijane w testach Robolectric (motyw ustawiają same testy)
         if (android.os.Build.FINGERPRINT != "robolectric") runCatching {
             val pi = packageManager.getPackageInfo(packageName, 0)
@@ -107,7 +108,8 @@ class IptvApp : Application(), coil.ImageLoaderFactory {
                 if (started == 0) stopHandler.postDelayed({ if (started == 0) pl.iptv.tv.ui.Playback.stop() }, 1500)
             }
             override fun onActivityCreated(a: Activity, b: Bundle?) {}
-            override fun onActivityResumed(a: Activity) {}
+            // (7.8) tłumaczenie interfejsu na każdym ekranie (bez narzutu przy języku polskim)
+            override fun onActivityResumed(a: Activity) { pl.iptv.tv.ui.I18n.attach(a.window) }
             override fun onActivityPaused(a: Activity) {}
             override fun onActivitySaveInstanceState(a: Activity, b: Bundle) {}
             override fun onActivityDestroyed(a: Activity) {}

@@ -42,6 +42,7 @@ class StubeHistoryTest {
 
     @Before fun setup() {
         db = Room.inMemoryDatabaseBuilder(ctx, StubeDatabase::class.java).allowMainThreadQueries().build()
+            .also { it.openHelper.writableDatabase }   // otwarta od razu – zamknięcie w tearDown nie trafia na otwieranie w tle (zakleszczenie Room)
         H.useDatabase(db)
         Prefs.stubeHistory = true; Prefs.stubeResume = true
         Prefs.ytApiKey = ""; Prefs.permissionsAsked = true; Prefs.setupDone = true

@@ -54,6 +54,7 @@ class MediaUpgradeTest {
 
     @Before fun setup() {
         db = Room.inMemoryDatabaseBuilder(ctx, StubeDatabase::class.java).allowMainThreadQueries().build()
+            .also { it.openHelper.writableDatabase }   // otwarta od razu – zamknięcie w tearDown nie trafia na otwieranie w tle (zakleszczenie Room)
         StubeHistory.useDatabase(db)
         server = MockWebServer().apply { dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
             override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest) =
@@ -129,7 +130,8 @@ class MediaUpgradeTest {
         // filmy „Dalej po”: najpierw Twoje przejścia, potem propozycje innych widzów (bez już obejrzanych)
         val nextAfterA = next.copy(local = listOf(YtVideo("c", "C", "Band C")), seeds = listOf("a"))
         val vids = runBlocking { StubeMixes.videos(nextAfterA, watchedIds = setOf("a", "b", "c")) }
-        assertEquals(listOf("c", "only-a", "common"), vids.map { it.id })
+        assertEquals(listOf("c", "only-a", "common"), vids.take(3).map { it.id })       // najpierw Twoje przejścia i propozycje innych widzów
+        assertTrue(vids.size >= StubeMixes.MIN_PLAYLIST)                              // reszta – uzupełnienie gatunkowe do 100+
         val crowdVids = runBlocking { StubeMixes.videos(mixes.first { it.id == "crowd" }, watchedIds = emptySet()) }
         assertEquals("common", crowdVids.first().id)
         // muzyka: oznaczenia w tytule / kanał wykonawcy
@@ -152,6 +154,7 @@ class MediaUpgradeTest {
     }
 
     @Test fun musicShelfAutoplayToggleAndCountdown() {
+        Prefs.ytMusicView = false   // test półki i paska wideo – widok muzyczny ma osobne testy (V79Test)
         val rel = (1..3).map { YtVideo("rel$it", "Utwór $it", "Wykonawca", duration = "PT3M") }
         val a = player("Artist – Song (Official Music Video)", rel)
         assertTrue(a.isMusic)

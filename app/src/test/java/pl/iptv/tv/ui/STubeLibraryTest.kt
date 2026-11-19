@@ -92,6 +92,7 @@ class STubeLibraryTest {
             override fun search(q: String) = emptyList<YtVideo>()
         }
         db = Room.inMemoryDatabaseBuilder(ctx, StubeDatabase::class.java).allowMainThreadQueries().build()
+            .also { it.openHelper.writableDatabase }   // otwarta od razu – zamknięcie w tearDown nie trafia na otwieranie w tle (zakleszczenie Room)
         StubeHistory.useDatabase(db)
     }
 
@@ -277,7 +278,7 @@ class STubeLibraryTest {
             v2.watchLater().upsert(pl.iptv.tv.data.WatchLater("w", addedAt = 1))
             assertEquals(1, v2.watchLater().count())
         }
-        assertEquals(6, v2.openHelper.readableDatabase.version)
+        assertEquals(7, v2.openHelper.readableDatabase.version)
         runBlocking { assertTrue(v2.channelEngines().all().isEmpty()) }   // v6: dobrane silniki kanałów
         runBlocking { assertTrue(v2.queue().all().isEmpty()) }   // v3: kolejka utworzona migracją
         runBlocking { assertTrue(v2.dash().all().isEmpty()) }    // v4: kafelki pulpitu X25

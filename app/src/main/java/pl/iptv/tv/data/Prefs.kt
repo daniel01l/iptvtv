@@ -122,6 +122,10 @@ object Prefs {
     var ytSpeedPct: Int get() = int("yt_speed", 100); set(v) = putInt("yt_speed", v)
     /** STube: autoodtwarzanie – po końcu filmu (bez kolejki) następna propozycja YouTube, także w tle. */
     var ytAutoplay: Boolean get() = bool("yt_autoplay", true); set(v) = putBool("yt_autoplay", v)
+    /** (7.9) Widok muzyczny odtwarzacza STube (okładka, kolejka, tekst) dla utworów; domyślnie wyłączony (przycisk „Widok muzyczny” w odtwarzaczu włącza go dla bieżącego i kolejnych utworów); wyłączony – zwykły odtwarzacz wideo. */
+    var ytMusicView: Boolean get() = bool("yt_music_view", false); set(v) = putBool("yt_music_view", v)
+    /** (7.9) Tekst piosenki w widoku muzycznym (zapytanie z tytułem i wykonawcą do bazy tekstów). */
+    var ytLyrics: Boolean get() = bool("yt_lyrics", true); set(v) = putBool("yt_lyrics", v)
     /** Korektor dźwięku: preset ([pl.iptv.tv.ui.YtEq]) i poziomy pasm presetu „Własny” (millibele, po przecinku). */
     var ytEqPreset: Int get() = int("yt_eq", 0); set(v) = putInt("yt_eq", v)
     var ytEqCustom: List<Int> get() = str("yt_eq_custom").split(',').mapNotNull { it.trim().toIntOrNull() }
@@ -338,6 +342,8 @@ object Prefs {
     var miniMenuEnabled: Boolean get() = bool("mini_on", true); set(v) = putBool("mini_on", v)
     /** 0 poziomo, 1 automatycznie (obrót), 2 pionowo (menu), odtwarzacz zawsze z obrotem. */
     var orientation: Int get() = int("orientation", 0); set(v) = putInt("orientation", v)
+    /** (7.8) Język interfejsu: „pl” (domyślny) albo „en” ([pl.iptv.tv.ui.I18n]). */
+    var language: String get() = str("language", "pl"); set(v) = put("language", v)
     /** Kategorie w menu: kolejność i ukryte (kanały zostają w „Wszystkie”). */
     var groupOrder: List<String> get() = list("group_order"); set(v) = putList("group_order", v)
     var groupHidden: List<String> get() = list("group_hidden"); set(v) = putList("group_hidden", v)

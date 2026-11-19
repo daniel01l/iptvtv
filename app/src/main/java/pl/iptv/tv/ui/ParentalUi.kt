@@ -10,17 +10,17 @@ object ParentalUi {
         if (!Parental.enabled || Parental.unlocked) { onOk(); return }
         Dialogs.input(a, title, "", "PIN", password = true, onCancel = onCancel) { pin ->
             if (Parental.check(pin)) { Parental.unlocked = true; pl.iptv.tv.data.Repository.reapply(); onOk() }
-            else { Toast.makeText(a, "Błędny PIN", Toast.LENGTH_SHORT).show(); onCancel() }
+            else { I18n.makeToast(a, "Błędny PIN", Toast.LENGTH_SHORT).show(); onCancel() }
         }
     }
 
     /** Ustawienie nowego PIN-u (2× wpisanie). */
     fun setPin(a: Activity, done: (Boolean) -> Unit) {
         Dialogs.input(a, "Nowy PIN (4–8 cyfr)", "", password = true, onCancel = { done(false) }) { p1 ->
-            if (p1.length !in 4..8) { Toast.makeText(a, "PIN musi mieć 4–8 cyfr", Toast.LENGTH_SHORT).show(); done(false); return@input }
+            if (p1.length !in 4..8) { I18n.makeToast(a, "PIN musi mieć 4–8 cyfr", Toast.LENGTH_SHORT).show(); done(false); return@input }
             Dialogs.input(a, "Powtórz PIN", "", password = true, onCancel = { done(false) }) { p2 ->
-                if (p1 == p2) { Parental.setPin(p1); Toast.makeText(a, "PIN zapisany", Toast.LENGTH_SHORT).show(); done(true) }
-                else { Toast.makeText(a, "PIN-y się różnią", Toast.LENGTH_SHORT).show(); done(false) }
+                if (p1 == p2) { Parental.setPin(p1); I18n.makeToast(a, "PIN zapisany", Toast.LENGTH_SHORT).show(); done(true) }
+                else { I18n.makeToast(a, "PIN-y się różnią", Toast.LENGTH_SHORT).show(); done(false) }
             }
         }
     }

@@ -17,13 +17,18 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import coil.load
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import pl.iptv.tv.data.StremioApi
 import pl.iptv.tv.data.StremioMeta
 import pl.iptv.tv.data.StremioMetaPreview
 import pl.iptv.tv.data.StremioProgress
+import pl.iptv.tv.data.StremioResume
 import pl.iptv.tv.data.StremioSourceGroup
 import pl.iptv.tv.data.StremioStore
 import pl.iptv.tv.data.StremioStream
@@ -40,6 +45,9 @@ sealed class SourceItem {
     /** (7.7) Jednolity wiersz „Ładowanie źródeł” (zaznaczalny – OK / ► z odcinka od razu przenosi tu kursor). */
     object Loading : SourceItem()
 }
+
+/** (7.8) Gotowy model listy źródeł (grupy rozdzielczości, wszystkie źródła, komunikaty) – liczony poza głównym wątkiem. */
+class SourcePrepared(val byQuality: List<Pair<String, List<StremioStream>>>, val sourceItems: List<StremioStream>, val notes: List<SourceItem>)
 
 /**
  * Szczegóły filmu / serialu jak w Stremio: plakat, opis, sezony i odcinki, a po prawej źródła – zapytanie wyłącznie do włączonych
@@ -183,17 +191,22 @@ class StremioDetailActivity : BaseActivity() {
     }
 
     private fun updateResume() {
-        val p = progress?.takeIf { it.positionMs > 10_000 && !it.finished }
-        resume.visibility = if (p != null) View.VISIBLE else View.GONE
-        if (p != null) resume.text = "▶ Wznów " + listOfNotNull(p.videoLabel.ifBlank { null }, StremioUi.fmt(p.positionMs)).joinToString(" · ")
+        val p = progress?.takeIf { it.positionMs > 10_000 }
+        // (7.8) okienko „Następny odcinek” już było – przycisk prowadzi do następnego odcinka, inaczej wznawia bieżący
+        val next = p?.let { StremioResume.target(it, meta) }?.takeIf { it.next }
+        val show = p != null && (!p.finished || next != null)
+        resume.visibility = if (show) View.VISIBLE else View.GONE
+        if (p != null && next != null) resume.text = "▶ Następny odcinek " + next.label.substringBefore(" – ")
+        else if (p != null) resume.text = "▶ Wznów " + listOfNotNull(p.videoLabel.ifBlank { null }, StremioUi.fmt(p.positionMs)).joinToString(" · ")
     }
 
+    /**
+     * (7.8) „Wznów” od razu uruchamia odtwarzanie (dawniej tylko przenosiło kursor na listę źródeł i nic się nie działo):
+     * odtwarzacz wybiera odcinek ([StremioResume.target]) i źródło (to samo co poprzednio, polska wersja na górze).
+     */
     private fun resumePlayback() {
         val p = progress ?: return
-        val m = meta
-        if (m?.isSeries == true) m.videos.firstOrNull { it.id == p.videoId }?.let { selectSeason(it.season, it) }
-        // fokus na pierwszym źródle, gdy tylko się wczyta (wznowienie od zapisanej pozycji w odtwarzaczu)
-        focusSourcesWhenReady()
+        startActivity(StremioPlayerActivity.resumeIntent(this, p))
     }
 
     /**
@@ -277,10 +290,23 @@ class StremioDetailActivity : BaseActivity() {
             }
             groups = addons.map { StremioSourceGroup(it, emptyList(), loading = true) }
             sourceAdapter.set(groups, null)
+            // (7.8) sieć, parsowanie, ograniczanie i sortowanie na wątkach roboczych (limit czasu na wtyczkę, anulowanie z zadaniem);
+            // na głównym wątku tylko podmiana gotowej listy – bez zawieszania interfejsu przy setkach źródeł
+            var seq = 0
             addons.mapIndexed { i, a -> async {
-                val r = runCatching { StremioApi.streams(a, streamType, vid) }
-                groups = groups.toMutableList().also { g -> g[i] = r.fold({ StremioSourceGroup(a, StremioStreams.limit(it), total = it.size) }, { StremioSourceGroup(a, emptyList(), it.message ?: "błąd") }) }
-                if (videoId == vid) { sourceAdapter.set(groups, null); applySourceFocus() }
+                val g = withContext(Dispatchers.Default) {
+                    try {
+                        withTimeoutOrNull(StremioApi.STREAMS_TIMEOUT_MS) {
+                            val all = StremioApi.streams(a, streamType, vid)
+                            StremioSourceGroup(a, StremioStreams.limit(all), total = all.size)
+                        } ?: StremioSourceGroup(a, emptyList(), "przekroczono czas oczekiwania")
+                    } catch (e: CancellationException) { throw e }
+                    catch (e: Exception) { StremioSourceGroup(a, emptyList(), e.message ?: "błąd") }
+                }
+                groups = groups.toMutableList().also { it[i] = g }
+                val snapshot = groups; val mine = ++seq
+                val ready = withContext(Dispatchers.Default) { sourceAdapter.prepare(snapshot) }
+                if (videoId == vid && mine == seq) { sourceAdapter.show(ready); applySourceFocus() }
             } }.forEach { it.await() }
             sourceFocusAt = 0                         // wszystkie wtyczki odpowiedziały (także bez źródeł) – bez czekania na fokus
         }
@@ -297,7 +323,7 @@ class StremioDetailActivity : BaseActivity() {
             StremioStream.Kind.EXTERNAL -> runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(s.externalUrl))) }
             // P2P: przez serwer strumieniujący (TorrServer / serwer Stremio) – zwykłe źródło HTTP we wbudowanym odtwarzaczu
             StremioStream.Kind.TORRENT -> lifecycleScope.launch {
-                android.widget.Toast.makeText(this@StremioDetailActivity, "Źródło P2P – łączenie z serwerem torrent…", android.widget.Toast.LENGTH_SHORT).show()
+                I18n.makeToast(this@StremioDetailActivity, "Źródło P2P – łączenie z serwerem torrent…", android.widget.Toast.LENGTH_SHORT).show()
                 val server = pl.iptv.tv.data.TorrentStreams.find()
                 if (server != null) play(pl.iptv.tv.data.TorrentStreams.asHttp(s, server))
                 else torrentHelp(s)
@@ -317,7 +343,7 @@ class StremioDetailActivity : BaseActivity() {
             .setPositiveButton("Adres serwera…") { _, _ -> askTorrentServer { play(s) } }
             .setNeutralButton("Zewnętrzna aplikacja") { _, _ ->
                 runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("magnet:?xt=urn:btih:${s.infoHash}&dn=" + Uri.encode(s.headline)))) }
-                    .onFailure { android.widget.Toast.makeText(this, "Brak aplikacji obsługującej linki magnet", android.widget.Toast.LENGTH_SHORT).show() }
+                    .onFailure { I18n.makeToast(this, "Brak aplikacji obsługującej linki magnet", android.widget.Toast.LENGTH_SHORT).show() }
             }
             .setNegativeButton("Anuluj", null).show()
     }
@@ -328,7 +354,7 @@ class StremioDetailActivity : BaseActivity() {
             pl.iptv.tv.data.Prefs.torrentServer = v.trim()
             lifecycleScope.launch {
                 val found = pl.iptv.tv.data.TorrentStreams.find()
-                android.widget.Toast.makeText(this@StremioDetailActivity, found?.let { "Połączono: ${it.label}" } ?: "Serwer nie odpowiada", android.widget.Toast.LENGTH_LONG).show()
+                I18n.makeToast(this@StremioDetailActivity, found?.let { "Połączono: ${it.label}" } ?: "Serwer nie odpowiada", android.widget.Toast.LENGTH_LONG).show()
                 if (found != null) onOk()
             }
         }
@@ -388,20 +414,27 @@ class StremioDetailActivity : BaseActivity() {
         private var expanded: MutableSet<String>? = null
         val expandedNow: Set<String> get() = expanded ?: emptySet()
 
-        fun set(gs: List<StremioSourceGroup>, empty: String?) {
-            if (empty != null) { byQuality = emptyList(); sourceItems = emptyList(); notes = listOf(SourceItem.Note(empty)); rebuild(); return }
+        /** Czysta funkcja (bez dostępu do widoków): grupy rozdzielczości z polską wersją na górze każdej grupy, komunikaty. */
+        fun prepare(gs: List<StremioSourceGroup>): SourcePrepared {
             val all = gs.flatMap { it.streams }
             val groups = all.groupBy { it.quality }
             val order = StremioStreams.QUALITY_ORDER + (groups.keys - StremioStreams.QUALITY_ORDER.toSet())
-            byQuality = order.mapNotNull { q -> groups[q]?.sortedBy { StremioStreams.polishRank(it) }?.let { q to it } }
-            sourceItems = byQuality.flatMap { it.second }
-            notes = buildList {
+            // sortowanie stabilne: polska wersja (dubbing / lektor, potem napisy) na górze rozdzielczości, dalej kolejność wtyczki
+            val by = order.mapNotNull { q -> groups[q]?.let { l -> q to l.map { it to StremioStreams.polishRank(it) }.sortedBy { it.second }.map { it.first } } }
+            val notes = buildList<SourceItem> {
                 // (7.7) jeden, jednolity wiersz zamiast listy wczytywanych wtyczek
                 if (gs.any { it.loading }) add(SourceItem.Loading)
                 gs.filter { it.error != null }.forEach { add(SourceItem.Note("🧩 ${it.addon.name}: błąd – ${it.error}")) }
                 if (all.isEmpty() && gs.none { it.loading }) add(SourceItem.Note("Brak źródeł dla tego tytułu we włączonych wtyczkach."))
             }
-            rebuild()
+            return SourcePrepared(by, by.flatMap { it.second }, notes)
+        }
+
+        fun show(p: SourcePrepared) { byQuality = p.byQuality; sourceItems = p.sourceItems; notes = p.notes; rebuild() }
+
+        fun set(gs: List<StremioSourceGroup>, empty: String?) {
+            if (empty != null) { byQuality = emptyList(); sourceItems = emptyList(); notes = listOf(SourceItem.Note(empty)); rebuild(); return }
+            show(prepare(gs))
         }
 
         private fun build(): List<SourceItem> = byQuality.flatMap { (q, l) ->

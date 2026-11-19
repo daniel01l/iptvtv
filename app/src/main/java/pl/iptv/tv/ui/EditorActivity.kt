@@ -133,7 +133,7 @@ class EditorActivity : BaseActivity() {
         if (g == ALL) {
             Dialogs.menu(this, "Kategoria „${Repository.ALL}”", listOf(
                 (if (Repository.ALL in P.groupHidden) "👁 Pokaż „${Repository.ALL}” w menu" else "🚫 Ukryj „${Repository.ALL}” w menu") to {
-                    if (Repository.ALL !in P.groupHidden && Repository.groups().size <= 1) android.widget.Toast.makeText(this, "Musi zostać co najmniej jedna kategoria", android.widget.Toast.LENGTH_SHORT).show()
+                    if (Repository.ALL !in P.groupHidden && Repository.groups().size <= 1) I18n.makeToast(this, "Musi zostać co najmniej jedna kategoria", android.widget.Toast.LENGTH_SHORT).show()
                     else Repository.toggleGroupVisible(Repository.ALL)
                 },
                 "⇅ Kolejność i widoczność kategorii…" to { Dialogs.editGroups(this) { reload() } },

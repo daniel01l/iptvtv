@@ -203,6 +203,10 @@ class SetupActivity : BaseActivity() {
     // ---------------- kroki ----------------
 
     private fun stepWelcome() {
+        // (7.8) język interfejsu – od razu na początku (napis dwujęzyczny: do znalezienia w obu językach)
+        choice("Język / Language", I18n.LANGS.map { it.second }, { I18n.LANGS.indexOfFirst { it.first == I18n.lang }.coerceAtLeast(0) }) {
+            I18n.setLanguage(this, I18n.LANGS[it].first); I18n.attach(window)
+        }
         text("Ten kreator pomoże skonfigurować aplikację w kilku krokach: lista kanałów, program TV, archiwum (catch-up), wygląd i uruchamianie.", 17f)
         text("Każdy krok możesz pominąć, a wszystkie ustawienia zmienisz później w ⚙ Ustawieniach. Pilot: strzałki i OK, dotyk: stuknij.", 14f, "text2")
         val missing = PermissionWizard.missing(this)
@@ -431,5 +435,5 @@ class SetupActivity : BaseActivity() {
         return listOfNotNull(filesDir.parentFile?.path, getExternalFilesDir(null)?.parentFile?.path).any { p.startsWith(it) }
     }
 
-    private fun toast(s: String) = android.widget.Toast.makeText(this, s, android.widget.Toast.LENGTH_SHORT).show()
+    private fun toast(s: String) = I18n.makeToast(this, s, android.widget.Toast.LENGTH_SHORT).show()
 }

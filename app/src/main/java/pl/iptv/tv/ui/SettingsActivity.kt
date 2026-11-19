@@ -641,6 +641,11 @@ class SettingsActivity : BaseActivity() {
     private fun hex(c: Int) = String.format("■  #%06X", c and 0xFFFFFF)
 
     private fun buildLook() {
+        // (7.8) język interfejsu (polski / angielski) – ekrany przebudowywane od razu
+        header("Język / Language")
+        choice("Język / Language", I18n.LANGS.map { it.second }, { I18n.LANGS.indexOfFirst { it.first == I18n.lang }.coerceAtLeast(0) }) {
+            I18n.setLanguage(this, I18n.LANGS[it].first); I18n.attach(window)
+        }
         header("Motyw")
         choice("Motyw", Ui.PRESETS.map { it.name }, { Ui.PRESETS.indexOf(Ui.preset) }) {
             Ui.applyPreset(Ui.PRESETS[it].id)
@@ -679,7 +684,7 @@ class SettingsActivity : BaseActivity() {
             toggle("Dźwięki nawigacji", { Prefs.x25Sounds }) { Prefs.x25Sounds = it }
             row("▶ Otwórz pulpit X25") { X25Theme.openDashboard(this) }
             row("↺ Przywróć układ kafelków pulpitu") {
-                lifecycleScope.launch { pl.iptv.tv.data.X25Store.reset(); Toast.makeText(this@SettingsActivity, "Przywrócono domyślny układ pulpitu", Toast.LENGTH_SHORT).show() }
+                lifecycleScope.launch { pl.iptv.tv.data.X25Store.reset(); I18n.makeToast(this@SettingsActivity, "Przywrócono domyślny układ pulpitu", Toast.LENGTH_SHORT).show() }
             }
         }
         note("X25: grafit i czerń z neonową zielenią, akrylowe panele i pulpit z kafelkami. Kafelki edytujesz na pulpicie: przytrzymaj OK lub MENU. Wyłączenie wraca do poprzedniego motywu.")
@@ -849,11 +854,11 @@ class SettingsActivity : BaseActivity() {
     }
 
     private fun setBackground(src: String) {
-        Toast.makeText(this, "Wczytywanie zdjęcia…", Toast.LENGTH_SHORT).show()
+        I18n.makeToast(this, "Wczytywanie zdjęcia…", Toast.LENGTH_SHORT).show()
         lifecycleScope.launch {
             runCatching { Repository.saveBackground(src) }
                 .onSuccess { lookChanged() }
-                .onFailure { Toast.makeText(this@SettingsActivity, "Błąd: ${it.message}", Toast.LENGTH_LONG).show() }
+                .onFailure { I18n.makeToast(this@SettingsActivity, "Błąd: ${it.message}", Toast.LENGTH_LONG).show() }
         }
     }
 
@@ -1166,6 +1171,9 @@ class SettingsActivity : BaseActivity() {
         header("Odtwarzacz STube i SponsorBlock")
         toggle("Wbudowany odtwarzacz (bez reklam)", { Prefs.stubeInternal }) { Prefs.stubeInternal = it }
         note("Wyłączony – filmy od razu w SmartTube. Gdy film nie da się odtworzyć w aplikacji, pojawi się wybór: SmartTube, YouTube lub zamknięcie.")
+        toggle("Widok muzyczny (okładka, kolejka, tekst)", { Prefs.ytMusicView }) { Prefs.ytMusicView = it }
+        toggle("Teksty piosenek (z internetu)", { Prefs.ytLyrics }) { Prefs.ytLyrics = it }
+        note("Teksty pobierane są z otwartej bazy LRCLIB – wysyłany jest tylko tytuł, wykonawca i czas utworu. Wyłączone – zakładka „Tekst” pokazuje brak tekstu.")
         val qualities = listOf(2160, 1440, 1080, 720, 480, 360)
         choice("Maksymalna jakość", qualities.map { "${it}p" }, { qualities.indexOf(Prefs.ytMaxHeight).let { i -> if (i < 0) 2 else i } }, look = false) {
             Prefs.ytMaxHeight = qualities[it]
@@ -1697,7 +1705,7 @@ class SettingsActivity : BaseActivity() {
         ))
     }
 
-    private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
+    private fun toast(s: String) = I18n.makeToast(this, s, Toast.LENGTH_SHORT).show()
 
     // ---------------- wybór pliku ----------------
 
@@ -1708,7 +1716,7 @@ class SettingsActivity : BaseActivity() {
             try { startActivityForResult(get, req) } catch (_: ActivityNotFoundException) {
                 val msg = if (req == REQ_FILE) "Brak menedżera plików. Wpisz ścieżkę, np. /sdcard/Download/lista.m3u, i wybierz „Wczytaj listę”."
                 else "Brak menedżera plików. Użyj opcji „Pobierz z linku”."
-                if (req == REQ_FILE) log(msg, true) else Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+                if (req == REQ_FILE) log(msg, true) else I18n.makeToast(this, msg, Toast.LENGTH_LONG).show()
             }
         }
     }

@@ -180,5 +180,5 @@ object SystemTools {
         if (i.resolveActivity(a.packageManager) == null) false else { a.startActivity(i); true }
     } catch (_: ActivityNotFoundException) { false } catch (_: SecurityException) { false }
 
-    private fun toast(c: Context, s: String) = Toast.makeText(c, s, Toast.LENGTH_SHORT).show()
+    private fun toast(c: Context, s: String) = I18n.makeToast(c, s, Toast.LENGTH_SHORT).show()
 }

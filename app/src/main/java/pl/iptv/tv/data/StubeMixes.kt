@@ -1,5 +1,6 @@
 package pl.iptv.tv.data
 
+import kotlinx.coroutines.async
 import kotlin.math.exp
 
 /**
@@ -18,7 +19,14 @@ object StubeMixes {
                     * Filmy-zalążki rekomendacji społecznościowych: propozycje YouTube po każdym z nich (kolejność z zachowań innych
                     * widzów); kilka zalążków – wyżej filmy polecane po wielu z nich naraz ([rankCrowd]).
                     */
-                   val seeds: List<String> = emptyList())
+                   val seeds: List<String> = emptyList(),
+                   /**
+                    * Zapytania uzupełniające (gatunki / klimat z historii): gdy lista ma mniej niż [MIN_PLAYLIST] filmów,
+                    * dobierane są kolejne – z wielu wykonawców tego samego stylu.
+                    */
+                   val fill: List<String> = emptyList(),
+                   /** Muzyka: wykonawcy układani rundami ([diversify]) – jeden artysta nie zamyka miksu. */
+                   val diverse: Boolean = false)
 
     /** Gatunek: nazwa, słowa w tytule / nazwie kanału i zapytania miksu. */
     data class Genre(val id: String, val name: String, val pattern: Regex, val queries: List<String>)
@@ -41,7 +49,14 @@ object StubeMixes {
 
     const val MIN_HISTORY = 3
     const val PER_QUERY = 12
-    const val MAX_VIDEOS = 40
+    /** Minimalna długość playlisty miksu (utwory) i górny limit. */
+    const val MIN_PLAYLIST = 100
+    const val MAX_VIDEOS = 150
+    /** Ile utworów jednego wykonawcy w jednej „rundzie” miksu (kolejne dopiero, gdy brakuje do [MIN_PLAYLIST]). */
+    const val MAX_PER_ARTIST = 2
+    /** Zapytań uruchamianych równolegle przy uzupełnianiu playlisty. */
+    const val BATCH = 6
+    private val VARIANTS = listOf("hits", "best songs", "new", "2020s", "2010s", "2000s", "90s", "classics", "top 50", "playlist")
 
     private val STOP = setOf(
         // PL
@@ -85,35 +100,81 @@ object StubeMixes {
         val topWords = words.entries.filter { it.value >= 2.0 }.sortedByDescending { it.value }.map { it.key }
         val music = isMusic(h)
         val byWeight = h.sortedByDescending { weight(it, now) }
+        val topGenres = genreScores(h, now).filter { it.value >= GENRE_MIN }.entries.sortedByDescending { it.value }.map { it.key }
+        val moodList = moodWords(h, topWords).takeIf { it.size >= 2 }
+        // uzupełnianie playlist: style z historii (kilka gatunków naraz → wielu wykonawców), nie jeden artysta
+        val fill = fillQueries(topGenres, moodList, music)
+        // zalążki o różnych wykonawcach (propozycje po nich obejmują innych artystów)
+        val seedsMixed = byWeight.distinctBy { artistKey(it.channel) }.take(CROWD_SEEDS).map { it.videoId }
         val out = mutableListOf<Mix>()
         if (topCh.isNotEmpty()) out += Mix("fav", if (music) "Muzyczny miks pod Ciebie" else "Miks pod Twoje ulubione",
-            "Na podstawie: " + topCh.take(3).joinToString(", "), topCh.take(3).map { if (music) "$it music" else it }, byWeight.first().thumb)
-        moodWords(h, topWords).takeIf { it.size >= 2 }?.let { mood ->
+            "Na podstawie: " + topCh.take(3).joinToString(", "), topCh.take(3).map { if (music) "$it music" else it }, byWeight.first().thumb,
+            seeds = if (music) seedsMixed else emptyList(), fill = fill, diverse = music)
+        moodList?.let { mood ->
             val kw = mood.joinToString(" ")
             out += Mix("mood", "Więcej w tym klimacie", "„$kw”", listOf(if (music) "$kw music" else kw, mood.first()).distinct(),
-                byWeight.firstOrNull { p -> mood.first() in tokens(p.title) }?.thumb ?: byWeight.first().thumb)
+                byWeight.firstOrNull { p -> mood.first() in tokens(p.title) }?.thumb ?: byWeight.first().thumb, fill = fill, diverse = music)
         }
         topCh.filter { (channels[it] ?: 0.0) >= 4.0 }.take(2).forEach { ch ->
+            val chTop = h.filter { it.channel.trim() == ch }.maxByOrNull { weight(it, now) }
             out += Mix("ch:" + ch.lowercase().hashCode().toUInt().toString(16), "Miks: $ch", "Więcej od tego twórcy i podobnych",
-                listOf(ch, if (music) "$ch mix" else "$ch najnowsze"), h.firstOrNull { it.channel.trim() == ch }?.thumb.orEmpty())
+                listOf(ch, if (music) "$ch mix" else "$ch najnowsze"), chTop?.thumb.orEmpty(),
+                // muzyka: jeden wykonawca nie zamyka miksu – podobni artyści (propozycje po jego utworze) i styl
+                seeds = if (music) listOfNotNull(chTop?.videoId) else emptyList(), fill = fill, diverse = music)
         }
         // miksy gatunkowe (do dwóch najmocniejszych gatunków w historii)
-        genreScores(h, now).filter { it.value >= GENRE_MIN }.entries.sortedByDescending { it.value }.take(2).forEach { (g, _) ->
+        topGenres.take(2).forEach { g ->
             out += Mix("g:" + g.id, "Miks: ${g.name}", "Gatunek z Twojej historii", g.queries,
-                h.filter { g.pattern.containsMatchIn(it.title + " " + it.channel) }.maxByOrNull { weight(it, now) }?.thumb.orEmpty())
+                h.filter { g.pattern.containsMatchIn(it.title + " " + it.channel) }.maxByOrNull { weight(it, now) }?.thumb.orEmpty(),
+                fill = expand(g.queries), diverse = true)
         }
         // „Dalej po…”: co oglądano / słuchano po ostatnim filmie – u Ciebie (przejścia w historii) i u innych widzów (propozycje YouTube)
         val latest = h.maxByOrNull { it.updatedAt }!!
         val tr = transitions(h)
         val after = followers(tr, latest.videoId).mapNotNull { id -> h.firstOrNull { it.videoId == id }?.toVideo() }
         out += Mix("next:" + latest.videoId, "Dalej po: " + latest.title.take(48), "Co słuchają dalej osoby o podobnym guście",
-            emptyList(), latest.thumb, local = after, seeds = listOf(latest.videoId))
+            emptyList(), latest.thumb, local = after, seeds = listOf(latest.videoId), fill = fill, diverse = music)
         // rekomendacje społecznościowe: filmy polecane po kilku Twoich ulubionych naraz (wspólne gusta)
         val favs = byWeight.map { it.videoId }.distinct().take(CROWD_SEEDS)
         if (favs.size >= 2) out += Mix("crowd", "Słuchacze podobni do Ciebie wybierają", "Wspólne propozycje po Twoich ulubionych",
-            emptyList(), byWeight.getOrNull(1)?.thumb ?: byWeight.first().thumb, seeds = favs)
+            emptyList(), byWeight.getOrNull(1)?.thumb ?: byWeight.first().thumb, seeds = favs, fill = fill, diverse = music)
         out += Mix("again", "Wróć do ulubionych", "Najczęściej oglądane", emptyList(), byWeight.first().thumb,
-            local = byWeight.take(MAX_VIDEOS).map { it.toVideo() })
+            local = byWeight.take(MAX_VIDEOS).map { it.toVideo() }, fill = fill, diverse = music)
+        return out
+    }
+
+    /** Klucz wykonawcy filmu (kanał bez „- Topic” / VEVO). */
+    fun artistKey(channel: String): String = channel.trim().removeSuffix("- Topic").removeSuffix("VEVO").trim().lowercase()
+
+    /** Zapytania wariantowe („rock mix” → „rock mix hits”, „… 2010s”…) – kolejne partie wyników tego samego stylu. */
+    fun expand(base: List<String>): List<String> = (base + base.flatMap { b -> VARIANTS.map { "$b $it" } }).distinct()
+
+    /**
+     * Zapytania uzupełniające: do trzech najmocniejszych gatunków z historii (przeplatane – wielu wykonawców różnych stylów
+     * słuchacza), klimat z tytułów; bez gatunków – ogólne hity.
+     */
+    fun fillQueries(genres: List<Genre>, mood: List<String>?, music: Boolean): List<String> {
+        val out = interleave(genres.take(3).map { expand(it.queries) }).toMutableList()
+        mood?.joinToString(" ")?.let { kw -> out += expand(listOf(if (music) "$kw music" else kw)) }
+        if (out.isEmpty() && music) out += expand(listOf("top hits mix", "polskie hity mix"))
+        return out.distinct()
+    }
+
+    /**
+     * Różnorodność wykonawców: filmy układane „rundami” – po jednym utworze każdego wykonawcy, potem po drugim… Kolejne rundy
+     * ponad [cap] dochodzą tylko, gdy do [target] jeszcze brakuje. Czysta funkcja – testy.
+     */
+    fun diversify(list: List<YtVideo>, cap: Int = MAX_PER_ARTIST, target: Int = MIN_PLAYLIST): List<YtVideo> {
+        val buckets = LinkedHashMap<String, MutableList<YtVideo>>()
+        list.forEach { buckets.getOrPut(artistKey(it.channel).ifEmpty { it.id }) { mutableListOf() }.add(it) }
+        val out = ArrayList<YtVideo>(list.size); var round = 0
+        while (true) {
+            var any = false
+            for (b in buckets.values) b.getOrNull(round)?.let { out += it; any = true }
+            if (!any) break
+            round++
+            if (round >= cap && out.size >= target) break
+        }
         return out
     }
 
@@ -178,19 +239,44 @@ object StubeMixes {
     /** Filmy miksu: wyniki zapytań przeplatane, bez powtórzeń i bez filmów już obejrzanych. */
     suspend fun videos(m: Mix, watchedIds: Set<String>? = null): List<YtVideo> {
         val watched = watchedIds ?: StubeHistory.watched(500).map { it.videoId }.toSet()
-        if (m.seeds.isNotEmpty()) {
+        fun ok(v: YtVideo) = v.id !in watched && v.id !in m.seeds && v.duration != "P0D"
+        val crowd = if (m.seeds.isEmpty()) emptyList() else {
             val lists = m.seeds.map { s -> runCatching { YtKeyless.related(s) }.getOrDefault(emptyList()).filter { it.id !in m.seeds } }
             // jeden zalążek: najpierw Twoje przejścia (z historii), potem propozycje innych widzów; kilka – ranking wspólnych
-            val crowd = if (lists.size > 1) rankCrowd(lists) else lists.firstOrNull().orEmpty()
-            return (m.local + crowd.filter { it.id !in watched && it.duration != "P0D" }).distinctBy { it.id }.take(MAX_VIDEOS)
+            if (lists.size > 1) rankCrowd(lists) else lists.firstOrNull().orEmpty()
         }
-        if (m.queries.isEmpty()) return m.local
-        val lists = m.queries.map { q ->
-            runCatching {
-                try { YtKeyless.search(q) } catch (e: YtException) { if (YouTubeRepository.publicAvailable) YouTubeRepository.search(q) else throw e }
-            }.getOrDefault(emptyList()).take(PER_QUERY)
+        val queried = if (m.queries.isEmpty()) emptyList() else search(m.queries, PER_QUERY)
+        val primary = when {
+            m.seeds.isEmpty() && m.queries.isEmpty() -> m.local
+            m.queries.isEmpty() -> m.local + crowd
+            crowd.isEmpty() -> m.local + queried
+            else -> m.local + interleave(listOf(crowd, queried))
+        }.filter { m.local.contains(it) || ok(it) }.distinctBy { it.id }
+        val list = if (primary.size >= MIN_PLAYLIST || m.fill.isEmpty()) primary else {
+            val seen = primary.mapTo(HashSet()) { it.id }
+            val extra = search(m.fill, PER_QUERY * 2) { acc -> primary.size + acc.count { ok(it) && it.id !in seen } >= MIN_PLAYLIST * 2 }
+            primary + extra.filter { ok(it) && seen.add(it.id) }
         }
-        return interleave(lists).filter { it.id !in watched && it.duration != "P0D" }.distinctBy { it.id }.take(MAX_VIDEOS)
+        return (if (m.diverse) diversify(list) else list).take(MAX_VIDEOS)
+    }
+
+    /** Wyniki zapytań [queries] (równolegle, partiami po [BATCH]) – listy przeplatane; kończy, gdy [enough] zwróci true. */
+    private suspend fun search(queries: List<String>, per: Int, enough: (List<YtVideo>) -> Boolean = { false }): List<YtVideo> {
+        val acc = mutableListOf<YtVideo>()
+        for (batch in queries.chunked(BATCH)) {
+            val lists = kotlinx.coroutines.coroutineScope {
+                batch.map { q ->
+                    async {
+                        runCatching {
+                            try { YtKeyless.search(q) } catch (e: YtException) { if (YouTubeRepository.publicAvailable) YouTubeRepository.search(q) else throw e }
+                        }.getOrDefault(emptyList()).take(per)
+                    }
+                }.map { it.await() }
+            }
+            acc += interleave(lists)
+            if (enough(acc)) break
+        }
+        return acc
     }
 
     /** Przeplatanie list (po jednym z każdej) – miks z kilku źródeł zamiast bloków. Czysta funkcja – testy. */

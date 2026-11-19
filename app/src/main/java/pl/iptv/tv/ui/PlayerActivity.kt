@@ -201,7 +201,7 @@ class PlayerActivity : BaseActivity() {
         findViewById<View>(R.id.tClose).setOnClickListener { leaveScreen() }
         findViewById<View>(R.id.tFav).setOnClickListener {
             val added = Repository.toggleFav(list[pos])
-            Toast.makeText(this, if (added) "Dodano do ulubionych" else "Usunięto z ulubionych", Toast.LENGTH_SHORT).show()
+            I18n.makeToast(this, if (added) "Dodano do ulubionych" else "Usunięto z ulubionych", Toast.LENGTH_SHORT).show()
             updateFavButton(); showOverlay(touch = true)
         }
 
@@ -579,7 +579,7 @@ class PlayerActivity : BaseActivity() {
         // marginesy archiwum (EPG bywa niedokładne)
         val url = if (isCatchup) CatchupUrlBuilder.build(ch, catchStart - Prefs.cuPadBefore * 60_000L, catchEnd + Prefs.cuPadAfter * 60_000L) else ch.url
         if (url == null) {
-            Toast.makeText(this, "Kanał nie obsługuje catch-up", Toast.LENGTH_LONG).show()
+            I18n.makeToast(this, "Kanał nie obsługuje catch-up", Toast.LENGTH_LONG).show()
             catchStart = 0; catchEnd = 0
             return playCurrent()
         }
@@ -756,7 +756,7 @@ class PlayerActivity : BaseActivity() {
         when {
             p.start > now -> ProgrammeActions.menu(this, ch, p, ::panelPlay, onChanged = refresh)
             p.end <= now && Repository.isInArchive(ch, p, now) -> playArchive(ch, p)
-            p.end <= now -> Toast.makeText(this, "Ten program nie jest dostępny w archiwum", Toast.LENGTH_SHORT).show()
+            p.end <= now -> I18n.makeToast(this, "Ten program nie jest dostępny w archiwum", Toast.LENGTH_SHORT).show()
             Repository.isInArchive(ch, p, now) -> Ui.dialog(this).setTitle(p.title)
                 .setItems(arrayOf("Oglądaj na żywo", "Oglądaj od początku")) { _, w ->
                     if (w == 0) zapTo(ch, if (ch in list) group else Repository.ALL) else playArchive(ch, p)
@@ -967,7 +967,7 @@ class PlayerActivity : BaseActivity() {
         lpChannels.focusPosition(lpChannelAdapter.indexOfKey(list[pos].key).coerceAtLeast(0))
     }
 
-    private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
+    private fun toast(s: String) = I18n.makeToast(this, s, Toast.LENGTH_SHORT).show()
 
     private val ASPECTS = listOf("Dopasuj", "Rozciągnij", "Powiększ (przytnij)", "16:9", "4:3")
 
@@ -1045,7 +1045,7 @@ class PlayerActivity : BaseActivity() {
 
 
     private fun refreshSources() {
-        Toast.makeText(this, "Odświeżanie listy i EPG…", Toast.LENGTH_SHORT).show()
+        I18n.makeToast(this, "Odświeżanie listy i EPG…", Toast.LENGTH_SHORT).show()
         lifecycleScope.launch {
             val src = Prefs.playlistSource
             val pl = if (src.isNotBlank()) runCatching { Repository.loadPlaylist(src) } else null
@@ -1055,7 +1055,7 @@ class PlayerActivity : BaseActivity() {
                 append(" • ")
                 append(if (epg?.isSuccess == true) "EPG: ${epg.getOrNull()} programów" else "EPG: bez zmian")
             }
-            Toast.makeText(this@PlayerActivity, msg, Toast.LENGTH_LONG).show()
+            I18n.makeToast(this@PlayerActivity, msg, Toast.LENGTH_LONG).show()
             if (rightOpen) showInfo(list[pos])
         }
     }

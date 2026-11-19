@@ -217,7 +217,7 @@ class GuideActivity : BaseActivity() {
         val n = numberInput.toIntOrNull(); numberInput = ""
         val i = adapter.items.indexOfFirst { it.number == n }
         if (i >= 0) { parkFocus(); focusRow = i; restoreFocus() }
-        else android.widget.Toast.makeText(this, "Brak kanału nr $n w tej grupie", android.widget.Toast.LENGTH_SHORT).show()
+        else I18n.makeToast(this, "Brak kanału nr $n w tej grupie", android.widget.Toast.LENGTH_SHORT).show()
     }
 
     /** Przed przebudową wierszy fokus czeka na niewidocznym elemencie – bez przeskoku na górne przyciski („☰ Wszystkie”). */

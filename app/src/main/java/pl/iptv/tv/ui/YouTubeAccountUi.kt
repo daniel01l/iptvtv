@@ -194,5 +194,5 @@ object YouTubeAccountUi {
         }
     }
 
-    private fun toast(a: AppCompatActivity, s: String) = Toast.makeText(a, s, Toast.LENGTH_SHORT).show()
+    private fun toast(a: AppCompatActivity, s: String) = I18n.makeToast(a, s, Toast.LENGTH_SHORT).show()
 }

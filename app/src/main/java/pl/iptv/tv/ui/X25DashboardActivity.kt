@@ -36,7 +36,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -367,8 +366,7 @@ class X25DashboardActivity : BaseActivity() {
         when (r) {
             is X25Recent.Ch -> X25Actions.playChannel(this, r.c)
             is X25Recent.Vid -> X25Actions.playVideo(this, r.p.toVideo())
-            is X25Recent.St -> startActivity(StremioDetailActivity.intent(this,
-                pl.iptv.tv.data.StremioMetaPreview(r.p.metaId, r.p.type, r.p.name, r.p.poster), r.p.videoId.ifBlank { null }))
+            is X25Recent.St -> startActivity(StremioPlayerActivity.resumeIntent(this, r.p))   // (7.8) od razu odtwarzanie
         }
     }
 

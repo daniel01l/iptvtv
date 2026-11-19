@@ -41,6 +41,7 @@ class ModernTest {
 
     @Before fun setup() {
         db = Room.inMemoryDatabaseBuilder(ctx, StubeDatabase::class.java).allowMainThreadQueries().build()
+            .also { it.openHelper.writableDatabase }   // otwarta od razu – zamknięcie w tearDown nie trafia na otwieranie w tle (zakleszczenie Room)
         StubeHistory.useDatabase(db); X25Store.clearCache()
         Prefs.permissionsAsked = true; Prefs.setupDone = true
         Prefs.modernHome = true; Prefs.modernOverlay = true
@@ -145,15 +146,21 @@ class ModernTest {
         val a = home()
         assertEquals(ModernHomeActivity.HERO_PLAY, a.focusedKey)
         waitFor { "continue" in a.shelfIds }
+        repeat(10) { if ("channels" !in a.shelfIds) waitFor { "channels" in a.shelfIds } }   // 7.8: kanały (Live TV) ładowane w tle, są nad „Kontynuuj”
+        assertTrue(a.shelfIds.toString(), "channels" in a.shelfIds)
+        idle(500)                                                  // rząd kanałów ma już układ (fokus ▼ trafia w pierwszy rząd)
         // Start: hero – ostatnio oglądany film, rzędy „Kontynuuj” (postęp z Room) i skróty
         assertEquals("Film 1", a.featureTitle)
         assertEquals(listOf("yt:v1"), a.tileKeys("continue"))
         assertTrue(a.shelfIds.contains("shortcuts"))
         // ▼ – pierwszy rząd; ▼ – kolejny; hero pokazuje zaznaczony kafelek (z krótkim opóźnieniem)
+        // 7.8: Start – najpierw Live TV (kanały), pod nim STube („Kontynuuj”), potem Stremio / skróty
+        key(a, KeyEvent.KEYCODE_DPAD_DOWN)
+        assertTrue(a.focusedKey, a.focusedKey!!.startsWith("r:channels|"))
         key(a, KeyEvent.KEYCODE_DPAD_DOWN)
         assertEquals("r:continue|yt:v1", a.focusedKey)
         key(a, KeyEvent.KEYCODE_DPAD_DOWN)
-        assertTrue(a.focusedKey, a.focusedKey!!.startsWith("r:${a.shelfIds[1]}|"))   // drugi rząd (zależnie od danych: kanały albo skróty)
+        assertTrue(a.focusedKey, a.focusedKey!!.startsWith("r:${a.shelfIds[2]}|"))   // trzeci rząd (zależnie od danych: Stremio albo skróty)
         key(a, KeyEvent.KEYCODE_DPAD_RIGHT)
         val shortcut = a.focusedKey!!
         idle(400)
@@ -162,10 +169,12 @@ class ModernTest {
         key(a, KeyEvent.KEYCODE_DPAD_UP)
         assertEquals("r:continue|yt:v1", a.focusedKey)
         key(a, KeyEvent.KEYCODE_DPAD_UP)
+        assertTrue(a.focusedKey, a.focusedKey!!.startsWith("r:channels|"))
+        key(a, KeyEvent.KEYCODE_DPAD_UP)
         assertTrue(a.focusedKey, a.focusedKey!!.startsWith("h:"))
         key(a, KeyEvent.KEYCODE_DPAD_UP)
         assertTrue("▲ nad hero nie gubi fokusu", a.focusedKey!!.startsWith("h:"))
-        key(a, KeyEvent.KEYCODE_DPAD_DOWN); key(a, KeyEvent.KEYCODE_DPAD_DOWN)
+        key(a, KeyEvent.KEYCODE_DPAD_DOWN); key(a, KeyEvent.KEYCODE_DPAD_DOWN); key(a, KeyEvent.KEYCODE_DPAD_DOWN)
         assertEquals(shortcut, a.focusedKey)
         // ◄ z pierwszej kolumny – pasek ikon (rozwinięty, bieżąca sekcja)
         key(a, KeyEvent.KEYCODE_DPAD_LEFT)
@@ -263,7 +272,10 @@ class ModernTest {
         val a = home()
         assertTrue(a.dimsNow.compact)
         waitFor { "continue" in a.shelfIds }
+        waitFor { "continue" in a.shelfIds }
+        val first = a.shelfIds[0]                                  // 7.8: Live TV na górze (gdy kanały są), potem STube
         key(a, KeyEvent.KEYCODE_DPAD_DOWN)
-        assertEquals("r:continue|yt:v1", a.focusedKey)
+        assertTrue(a.focusedKey, a.focusedKey!!.startsWith("r:$first|"))
+        if (first == "channels") { key(a, KeyEvent.KEYCODE_DPAD_DOWN); assertEquals("r:continue|yt:v1", a.focusedKey) }
     }
 }

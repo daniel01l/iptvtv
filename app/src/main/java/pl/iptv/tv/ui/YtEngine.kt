@@ -66,6 +66,13 @@ object YtEngine {
     var background = false; private set
     /** (7.5) Tryb samego dźwięku (telefon) – do końca filmu / sesji; ekran po powrocie nie włącza obrazu. */
     @Volatile var audioOnly = false
+    /** (7.9) Powtarzanie bieżącego utworu po jego naturalnym końcu. */
+    @Volatile var repeatOne = false
+    /** (7.9) Losowa kolejność: następny utwór z kolejki wybierany losowo. */
+    @Volatile var shuffle = false
+    /** Poprzednio odtworzone filmy (przycisk „Poprzedni”), najnowszy na końcu. */
+    private val played = ArrayList<YtVideo>()
+    val canGoBack get() = played.isNotEmpty()
 
     val listeners = CopyOnWriteArraySet<Listener>()
     /** Usługa: koniec odtwarzania → zatrzymanie usługi (powiadomienie znika). */
@@ -120,7 +127,7 @@ object YtEngine {
         saveProgress()
         loadJob?.cancel()
         main.removeCallbacks(startTimeout); main.removeCallbacks(tick)
-        if (video?.id != v.id) reExtracted = false
+        if (video?.id != v.id) { reExtracted = false; if (!goingBack) video?.let { prev -> played.removeAll { it.id == prev.id }; played += prev; if (played.size > 50) played.removeAt(0) } }
         video = v; error = null; ended = false; segments = emptyList(); lastSkipped = null
         playable = null
         Playback.stop()   // kanał IPTV (podgląd) – dwa odtwarzacze naraz to brak dekoderów na wielu TV
@@ -181,6 +188,7 @@ object YtEngine {
         main.removeCallbacks(startTimeout); main.removeCallbacks(tick)
         player?.let { it.stop(); it.clearMediaItems() }
         video = null; playable = null; segments = emptyList(); error = null; background = false; audioOnly = false
+        played.clear(); repeatOne = false; shuffle = false
         listeners.forEach { it.onStopped() }
         onStopRequest?.invoke()
     }
@@ -216,7 +224,18 @@ object YtEngine {
     }
 
     /** Następny materiał teraz (pilot, telefon, ⏭). */
-    fun next() { if (video != null) finished() }
+    fun next() { if (video != null) finished(natural = false) }
+
+    private var goingBack = false
+
+    /** „Poprzedni”: po 3 s utworu – od początku, inaczej poprzednio odtworzony film (brak – od początku). */
+    fun previous(c: Context) {
+        val p = player ?: return
+        val back = played.lastOrNull()
+        if (p.currentPosition > 3_000 || back == null) { p.seekTo(0); return }
+        played.removeAt(played.size - 1)
+        goingBack = true; try { load(c, back, force = true) } finally { goingBack = false }
+    }
 
     private fun attachEq(sessionId: Int) {
         eq?.release()
@@ -232,11 +251,13 @@ object YtEngine {
     }
 
     /** Koniec filmu: następny z kolejki (film – tutaj, kanał TV – ekran), inaczej propozycje na ekranie albo zatrzymanie. */
-    private fun finished() {
+    private fun finished(natural: Boolean = true) {
+        // powtarzanie utworu: naturalny koniec → od początku (ręczne „Następny” przechodzi dalej)
+        if (natural && repeatOne && !live) { player?.let { it.seekTo(0); it.playWhenReady = true; it.play() }; return }
         ended = true; saveProgress()
         val cur = video?.id
         scope.launch {
-            val next = if (Prefs.queueAutoplay) StubeQueue.pop(skipRef = cur) else null
+            val next = if (Prefs.queueAutoplay) StubeQueue.pop(skipRef = cur, random = shuffle) else null
             when {
                 next?.isVideo == true -> load(app, next.toVideo(), force = true)
                 next != null -> { if (listeners.reversed().none { it.onQueueChannel(next) }) stop() }
@@ -252,7 +273,7 @@ object YtEngine {
     private val listener = object : Player.Listener {
         override fun onPlaybackStateChanged(state: Int) {
             if (state == Player.STATE_READY) { main.removeCallbacks(startTimeout); error = null }
-            if (state == Player.STATE_ENDED && video != null && !ended) finished()
+            if (state == Player.STATE_ENDED && video != null && !ended) finished(natural = true)
         }
         override fun onAudioSessionIdChanged(audioSessionId: Int) { attachEq(audioSessionId) }
         override fun onPlayerError(e: PlaybackException) {

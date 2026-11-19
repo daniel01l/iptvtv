@@ -257,6 +257,8 @@ object Ui {
      * a ekran ustawień od razu – motyw działa wszędzie bez ponownego uruchamiania aplikacji.
      */
     var themeEpoch = 0; private set
+    /** (7.8) Zmiana języka – ekrany przebudowywane jak po zmianie motywu. */
+    fun languageChanged() { themeEpoch++; changed() }
 
     /** [restoring] – powrót do poprzedniego motywu (wyłączenie X25 / PS5): jego zapamiętany „poprzedni” motyw zostaje bez zmian. */
     fun applyPreset(id: String, restoring: Boolean = false) {
@@ -845,6 +847,7 @@ object Ui {
 
     fun styleDialog(d: androidx.appcompat.app.AlertDialog) {
         val w = d.window ?: return
+        I18n.attach(w)                                   // (7.8) tytuł, treść, pozycje i przyciski okna w wybranym języku
         val dm = d.context.resources.displayMetrics
         val wide = dm.widthPixels / dm.density >= 900
         // X25: menu i listy wyboru wysuwają się z lewej jako panel boczny (Guide) na całą wysokość ekranu
@@ -954,7 +957,8 @@ object Ui {
         if (scroller && v.id != androidx.appcompat.R.id.buttonPanel && v.getTag(R.id.zoom_listener) != "dlgscroll") {
             v.setTag(R.id.zoom_listener, "dlgscroll")
             v.scrollBarStyle = View.SCROLLBARS_OUTSIDE_INSET
-            v.isScrollbarFadingEnabled = true
+            // (7.8) bez suwaka – przy zaznaczaniu opcji pojawiał się pasek przewijania (wygaszone krawędzie mówią, że lista jest dłuższa)
+            v.isVerticalScrollBarEnabled = false; v.isHorizontalScrollBarEnabled = false
             v.isVerticalFadingEdgeEnabled = true; v.setFadingEdgeLength(dp(16))
             if (v is android.widget.ScrollView) v.isSmoothScrollingEnabled = true
             if (v !is android.widget.AbsListView) (v as ViewGroup).let { it.clipToPadding = false

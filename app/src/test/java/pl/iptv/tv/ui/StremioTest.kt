@@ -76,6 +76,7 @@ class StremioTest {
 
     @Before fun setup() {
         db = Room.inMemoryDatabaseBuilder(ctx, StubeDatabase::class.java).allowMainThreadQueries().build()
+            .also { it.openHelper.writableDatabase }   // otwarta od razu – zamknięcie w tearDown nie trafia na otwieranie w tle (zakleszczenie Room)
         StubeHistory.useDatabase(db); StremioAccount.useStorage(null); StremioMetas.clear()
         Prefs.stremioSync = -1; Prefs.stremioGuest = false; Prefs.stremioSubDelay = 0; Prefs.stremioAspect = 0; Prefs.stremioSubLang = "pol"
         Prefs.permissionsAsked = true; Prefs.setupDone = true
@@ -259,7 +260,7 @@ class StremioTest {
         StremioStore.setEnabled(url("/b/manifest.json"), false)
         paths.clear()
         val a = Robolectric.buildActivity(StremioDetailActivity::class.java, StremioDetailActivity.intent(ctx, StremioMetaPreview("tt2", "series", "Serial Testowy"))).setup().get()
-        waitFor { a.groups.isNotEmpty() && a.groups.none { it.loading } }
+        waitFor { a.groups.isNotEmpty() && a.groups.none { it.loading } && a.sourceAdapter.sourceItems.isNotEmpty() }   // 7.8: lista liczona na wątku roboczym
         assertEquals("tt2:1:1", a.videoId)
         assertEquals(listOf("Źródła a"), a.groups.map { it.addon.name })
         // 1 × 4K + 7 × 1080p → po 5 z każdej rozdzielczości (6.6): 1 + 5
@@ -275,7 +276,7 @@ class StremioTest {
         assertFalse("bez komunikatów o wczytywaniu wtyczek", a.sourceAdapter.items.any { it is SourceItem.Loading || (it is SourceItem.Note && it.t.startsWith("Wczytywanie")) })
         // odcinek 2 – nowe źródła
         a.selectEpisode(a.meta!!.episodes(1)[1])
-        waitFor { a.videoId == "tt2:1:2" && a.groups.none { it.loading } }
+        waitFor { a.videoId == "tt2:1:2" && a.groups.none { it.loading } && a.sourceAdapter.sourceItems.isNotEmpty() }
         assertTrue(paths.any { it.contains("tt2%3A1%3A2") || it.contains("tt2:1:2") })
         // OK na źródle – odtwarzacz z wybranym źródłem
         a.play(a.sourceAdapter.sourceItems[0])

@@ -27,8 +27,10 @@ class PlayerIcon(private val kind: String, private val tint: ColorStateList = Co
         const val DELAY = "delay"; const val STYLE = "style"; const val ASPECT = "aspect"; const val INFO = "info"; const val RELATED = "related"
         // (7.5) sterowanie odtwarzaczem Stremio (dolny pasek) i tryb samego dźwięku STube
         const val PLAY = "play"; const val PAUSE = "pause"; const val PREV = "prev"; const val REW = "rew"; const val FWD = "fwd"; const val AUDIO_ONLY = "audio_only"
+        // (7.9) widok muzyczny STube: losowo, powtarzanie, tekst piosenki, teledysk
+        const val SHUFFLE = "shuffle"; const val REPEAT = "repeat"; const val REPEAT_ONE = "repeat_one"; const val LYRICS = "lyrics"; const val VIDEO = "video"; const val MUSIC = "music"
         val ALL = listOf(SPEED, QUALITY, AUDIO, CC, EQ, CHAPTERS, QUEUE, PIP, AUTOPLAY, NEXT, DELAY, STYLE, ASPECT, INFO, RELATED,
-            PLAY, PAUSE, PREV, REW, FWD, AUDIO_ONLY)
+            PLAY, PAUSE, PREV, REW, FWD, AUDIO_ONLY, SHUFFLE, REPEAT, REPEAT_ONE, LYRICS, VIDEO, MUSIC)
     }
 
     private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
@@ -80,6 +82,13 @@ class PlayerIcon(private val kind: String, private val tint: ColorStateList = Co
             REW -> { tri(0.52f, 0.2f, 0.52f, 0.8f, 0.1f, 0.5f); tri(0.92f, 0.2f, 0.92f, 0.8f, 0.5f, 0.5f) }
             FWD -> { tri(0.08f, 0.2f, 0.08f, 0.8f, 0.5f, 0.5f); tri(0.48f, 0.2f, 0.48f, 0.8f, 0.9f, 0.5f) }
             AUDIO_ONLY -> { r.set(x(0.14f), y(0.14f), x(0.86f), y(0.86f)); c.drawArc(r, 180f, 180f, false, p); rect(0.1f, 0.5f, 0.3f, 0.86f, 0.06f); rect(0.7f, 0.5f, 0.9f, 0.86f, 0.06f) }
+            SHUFFLE -> { line(0.08f, 0.28f, 0.34f, 0.28f); line(0.34f, 0.28f, 0.62f, 0.72f); line(0.62f, 0.72f, 0.78f, 0.72f); line(0.08f, 0.72f, 0.34f, 0.72f); line(0.34f, 0.72f, 0.62f, 0.28f); line(0.62f, 0.28f, 0.78f, 0.28f)
+                tri(0.78f, 0.14f, 0.78f, 0.42f, 0.95f, 0.28f); tri(0.78f, 0.58f, 0.78f, 0.86f, 0.95f, 0.72f) }
+            REPEAT, REPEAT_ONE -> { rect(0.1f, 0.26f, 0.9f, 0.74f, 0.2f); tri(0.62f, 0.1f, 0.62f, 0.42f, 0.84f, 0.26f); tri(0.38f, 0.58f, 0.38f, 0.9f, 0.16f, 0.74f)
+                if (kind == REPEAT_ONE) { f.textSize = s * 0.34f; f.isFakeBoldText = true; f.textAlign = Paint.Align.CENTER; c.drawText("1", x(0.5f), y(0.62f), f) } }
+            LYRICS -> { line(0.1f, 0.2f, 0.9f, 0.2f); line(0.1f, 0.42f, 0.9f, 0.42f); line(0.1f, 0.64f, 0.66f, 0.64f); line(0.1f, 0.86f, 0.48f, 0.86f) }
+            VIDEO -> { rect(0.06f, 0.2f, 0.94f, 0.8f, 0.1f); tri(0.42f, 0.34f, 0.42f, 0.66f, 0.7f, 0.5f) }
+            MUSIC -> { line(0.38f, 0.2f, 0.38f, 0.72f); line(0.38f, 0.2f, 0.84f, 0.1f); line(0.84f, 0.1f, 0.84f, 0.6f); c.drawCircle(x(0.28f), y(0.76f), s * 0.12f, f); c.drawCircle(x(0.74f), y(0.66f), s * 0.12f, f) }
             else -> c.drawCircle(x(0.5f), y(0.5f), s * 0.3f, p)
         }
     }

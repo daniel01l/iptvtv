@@ -36,6 +36,8 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.SubtitleView
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import pl.iptv.tv.R
@@ -43,6 +45,7 @@ import pl.iptv.tv.data.Prefs
 import pl.iptv.tv.data.Repository
 import pl.iptv.tv.data.StremioApi
 import pl.iptv.tv.data.StremioProgress
+import pl.iptv.tv.data.StremioResume
 import pl.iptv.tv.data.StremioStore
 import pl.iptv.tv.data.StremioStream
 import pl.iptv.tv.data.StremioStreams
@@ -79,6 +82,18 @@ class StremioPlayerActivity : AppCompatActivity() {
             return left in 1..NEXT_EPISODE_WINDOW_MS
         }
 
+        /** (7.8) Limit czasu wczytywania źródeł przy wznawianiu / „Oglądaj dalej”. */
+        const val RESOLVE_TIMEOUT_MS = 25_000L
+
+        /**
+         * (7.8) „Wznów” / „Oglądaj dalej”: bez ekranu pośredniego – odtwarzacz sam wybiera odcinek ([StremioResume.target]: następny,
+         * gdy dla zapisanego odcinka pojawiło się już okienko „Następny odcinek”, inaczej ten sam od zapisanej pozycji) i źródło
+         * (to samo co poprzednio, polska wersja na górze).
+         */
+        fun resumeIntent(c: Context, p: StremioProgress) =
+            Intent(c, StremioPlayerActivity::class.java).putExtra(EXTRA_TYPE, if (p.type == "series") "series" else p.type).putExtra(EXTRA_META, p.metaId)
+                .putExtra(EXTRA_NAME, p.name).putExtra(EXTRA_POSTER, p.poster)
+
         fun intent(c: Context, type: String, metaId: String, name: String, poster: String, videoId: String, label: String, s: StremioStream) =
             Intent(c, StremioPlayerActivity::class.java).putExtra(EXTRA_TYPE, type).putExtra(EXTRA_META, metaId).putExtra(EXTRA_NAME, name)
                 .putExtra(EXTRA_POSTER, poster).putExtra(EXTRA_VIDEO, videoId).putExtra(EXTRA_LABEL, label).putExtra(EXTRA_STREAM, s.toJson().toString())
@@ -113,10 +128,52 @@ class StremioPlayerActivity : AppCompatActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         // jedno odtwarzanie naraz: telewizja i film STube w tle zatrzymane
         Playback.suspendForApp(); runCatching { YtEngine.stop() }
-        stream = StremioStream.fromJson(JSONObject(intent.getStringExtra(EXTRA_STREAM) ?: "{}"))
+        val json = intent.getStringExtra(EXTRA_STREAM)
         videoId = intent.getStringExtra(EXTRA_VIDEO).orEmpty(); label = intent.getStringExtra(EXTRA_LABEL).orEmpty()
         setContentView(build())
-        start(resume = true)
+        if (json.isNullOrBlank()) resolveAndStart()
+        else { stream = StremioStream.fromJson(JSONObject(json)); start(resume = true) }
+    }
+
+    // ---------------- (7.8) wznowienie bez ekranu źródeł ----------------
+
+    private lateinit var loadingView: TextView
+
+    /**
+     * Odcinek ([StremioResume.target]) i źródło ([StremioStreams.pickResume]) wybrane tutaj – zapytania do wtyczek na wątkach roboczych
+     * z limitem czasu; bez pasującego źródła – ekran szczegółów tego odcinka (wybór ręczny).
+     */
+    private fun resolveAndStart() {
+        loadingView.visibility = View.VISIBLE
+        lifecycleScope.launch {
+            val p = StremioStore.progressOf(metaId)
+            val explicit = intent.getStringExtra(EXTRA_VIDEO).orEmpty()
+            val meta = if (type == "series") StremioMetas.get(type, metaId) else null
+            val target = if (explicit.isNotBlank()) StremioResume.Target(explicit, label, false)
+                else if (p != null) StremioResume.target(p, meta) else StremioResume.Target(metaId, "", false)
+            val vid = target.videoId.ifBlank { metaId }
+            val streamType = if (type == "series") "series" else type
+            val addons = StremioStore.enabledAddons().filter { it.supports("stream", streamType, vid) }
+            var all = kotlinx.coroutines.withTimeoutOrNull(RESOLVE_TIMEOUT_MS) { StremioApi.collectStreams(addons, streamType, vid) }.orEmpty()
+            var pick = StremioStreams.pickResume(p?.addonUrl.orEmpty(), p?.bingeGroup.orEmpty(), p?.quality.orEmpty(), all)
+            if (pick == null && all.any { it.kind == StremioStream.Kind.TORRENT }) {
+                val server = pl.iptv.tv.data.TorrentStreams.find()
+                if (server != null) { all = all.map { if (it.kind == StremioStream.Kind.TORRENT) pl.iptv.tv.data.TorrentStreams.asHttp(it, server) else it }
+                    pick = StremioStreams.pickResume(p?.addonUrl.orEmpty(), p?.bingeGroup.orEmpty(), p?.quality.orEmpty(), all) }
+            }
+            if (isFinishing) return@launch
+            if (pick == null) {
+                I18n.makeToast(this@StremioPlayerActivity, "Nie znaleziono źródła do odtworzenia – wybierz je ręcznie", Toast.LENGTH_LONG).show()
+                startActivity(Intent(this@StremioPlayerActivity, StremioDetailActivity::class.java).putExtra(StremioDetailActivity.EXTRA_TYPE, type)
+                    .putExtra(StremioDetailActivity.EXTRA_ID, metaId).putExtra(StremioDetailActivity.EXTRA_NAME, intent.getStringExtra(EXTRA_NAME))
+                    .putExtra(StremioDetailActivity.EXTRA_POSTER, intent.getStringExtra(EXTRA_POSTER)).putExtra(StremioDetailActivity.EXTRA_VIDEO, vid))
+                finish(); return@launch
+            }
+            stream = pick; videoId = vid; label = target.label
+            intent.putExtra(EXTRA_STREAM, pick.toJson().toString()).putExtra(EXTRA_VIDEO, vid).putExtra(EXTRA_LABEL, target.label)
+            loadingView.visibility = View.GONE
+            start(resume = true)
+        }
     }
 
     private fun build(): View {
@@ -139,18 +196,27 @@ class StremioPlayerActivity : AppCompatActivity() {
         applySubStyle()
         titleView = TextView(this).apply {
             setTextColor(Color.WHITE); textSize = 22f; setTypeface(typeface, android.graphics.Typeface.BOLD); setShadowLayer(6f, 0f, 1f, Color.BLACK)
-            setPadding(Ui.dp(40), Ui.dp(22), Ui.dp(40), 0); visibility = View.GONE
+            // (7.8) tytuł nie wchodzi pod kartę „Następny odcinek” (prawy górny róg)
+            setPadding(Ui.dp(40), Ui.dp(22), Ui.dp(if (resources.configuration.screenWidthDp < 600) 40 else 420), 0); maxLines = 2; visibility = View.GONE
         }
         root.addView(titleView, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
         root.addView(buildControls(), FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
-        // karta „Następny odcinek” przy końcu odcinka
+        // (7.8) karta „Następny odcinek” w prawym górnym rogu – nie zasłania obrazu ani sterowania na dole
+        val narrow = resources.configuration.screenWidthDp < 600
         nextCard = TextView(this).apply {
-            tag = "item"; isFocusable = true; isClickable = true; textSize = 16f; setTextColor(Color.WHITE); visibility = View.GONE
+            tag = "item"; isFocusable = true; isClickable = true; textSize = if (narrow) 14f else 16f; setTextColor(Color.WHITE); visibility = View.GONE
+            maxWidth = Ui.dp(if (narrow) 240 else 360); maxLines = 3; ellipsize = android.text.TextUtils.TruncateAt.END
             setPadding(Ui.dp(18), Ui.dp(12), Ui.dp(18), Ui.dp(12))
             background = GradientDrawable().apply { setColor(0xE0101010.toInt()); cornerRadius = Ui.dp(10).toFloat(); setStroke(Ui.dp(2), Ui.accent) }
             setOnClickListener { playNext() }
         }
-        root.addView(nextCard, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, Ui.dp(40), Ui.dp(150)) })
+        root.addView(nextCard, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, Ui.dp(if (narrow) 56 else 24), Ui.dp(if (narrow) 16 else 40), 0) })
+        // (7.8) wczytywanie źródła przy wznawianiu bez ekranu źródeł
+        loadingView = TextView(this).apply {
+            text = "Wczytywanie źródła…"; setTextColor(Color.WHITE); textSize = 18f; gravity = Gravity.CENTER; visibility = View.GONE
+            setShadowLayer(6f, 0f, 1f, Color.BLACK)
+        }
+        root.addView(loadingView, FrameLayout.LayoutParams(-1, -1))
         return root
     }
 
@@ -360,7 +426,7 @@ class StremioPlayerActivity : AppCompatActivity() {
     private val isInPip get() = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N && isInPictureInPictureMode
 
     fun enterPip(): Boolean {
-        if (!pipSupported) { Toast.makeText(this, "Obraz w obrazie niedostępny na tym urządzeniu", Toast.LENGTH_SHORT).show(); return false }
+        if (!pipSupported) { I18n.makeToast(this, "Obraz w obrazie niedostępny na tym urządzeniu", Toast.LENGTH_SHORT).show(); return false }
         setBar(Bar.HIDDEN)
         val ratio = player?.videoSize?.let { v -> if (v.width > 0 && v.height > 0) android.util.Rational(v.width, v.height) else null } ?: android.util.Rational(16, 9)
         val safe = ratio.toFloat().let { if (it > 2.39f) android.util.Rational(239, 100) else if (it < 1 / 2.39f) android.util.Rational(100, 239) else ratio }
@@ -395,6 +461,7 @@ class StremioPlayerActivity : AppCompatActivity() {
         titleView.text = intent.getStringExtra(EXTRA_NAME).orEmpty() + (if (label.isNotBlank()) "  ·  $label" else "")
         externalSub = null; lines = emptyList(); addonSubs = stream.subtitles; subView.setCues(emptyList())
         audioWarned = false; langApplied = false; langManual = false; polishAudio = null; subsOff = false
+        langPlan = null; addonSubsLoaded = false; englishDone = false
         val http = OkHttpDataSource.Factory(Repository.http).setDefaultRequestProperties(stream.headers)
         val p = StremioDecoders.player(this, decoderStage, DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http)), forceVideo)
         player = p
@@ -417,9 +484,11 @@ class StremioPlayerActivity : AppCompatActivity() {
         if (atMs > 0) p.seekTo(atMs)
         p.prepare(); p.playWhenReady = true
         lifecycleScope.launch {
-            if (resume && atMs < 0) StremioStore.progressOf(metaId)?.takeIf { it.videoId == videoId && it.positionMs > 10_000 && !it.finished }?.let {
+            val saved = StremioStore.progressOf(metaId)?.takeIf { it.videoId == videoId }
+            if (saved?.nextShown == true) nextReached = true          // (7.8) okienko dla tego odcinka już się pojawiło (trwale w Room)
+            if (resume && atMs < 0) saved?.takeIf { it.positionMs > 10_000 && !it.finished }?.let {
                 resumeMs = it.positionMs; p.seekTo(it.positionMs)
-                Toast.makeText(this@StremioPlayerActivity, "Wznowiono od ${StremioUi.fmt(it.positionMs)}", Toast.LENGTH_SHORT).show()
+                I18n.makeToast(this@StremioPlayerActivity, "Wznowiono od ${StremioUi.fmt(it.positionMs)}", Toast.LENGTH_SHORT).show()
             }
             loadAddonSubs()
             updateNextButton()
@@ -460,7 +529,7 @@ class StremioPlayerActivity : AppCompatActivity() {
         val pos = player?.currentPosition ?: 0L
         if (!forceVideo) {
             forceVideo = true
-            Toast.makeText(this, "Telewizor zgłasza brak obsługi tego obrazu (np. 4K HDR) – próbuję mimo to", Toast.LENGTH_LONG).show()
+            I18n.makeToast(this, "Telewizor zgłasza brak obsługi tego obrazu (np. 4K HDR) – próbuję mimo to", Toast.LENGTH_LONG).show()
             handler.post { start(resume = false, atMs = pos.coerceAtLeast(resumeMs)) }
             return true
         }
@@ -477,7 +546,7 @@ class StremioPlayerActivity : AppCompatActivity() {
         val next = StremioDecoders.nextStage(decoderStage, e.errorCode)
         if (next != null) {
             decoderStage = next
-            Toast.makeText(this, "Dekoder sprzętowy odrzucił strumień – przełączam na dekodowanie programowe", Toast.LENGTH_LONG).show()
+            I18n.makeToast(this, "Dekoder sprzętowy odrzucił strumień – przełączam na dekodowanie programowe", Toast.LENGTH_LONG).show()
             start(resume = false, atMs = positionMs.coerceAtLeast(resumeMs))
             return
         }
@@ -505,7 +574,7 @@ class StremioPlayerActivity : AppCompatActivity() {
         val view = StremioDecoders.externalView(stream.url, intent.getStringExtra(EXTRA_NAME).orEmpty() +
             (if (label.isNotBlank()) " · $label" else ""), positionMs, stream.headers)
         if (packageManager.queryIntentActivities(view, 0).isEmpty()) {
-            Toast.makeText(this, "Brak zewnętrznego odtwarzacza – zainstaluj np. VLC lub Just Player", Toast.LENGTH_LONG).show()
+            I18n.makeToast(this, "Brak zewnętrznego odtwarzacza – zainstaluj np. VLC lub Just Player", Toast.LENGTH_LONG).show()
             failure?.let { showFailure(it) }
             return
         }
@@ -520,7 +589,7 @@ class StremioPlayerActivity : AppCompatActivity() {
         if (audio.isEmpty() || audio.any { it.isSelected } || audio.any { g -> (0 until g.length).any { g.isTrackSupported(it) } }) return
         audioWarned = true
         val codec = audio.firstNotNullOfOrNull { it.mediaTrackGroup.getFormat(0).sampleMimeType }?.let { StremioDecoders.codecName(it) } ?: "tego formatu"
-        Toast.makeText(this, "Telewizor nie obsługuje dźwięku $codec – odtwarzanie bez dźwięku. Wybierz inne źródło, aby mieć dźwięk.", Toast.LENGTH_LONG).show()
+        I18n.makeToast(this, "Telewizor nie obsługuje dźwięku $codec – odtwarzanie bez dźwięku. Wybierz inne źródło, aby mieć dźwięk.", Toast.LENGTH_LONG).show()
     }
 
     private fun releasePlayer() {
@@ -538,8 +607,10 @@ class StremioPlayerActivity : AppCompatActivity() {
         val p = player ?: return
         val pos = p.currentPosition; val dur = p.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0
         if (pos < 5_000) return
+        if (!::stream.isInitialized) return
         val row = StremioProgress(metaId, type, intent.getStringExtra(EXTRA_NAME).orEmpty(), intent.getStringExtra(EXTRA_POSTER).orEmpty(),
-            videoId, label.substringBefore(" – "), pos, dur, System.currentTimeMillis())
+            videoId, label.substringBefore(" – "), pos, dur, System.currentTimeMillis(),
+            nextShown = nextReached, addonUrl = stream.addonUrl, bingeGroup = stream.bingeGroup, quality = stream.quality)
         StubeHistory.scope.launch { runCatching { StremioStore.saveProgress(row, push) } }
     }
 
@@ -575,11 +646,53 @@ class StremioPlayerActivity : AppCompatActivity() {
         }
         p.trackSelectionParameters = b.build()
         if (plan.addonSubs && externalSub == null) addonSubs.firstOrNull { StremioDecoders.isPolishSubtitle(it.lang) }?.let { selectExternal(it, quiet = true) }
+        langPlan = plan; englishFallback()
+    }
+
+    // ---------------- (7.8) angielski, gdy nie ma polskiego dźwięku ani polskich napisów ----------------
+
+    private var langPlan: StremioDecoders.LangPlan? = null
+    private var addonSubsLoaded = false
+    private var englishDone = false
+
+    /**
+     * Kolejność: polski dźwięk → polskie napisy (wbudowane, z wtyczek) → angielski dźwięk → angielskie napisy (wbudowane, z wtyczek).
+     * Wywoływane, gdy znane są i ścieżki pliku, i napisy z wtyczek; po ręcznym wyborze napisów nie zmienia nic.
+     */
+    private fun englishFallback() {
+        val plan = langPlan ?: return
+        val p = player ?: return
+        if (englishDone || langManual || !addonSubsLoaded || !plan.addonSubs) return
+        if (addonSubs.any { StremioDecoders.isPolishSubtitle(it.lang) }) return
+        englishDone = true
+        val audio = p.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+        val text = p.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+        val b = p.trackSelectionParameters.buildUpon()
+        val ea = plan.englishAudio; val et = plan.englishText
+        when {
+            ea != null -> {
+                audio.getOrNull(ea)?.takeIf { !it.isSelected && it.isTrackSupported(0) }?.let { b.setOverrideForType(TrackSelectionOverride(it.mediaTrackGroup, 0)) }
+                subsOff = true; externalSub = null; lines = emptyList(); subView.setCues(emptyList()); b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+            }
+            et != null && text.getOrNull(et) != null -> {
+                subsOff = false; externalSub = null; lines = emptyList()
+                b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).setOverrideForType(TrackSelectionOverride(text[et].mediaTrackGroup, 0))
+            }
+            else -> addonSubs.firstOrNull { StremioDecoders.isEnglishSubtitle(it.lang) }?.let { selectExternal(it, quiet = true) }
+        }
+        p.trackSelectionParameters = b.build()
     }
 
     private suspend fun loadAddonSubs() {
         val addons = StremioStore.enabledAddons().filter { it.supports("subtitles", type, videoId) }
-        val got = addons.flatMap { a -> runCatching { StremioApi.subtitles(a, type, videoId, stream.filename, stream.videoSize) }.getOrDefault(emptyList()) }
+        // (7.8) wtyczki napisów równolegle, z limitem czasu (jedna wolna nie wstrzymuje reszty)
+        val vid = videoId; val fn = stream.filename; val vs = stream.videoSize
+        val got = kotlinx.coroutines.coroutineScope {
+            addons.map { a -> async(Dispatchers.Default) {
+                try { kotlinx.coroutines.withTimeoutOrNull(StremioApi.STREAMS_TIMEOUT_MS) { StremioApi.subtitles(a, type, vid, fn, vs) }.orEmpty() }
+                catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { emptyList() }
+            } }.map { it.await() }.flatten()
+        }
         addonSubs = (stream.subtitles + got).distinctBy { it.url }
         // (7.4) zawsze polskie (wytyczne): od razu, gdy plik nie ma własnych polskich napisów ani polskiego dźwięku. Dawniej prefiks
         // „po” z zapamiętanego języka trafiał też w portugalskie („por”), a wbudowane „pl” nie były rozpoznawane
@@ -587,6 +700,7 @@ class StremioPlayerActivity : AppCompatActivity() {
             val embedded = player?.currentTracks?.groups?.any { it.type == C.TRACK_TYPE_TEXT && it.mediaTrackGroup.getFormat(0).let { f -> StremioDecoders.isPolish(f.language, f.label) } } == true
             if (!embedded) selectExternal(s, quiet = true)
         }
+        addonSubsLoaded = true; englishFallback()
     }
 
     fun selectExternal(s: StremioSubtitle, quiet: Boolean = false) {
@@ -596,8 +710,8 @@ class StremioPlayerActivity : AppCompatActivity() {
                 player?.let { p -> p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() }
                 // ręczny wybór zapamiętany tylko do kolejności w menu; automat i tak zawsze szuka polskich
                 if (!quiet) Prefs.stremioSubLang = s.lang.ifBlank { Prefs.stremioSubLang }
-                if (!quiet) Toast.makeText(this@StremioPlayerActivity, "Napisy: ${StremioSubs.langName(s.lang)} (${s.addon})", Toast.LENGTH_SHORT).show()
-            }.onFailure { if (!quiet) Toast.makeText(this@StremioPlayerActivity, "Nie udało się wczytać napisów: ${it.message}", Toast.LENGTH_LONG).show() }
+                if (!quiet) I18n.makeToast(this@StremioPlayerActivity, "Napisy: ${StremioSubs.langName(s.lang)} (${s.addon})", Toast.LENGTH_SHORT).show()
+            }.onFailure { if (!quiet) I18n.makeToast(this@StremioPlayerActivity, "Nie udało się wczytać napisów: ${it.message}", Toast.LENGTH_LONG).show() }
         }
     }
 
@@ -654,7 +768,7 @@ class StremioPlayerActivity : AppCompatActivity() {
     private fun audioMenu() {
         val p = player ?: return
         val groups = p.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
-        if (groups.isEmpty()) { Toast.makeText(this, "Brak informacji o ścieżkach dźwięku", Toast.LENGTH_SHORT).show(); return }
+        if (groups.isEmpty()) { I18n.makeToast(this, "Brak informacji o ścieżkach dźwięku", Toast.LENGTH_SHORT).show(); return }
         Dialogs.menu(this, "Ścieżka dźwięku", groups.mapIndexed { i, g ->
             val f = g.mediaTrackGroup.getFormat(0)
             val name = listOfNotNull(f.label ?: f.language?.let { StremioSubs.langName(it) } ?: "Ścieżka ${i + 1}",
@@ -692,26 +806,49 @@ class StremioPlayerActivity : AppCompatActivity() {
         nextBtn.visibility = if (nextEpisodeDue && bar == Bar.FULL) View.VISIBLE else View.GONE
     }
 
+    /** (7.8) Próg okienka „Następny odcinek” osiągnięty dla tego odcinka – zapisane trwale w Room ([StremioProgress.nextShown]). */
+    var nextReached = false; private set
+    /** Okienko zamknięte (WSTECZ) – nie pojawia się ponownie w tym odcinku. */
+    private var nextDismissed = false
+
     private fun updateNextCard() {
-        val show = nextEpisodeDue
+        val due = nextEpisodeDue
+        if (due && !nextReached) { nextReached = true; saveProgress() }
+        val show = due && !nextDismissed
         updateNextButtonVisibility()
         if (show && nextCard.visibility != View.VISIBLE && !isInPip) { nextCard.visibility = View.VISIBLE; Ui.style(nextCard); if (bar != Bar.FULL) nextCard.requestFocus() }
         else if (!show && nextCard.visibility == View.VISIBLE) { if (nextCard.isFocused) rootView.requestFocus(); nextCard.visibility = View.GONE }
     }
 
+    /** (7.8) Zamknięcie okienka bez przechodzenia do następnego odcinka (WSTECZ / ▲▼◄► z karty). */
+    fun dismissNextCard() {
+        nextDismissed = true
+        if (nextCard.isFocused) rootView.requestFocus()
+        nextCard.visibility = View.GONE
+    }
+
     private fun onEnded() { saveProgress(push = true); if (nextVideo != null) playNext() else finish() }
 
     /** Następny odcinek: źródło z tej samej wtyczki ([StremioStreams.pickNext]); brak – ekran źródeł tego odcinka. */
+    private var nextLoading = false
+
     fun playNext() {
         val n = nextVideo ?: return
+        if (nextLoading) return                      // (7.8) wielokrotne OK nie uruchamia kilku zapytań
+        nextLoading = true
         saveProgress(push = true)
+        nextCard.text = "⏭  Wczytywanie: ${n.label}…"
         lifecycleScope.launch {
-            val addon = StremioStore.enabledAddons().firstOrNull { it.transportUrl == stream.addonUrl }
+            val prev = stream
             // bieżące źródło P2P (przez serwer torrent): następny odcinek też z P2P przez ten sam serwer
-            val server = if (stream.infoHash.isNotBlank()) pl.iptv.tv.data.TorrentStreams.find() else null
-            val pick = addon?.let { a -> runCatching { StremioApi.streams(a, type, n.id) }.getOrNull() }
-                ?.map { if (server != null && it.kind == pl.iptv.tv.data.StremioStream.Kind.TORRENT) pl.iptv.tv.data.TorrentStreams.asHttp(it, server) else it }
-                ?.let { StremioStreams.pickNext(stream, it) }
+            val server = if (prev.infoHash.isNotBlank()) pl.iptv.tv.data.TorrentStreams.find() else null
+            // (7.8) najpierw ta sama wtyczka (jak w Stremio – grupa bingeGroup), dalej inne włączone wtyczki; poza głównym wątkiem, z limitem czasu
+            val addons = StremioStore.enabledAddons().filter { it.supports("stream", type, n.id) }.sortedBy { it.transportUrl != prev.addonUrl }
+            val all = kotlinx.coroutines.withTimeoutOrNull(RESOLVE_TIMEOUT_MS) { StremioApi.collectStreams(addons, type, n.id) }.orEmpty()
+                .map { if (server != null && it.kind == pl.iptv.tv.data.StremioStream.Kind.TORRENT) pl.iptv.tv.data.TorrentStreams.asHttp(it, server) else it }
+            val pick = StremioStreams.pickResume(prev.addonUrl, prev.bingeGroup, prev.quality, all)
+            nextLoading = false
+            if (isFinishing) return@launch
             if (pick == null) {
                 startActivity(Intent(this@StremioPlayerActivity, StremioDetailActivity::class.java).putExtra(StremioDetailActivity.EXTRA_TYPE, type)
                     .putExtra(StremioDetailActivity.EXTRA_ID, metaId).putExtra(StremioDetailActivity.EXTRA_NAME, intent.getStringExtra(EXTRA_NAME))
@@ -719,9 +856,10 @@ class StremioPlayerActivity : AppCompatActivity() {
                 finish(); return@launch
             }
             stream = pick; videoId = n.id; label = n.label; nextCard.visibility = View.GONE
+            nextReached = false; nextDismissed = false      // nowy odcinek – próg okienka liczony od nowa
             decoderStage = StremioDecoders.Stage.NORMAL; failure = null; forceVideo = false   // nowe źródło – znowu od dekoderów sprzętowych
             intent.putExtra(EXTRA_STREAM, pick.toJson().toString()).putExtra(EXTRA_VIDEO, n.id).putExtra(EXTRA_LABEL, n.label)
-            Toast.makeText(this@StremioPlayerActivity, "Następny odcinek: ${n.label}", Toast.LENGTH_SHORT).show()
+            I18n.makeToast(this@StremioPlayerActivity, "Następny odcinek: ${n.label}", Toast.LENGTH_SHORT).show()
             start(resume = false)
         }
     }
@@ -749,6 +887,14 @@ class StremioPlayerActivity : AppCompatActivity() {
         if (e.action == KeyEvent.ACTION_DOWN) {
             if (e.keyCode == KeyEvent.KEYCODE_MEDIA_NEXT && e.repeatCount == 0 && nextVideo != null) { playNext(); return true }
             if (full) scheduleHide()
+            // (7.8) kursor na karcie „Następny odcinek”: OK – odtwarza, WSTECZ – zamyka kartę, ◄► – przewijanie, ▼▲ – pasek sterowania
+            if (nextCard.isFocused && !full) when (e.keyCode) {
+                KeyEvent.KEYCODE_BACK -> { dismissNextCard(); backHid = true; return true }
+                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                    rootView.requestFocus(); seekBy(if (e.keyCode == KeyEvent.KEYCODE_DPAD_LEFT) -SEEK_STEP_MS else SEEK_STEP_MS); return true
+                }
+                KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_UP -> { rootView.requestFocus(); setBar(Bar.FULL); return true }
+            }
             when (e.keyCode) {
                 KeyEvent.KEYCODE_MENU -> { optionsMenu(); return true }
                 KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { togglePlay(); if (!full) setBar(Bar.SEEK); return true }

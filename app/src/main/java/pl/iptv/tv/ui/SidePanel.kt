@@ -296,5 +296,5 @@ object QueueUi {
         return SidePanel.Entry(ch.key, ch.name, prog?.let { "${it.title} • do ${Fmt.time(it.end)}" } ?: ch.group, ch.logo, "📺", "", progress, onLong) { onPlay(ch) }
     }
 
-    fun toast(a: Activity, s: String) = android.widget.Toast.makeText(a, s, android.widget.Toast.LENGTH_SHORT).show()
+    fun toast(a: Activity, s: String) = I18n.makeToast(a, s, android.widget.Toast.LENGTH_SHORT).show()
 }

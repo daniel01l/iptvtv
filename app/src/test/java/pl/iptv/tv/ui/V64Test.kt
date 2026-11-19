@@ -51,6 +51,7 @@ class V64Test {
 
     @Before fun setup() {
         db = Room.inMemoryDatabaseBuilder(ctx, StubeDatabase::class.java).allowMainThreadQueries().build()
+            .also { it.openHelper.writableDatabase }   // otwarta od razu – zamknięcie w tearDown nie trafia na otwieranie w tle (zakleszczenie Room)
         StubeHistory.useDatabase(db)
         server = MockWebServer().apply { dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
             override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest) =
@@ -240,7 +241,8 @@ class V64Test {
         assertEquals(listOf(1, 10, 2, 20, 3), StubeMixes.interleave(listOf(listOf(1, 2, 3), listOf(10, 20))))
         // filmy miksu: wyniki zapytań bez już obejrzanych
         val vids = runBlocking { StubeMixes.videos(fav.copy(queries = listOf("a", "b")), watchedIds = setOf("${"a".hashCode()}-1")) }
-        assertEquals("${"b".hashCode()}-1", vids.first().id); assertEquals(7, vids.size)
+        assertTrue(vids.none { it.id == "${"a".hashCode()}-1" })                      // obejrzane pominięte
+        assertTrue(vids.size >= StubeMixes.MIN_PLAYLIST); assertEquals(vids.size, vids.map { it.id }.distinct().size)
     }
 
     @Test fun mixesRowInStube() {

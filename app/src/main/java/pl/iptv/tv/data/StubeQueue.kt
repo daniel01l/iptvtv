@@ -59,7 +59,7 @@ interface QueueDao {
  * Zmiany ([version]) odświeżają otwarte panele.
  */
 object StubeQueue {
-    const val MAX = 100
+    const val MAX = 200
     @Volatile var version = 0; private set
     /** Ostatni stan (synchronicznie – liczba na przycisku, status dla telefonu). */
     @Volatile var cached: List<QueueItem> = emptyList(); private set
@@ -82,6 +82,23 @@ object StubeQueue {
         changed(); return true
     }
 
+    /** Podmienia całą kolejkę na [items] (playlista otwarta od razu w odtwarzaczu) – jedna transakcja, bez limitu [MAX] ponad listę. */
+    suspend fun replaceAll(items: List<QueueItem>, now: Long = System.currentTimeMillis()) {
+        val d = dao() ?: return
+        withContext(Dispatchers.IO) {
+            d.clear()
+            items.take(MAX).forEachIndexed { i, q -> d.insert(q.copy(id = 0, position = i, addedAt = now)) }
+        }
+        changed()
+    }
+
+    /** Losowa kolejność pozostałych pozycji (przycisk „Losowo”). */
+    suspend fun shuffle() {
+        val d = dao() ?: return
+        withContext(Dispatchers.IO) { d.all().shuffled().forEachIndexed { i, q -> d.setPosition(q.id, i) } }
+        changed()
+    }
+
     suspend fun remove(id: Long) { dao()?.let { d -> withContext(Dispatchers.IO) { d.delete(id) } }; changed() }
     suspend fun removeRef(kind: String, ref: String) { dao()?.let { d -> withContext(Dispatchers.IO) { d.deleteRef(kind, ref) } }; changed() }
     suspend fun clear() { dao()?.let { d -> withContext(Dispatchers.IO) { d.clear() } }; changed() }
@@ -101,11 +118,11 @@ object StubeQueue {
     }
 
     /** Następna pozycja do odtworzenia (zdjęta z kolejki); [skipRef] – bieżący film nie gra drugi raz. */
-    suspend fun pop(skipRef: String? = null): QueueItem? {
+    suspend fun pop(skipRef: String? = null, random: Boolean = false): QueueItem? {
         val d = dao() ?: return null
         val next = withContext(Dispatchers.IO) {
             if (skipRef != null) d.deleteRef(QueueItem.KIND_YT, skipRef)
-            d.all().firstOrNull()?.also { d.delete(it.id) }
+            d.all().let { l -> if (random) l.randomOrNull() else l.firstOrNull() }?.also { d.delete(it.id) }
         }
         changed(); return next
     }

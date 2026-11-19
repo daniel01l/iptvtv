@@ -117,7 +117,7 @@ object Dialogs {
         ids = { Repository.allGroups() }, label = { it }, hidden = { it in pl.iptv.tv.data.Prefs.groupHidden },
         toggle = { g ->
             if (g !in pl.iptv.tv.data.Prefs.groupHidden && Repository.groups().size <= 1)
-                Toast.makeText(a, "Musi zostać co najmniej jedna kategoria", Toast.LENGTH_SHORT).show()
+                I18n.makeToast(a, "Musi zostać co najmniej jedna kategoria", Toast.LENGTH_SHORT).show()
             else Repository.toggleGroupVisible(g)
         },
         move = { g, d -> Repository.moveGroup(g, d) }, reset = { Repository.resetGroupLayout() }, onDone = onDone, onChange = onDone)
@@ -222,7 +222,7 @@ object Dialogs {
             .setPositiveButton("Użyj kodu") { _, _ ->
                 runCatching { Color.parseColor(hex.text.toString().trim()) }
                     .onSuccess { onPick(it or (0xFF shl 24)) }
-                    .onFailure { Toast.makeText(a, "Niepoprawny kod koloru", Toast.LENGTH_SHORT).show() }
+                    .onFailure { I18n.makeToast(a, "Niepoprawny kod koloru", Toast.LENGTH_SHORT).show() }
             }
             .setNegativeButton(if (live) "Gotowe" else "Anuluj", null).create()
         dlg.show()
@@ -238,7 +238,7 @@ object ChannelActions {
         val items = mutableListOf<Pair<String, () -> Unit>>()
         items += (if (Repository.isFav(ch)) "☆ Usuń z ulubionych" else "★ Dodaj do ulubionych") to {
             val added = Repository.toggleFav(ch)
-            Toast.makeText(a, if (added) "Dodano do ulubionych" else "Usunięto z ulubionych", Toast.LENGTH_SHORT).show()
+            I18n.makeToast(a, if (added) "Dodano do ulubionych" else "Usunięto z ulubionych", Toast.LENGTH_SHORT).show()
             onChanged()
         }
         items += extra
@@ -291,7 +291,7 @@ object ChannelActions {
     fun epg(a: Activity, ch: Channel, onChanged: () -> Unit) {
         val names = Repository.epg.channelNames
         if (names.isEmpty()) {
-            Toast.makeText(a, "Najpierw wczytaj EPG w ustawieniach", Toast.LENGTH_LONG).show(); return
+            I18n.makeToast(a, "Najpierw wczytaj EPG w ustawieniach", Toast.LENGTH_LONG).show(); return
         }
         val n = XmltvParser.norm(ch.name); val n2 = XmltvParser.norm(ch.origName)
         fun score(id: String, name: String): Int {
@@ -339,7 +339,7 @@ object ChannelActions {
                 Repository.refreshEpgMapping()
                 onChanged()
                 val mapped = Repository.byKey(ch.key)?.epgKey
-                Toast.makeText(a, if (mapped != null) "EPG: ${names[mapped] ?: mapped}" else "Kanał bez EPG", Toast.LENGTH_SHORT).show()
+                I18n.makeToast(a, if (mapped != null) "EPG: ${names[mapped] ?: mapped}" else "Kanał bez EPG", Toast.LENGTH_SHORT).show()
             }
         }
         dlg.show()

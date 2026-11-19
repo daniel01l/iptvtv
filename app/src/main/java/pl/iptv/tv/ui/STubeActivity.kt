@@ -2,6 +2,8 @@ package pl.iptv.tv.ui
 
 import android.content.Intent
 import android.os.Bundle
+import android.graphics.Color
+import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -56,6 +58,11 @@ class STubeActivity : BaseActivity() {
     private lateinit var rowsBox: LinearLayout
     private lateinit var scroll: ScrollView
     private lateinit var account: TextView
+    private lateinit var rail: LinearLayout
+    private lateinit var chips: LinearLayout
+    private lateinit var chipScroll: android.widget.HorizontalScrollView
+    /** Pigułki biblioteki (testy). */
+    val chipViews: List<View> get() = (0 until chips.childCount).map(chips::getChildAt)
 
     /** Bieżące rzędy (testy). */
     var rows: List<STubeRow> = emptyList(); private set
@@ -73,15 +80,25 @@ class STubeActivity : BaseActivity() {
         rowsBox = findViewById(R.id.stRows)
         scroll = findViewById(R.id.stScroll)
         account = findViewById(R.id.stAccount)
+        rail = findViewById(R.id.stRail); chips = findViewById(R.id.stChips); chipScroll = findViewById(R.id.stChipScroll)
+        for ((id, desc) in listOf(R.id.stSearch to "Szukaj", R.id.stHome to "Start", R.id.stLib to "Biblioteka", R.id.stPhone to "Sterowanie z telefonu",
+            R.id.stSmartTube to "SmartTube", R.id.stRefresh to "Odśwież", R.id.stClose to "Zamknij")) findViewById<View>(id).contentDescription = desc
+        styleRail()
+        findViewById<View>(R.id.stHome).setOnClickListener { goStart() }
+        findViewById<View>(R.id.stLib).setOnClickListener { jumpTo(STubeScreen.ROW_LIBRARY) }
         if (narrowHeader) {
-            content.setPadding(Ui.dp(10), Ui.dp(12), Ui.dp(10), Ui.dp(8))
-            // wąski ekran (telefon w pionie): pasek bez tytułu, przyciski same ikony – pole wyszukiwania i ✕ mieszczą się w szerokości
+            // wąski ekran (telefon w pionie): pasek ikon poziomo u góry, bez tytułu – wszystko mieści się w szerokości
+            val root = findViewById<LinearLayout>(R.id.stRoot); root.orientation = LinearLayout.VERTICAL
+            rail.orientation = LinearLayout.HORIZONTAL; rail.setPadding(Ui.dp(6), Ui.dp(8), Ui.dp(6), 0)
+            rail.layoutParams = LinearLayout.LayoutParams(-1, -2)
+            findViewById<View>(R.id.stMain).let { it.layoutParams = LinearLayout.LayoutParams(-1, 0, 1f); it.setPadding(Ui.dp(10), Ui.dp(6), Ui.dp(10), Ui.dp(8)) }
             findViewById<View>(R.id.stTitle).visibility = View.GONE
-            findViewById<TextView>(R.id.stSearch).text = "🔎"; findViewById<TextView>(R.id.stSmartTube).text = "▶"
-            for (id in listOf(R.id.stSearch, R.id.stAccount, R.id.stPhone, R.id.stSmartTube, R.id.stRefresh, R.id.stClose)) findViewById<View>(id).let { b ->
-                b.setPadding(Ui.dp(10), b.paddingTop, Ui.dp(10), b.paddingBottom)
-                (b.layoutParams as android.view.ViewGroup.MarginLayoutParams).marginStart = Ui.dp(4)
+            findViewById<View>(R.id.stRailSpace).layoutParams = LinearLayout.LayoutParams(0, 0, 1f)
+            for (i in 0 until rail.childCount) rail.getChildAt(i).let { b ->
+                if (b.id == R.id.stRailSpace) return@let
+                b.layoutParams = LinearLayout.LayoutParams(Ui.dp(44), Ui.dp(44)).apply { marginStart = Ui.dp(2); marginEnd = Ui.dp(2) }
             }
+            findViewById<View>(R.id.stSearch).let { (it.layoutParams as LinearLayout.LayoutParams).topMargin = 0 }
         }
 
         findViewById<View>(R.id.stClose).setOnClickListener { finish() }
@@ -256,19 +273,86 @@ class STubeActivity : BaseActivity() {
     private fun build(force: Boolean = false) {
         jobs.forEach { it.cancel() }; jobs.clear()
         builtFor = stateKey()
-        account.text = if (narrowHeader) "👤" else if (YouTubeTokens.loggedIn) "👤 " + YouTubeTokens.accountName.ifBlank { "Konto" } else "👤 Zaloguj"
-        account.contentDescription = if (YouTubeTokens.loggedIn) "Konto YouTube" else "Zaloguj do YouTube"
+        account.text = if (YouTubeTokens.loggedIn) YouTubeTokens.accountName.trim().take(1).uppercase().ifBlank { "👤" } else "👤"
+        account.textSize = if (YouTubeTokens.loggedIn && account.text != "👤") 18f else 20f
+        account.contentDescription = if (YouTubeTokens.loggedIn) "Konto YouTube: " + YouTubeTokens.accountName.ifBlank { "Konto" } else "Zaloguj do YouTube"
         info.visibility = View.GONE
         rows = STubeScreen.rows(searchQuery)
         rowViews.clear(); rowsBox.removeAllViews(); playlistParent = null
         rows.forEachIndexed { i, r -> rowsBox.addView(rowView(r, i)) }
         Ui.style(rowsBox)
         rows.forEach { load(it, null, force) }
+        buildChips()
+    }
+
+    // ---------------- pigułki biblioteki (Ostatnie / Playlisty / Miksy / Polubione / Subskrypcje) ----------------
+
+    /** Ikony paska: okrągłe, bez ramek; zaznaczona – wypełnienie koloru zaznaczenia motywu (jak aktywna ikona w aplikacjach muzycznych na TV). */
+    private fun styleRail() {
+        val foc = intArrayOf(android.R.attr.state_focused); val pr = intArrayOf(android.R.attr.state_pressed)
+        for (i in 0 until rail.childCount) (rail.getChildAt(i) as? TextView)?.let { b ->
+            b.tag = "keepcolor nozoom"
+            b.setTextColor(android.content.res.ColorStateList(arrayOf(foc, pr, intArrayOf()), intArrayOf(Ui.focusText, Ui.focusText, Ui.text)))
+            b.background = android.graphics.drawable.StateListDrawable().apply {
+                val on = android.graphics.drawable.GradientDrawable().apply { shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(Ui.focus or 0xFF000000.toInt()) }
+                addState(foc, on); addState(pr, on); addState(intArrayOf(), android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+            }
+        }
+    }
+
+    private class Chip(val label: String, val icon: String = PlayerIcon.MUSIC, val action: () -> Unit)
+
+    private fun chipSpecs(): List<Chip> = buildList {
+        add(Chip("Start", PlayerIcon.MUSIC) { goStart() })
+        if (rows.any { it.id == STubeScreen.ROW_CONTINUE }) add(Chip("Ostatnie", PlayerIcon.DELAY) { jumpTo(STubeScreen.ROW_CONTINUE) })
+        else add(Chip("Ostatnie", PlayerIcon.DELAY) { openLibraryList(pl.iptv.tv.data.YtPlaylist(STubeScreen.PL_HISTORY, "Historia oglądania")) })
+        if (rows.any { it.id == STubeScreen.ROW_MIXES }) add(Chip("Miksy 100+", PlayerIcon.AUTOPLAY) { jumpTo(STubeScreen.ROW_MIXES) })
+        add(Chip("Playlisty", PlayerIcon.QUEUE) { jumpTo(STubeScreen.ROW_LIBRARY) })
+        if (YouTubeTokens.loggedIn) add(Chip("Polubione", PlayerIcon.INFO) { openLibraryList(pl.iptv.tv.data.YtPlaylist(STubeScreen.PL_LIKED, "Polubione filmy")) })
+        else add(Chip("Na później", PlayerIcon.DELAY) { openLibraryList(pl.iptv.tv.data.YtPlaylist(STubeScreen.PL_LATER, "Do obejrzenia później")) })
+        if (YouTubeTokens.loggedIn) add(Chip("Subskrypcje", PlayerIcon.RELATED) { jumpTo(if (rows.any { it.id == STubeScreen.ROW_SUBS }) STubeScreen.ROW_SUBS else STubeScreen.ROW_CHANNELS) })
+    }
+
+    /** Pigułki: zaokrąglone do pełna, kolory z motywu (stan zaznaczenia jak w całej aplikacji), treść przycięta do kształtu. */
+    private fun buildChips() {
+        chips.removeAllViews()
+        val specs = chipSpecs()
+        chipScroll.visibility = if (specs.size > 1) View.VISIBLE else View.GONE
+        val sel = intArrayOf(android.R.attr.state_selected); val foc = intArrayOf(android.R.attr.state_focused); val pr = intArrayOf(android.R.attr.state_pressed)
+        specs.forEach { c ->
+            chips.addView(TextView(this).apply {
+                text = c.label; textSize = 15f; maxLines = 1; isFocusable = true; isClickable = true; gravity = Gravity.CENTER
+                setPadding(Ui.dp(18), Ui.dp(8), Ui.dp(18), Ui.dp(8))
+                setTextColor(android.content.res.ColorStateList(arrayOf(sel, foc, pr, intArrayOf()), intArrayOf(Ui.focusText, Ui.focusText, Ui.focusText, Ui.text)))
+                val pill = { color: Int -> android.graphics.drawable.GradientDrawable().apply { setColor(color); cornerRadius = Ui.dp(40).toFloat() } }
+                background = android.graphics.drawable.StateListDrawable().apply {
+                    val on = pill(Ui.focus or 0xFF000000.toInt())
+                    addState(sel, on); addState(foc, on); addState(pr, on)
+                    addState(intArrayOf(), pill(Ui.withAlpha(Ui.text2, 0x38)))
+                }
+                setCompoundDrawables(PlayerIcon(c.icon, android.content.res.ColorStateList(arrayOf(foc, pr, sel, intArrayOf()), intArrayOf(Ui.focusText, Ui.focusText, Ui.focusText, Ui.text))).apply { setBounds(0, 0, Ui.dp(18), Ui.dp(18)) }, null, null, null)
+                compoundDrawablePadding = Ui.dp(8)
+                setOnClickListener { c.action() }
+                setOnFocusChangeListener { v, f -> if (f) chipScroll.post { chipScroll.smoothScrollTo((v.left - Ui.dp(24)).coerceAtLeast(0), 0) } }
+            }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = Ui.dp(10) })
+        }
+    }
+
+    /** Początek ekranu: pierwszy rząd, widok na górze. */
+    private fun goStart() { scroll.smoothScrollTo(0, 0); rows.indices.firstOrNull { rows[it].tiles.isNotEmpty() }?.let { focusRow(it) } ?: query.requestFocus() }
+
+    /** Przejście do rzędu [id] (jeśli jest na ekranie). */
+    private fun jumpTo(id: String) { rows.indexOfFirst { it.id == id }.takeIf { it >= 0 }?.let { focusRow(it) } }
+
+    /** Lista biblioteki otwarta pod rzędem Biblioteka. */
+    private fun openLibraryList(p: pl.iptv.tv.data.YtPlaylist) {
+        val from = rows.firstOrNull { it.id == STubeScreen.ROW_LIBRARY } ?: rows.firstOrNull() ?: return
+        openPlaylist(from, p)
     }
 
     private fun rowView(r: STubeRow, index: Int, at: Int = -1): View {
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, Ui.dp(if (index == 0) 2 else 8), 0, 0) }
-        box.addView(TextView(this).apply { text = r.title; tag = "accent"; textSize = 18f * Ui.geo.headerScale; setTypeface(typeface, 1); setPadding(Ui.dp(4), 0, 0, Ui.dp(2)) })
+        box.addView(TextView(this).apply { text = r.title; textSize = 22f * Ui.geo.headerScale; setTypeface(typeface, 1); setTextColor(Ui.text); setPadding(Ui.dp(4), Ui.dp(4), 0, Ui.dp(4)) })
         val status = TextView(this).apply { tag = "text2"; textSize = 14f; setPadding(Ui.dp(4), Ui.dp(4), 0, Ui.dp(4)); text = "Wczytywanie…"; setTag(R.id.row_key, "status") }
         box.addView(status)
         val rv = HRowRecycler(this).apply {
@@ -282,6 +366,7 @@ class STubeActivity : BaseActivity() {
         r.adapter.onClick = { t -> onTile(r, t) }
         r.adapter.onLongClick = { t -> tileMenu(r, t) }
         r.adapter.onFocus = { pos ->
+            lastRow = rows.indexOf(r).coerceAtLeast(0)
             // ostatnie kafelki zaznaczone → następna strona
             if (pos >= r.tiles.size - 4 && r.next != null && !r.loading) load(r, r.next, false)
             // zaznaczony rząd w całości na ekranie (tytuł nad kafelkami też)
@@ -333,7 +418,8 @@ class STubeActivity : BaseActivity() {
             is STubeTile.Video -> if (pl.iptv.tv.data.Prefs.stubeInternal) playInApp(t.v) else SmartTubeIntegrationHelper.play(this, t.v.url)
             // kanał i playlista: filmy w nowym rzędzie tuż pod spodem (bez opuszczania ekranu; WSTECZ zamyka rząd)
             is STubeTile.Channel -> openPlaylist(r, STubeScreen.channelPlaylist(t.c))
-            is STubeTile.Playlist -> openPlaylist(r, t.p)
+            // gotowy miks (100+ utworów): od razu w odtwarzaczu, bez ekranu pośredniego
+            is STubeTile.Playlist -> if (t.p.id.startsWith(STubeScreen.PL_MIX)) playMix(t.p, playNow = true) else openPlaylist(r, t.p)
             is STubeTile.Action -> when (t.id) {
                 STubeScreen.ACT_LOGIN -> openAccount()
                 STubeScreen.ACT_SMARTTUBE_SEARCH -> searchQuery?.let { SmartTubeIntegrationHelper.search(this, it) }
@@ -444,6 +530,7 @@ class STubeActivity : BaseActivity() {
                 p.id.startsWith(STubeScreen.PL_MIX) -> {
                     // gotowy miks: od razu do odtwarzacza (pierwszy film), reszta – kolejka „Następne”
                     add("▶ Odtwórz miks" to { playMix(p, playNow = true) })
+                    add("☰ Pokaż utwory miksu" to { openPlaylist(r, p) })
                     add("＋ Dodaj miks do kolejki" to { playMix(p, playNow = false) })
                 }
                 p.id == STubeScreen.PL_LIKED || p.id.startsWith(STubeScreen.PL_CHANNEL) -> Unit
@@ -464,8 +551,14 @@ class STubeActivity : BaseActivity() {
             val vids = pl.iptv.tv.data.StubeMixes.videos(mix)
             if (vids.isEmpty()) { toast("Brak filmów dla tego miksu"); return@launch }
             val rest = if (playNow) vids.drop(1) else vids
-            rest.forEach { pl.iptv.tv.data.StubeQueue.add(pl.iptv.tv.data.QueueItem.of(it)) }
-            if (playNow) playInApp(vids.first()) else toast("Dodano do kolejki: ${rest.size} filmów")
+            if (playNow) {
+                // playlista zastępuje kolejkę i od razu gra w odtwarzaczu (panel „Następne w kolejce” pokazuje resztę)
+                pl.iptv.tv.data.StubeQueue.replaceAll(rest.map { pl.iptv.tv.data.QueueItem.of(it) })
+                playInApp(vids.first())
+            } else {
+                rest.forEach { pl.iptv.tv.data.StubeQueue.add(pl.iptv.tv.data.QueueItem.of(it)) }
+                toast("Dodano do kolejki: ${rest.size} filmów")
+            }
         }
     }
 
@@ -548,7 +641,8 @@ class STubeActivity : BaseActivity() {
                 val pos = rv.findContainingViewHolder(f!!)?.bindingAdapterPosition ?: -1
                 when (event.keyCode) {
                     // ◄► kafelek po kafelku; na końcach rzędu fokus zostaje (nie skacze do innego rzędu ani przycisków)
-                    KeyEvent.KEYCODE_DPAD_LEFT -> { if (pos > 0) rv.focusPosition(pos - 1); return true }
+                    // ◄ na początku rzędu – pasek ikon po lewej (tylko układ poziomy; na wąskim ekranie fokus zostaje)
+                    KeyEvent.KEYCODE_DPAD_LEFT -> { if (pos > 0) rv.focusPosition(pos - 1) else if (!narrowHeader) focusRail(); return true }
                     KeyEvent.KEYCODE_DPAD_RIGHT -> { if (pos >= 0 && pos < rows[ri].tiles.size - 1) rv.focusPosition(pos + 1); return true }
                     KeyEvent.KEYCODE_DPAD_DOWN -> {
                         val next = (ri + 1 until rows.size).firstOrNull { rows[it].tiles.isNotEmpty() }
@@ -557,17 +651,39 @@ class STubeActivity : BaseActivity() {
                     }
                     KeyEvent.KEYCODE_DPAD_UP -> {
                         val prev = (ri - 1 downTo 0).firstOrNull { rows[it].tiles.isNotEmpty() }
-                        if (prev != null) focusRow(prev) else { scroll.smoothScrollTo(0, 0); query.requestFocus() }
+                        // ▲ z pierwszego rzędu: pigułki biblioteki, a bez nich wyszukiwarka
+                        if (prev != null) focusRow(prev) else { scroll.smoothScrollTo(0, 0); focusChipsOrQuery() }
                         return true
                     }
                 }
+            } else if (f != null && inside(f, R.id.stChips)) {
+                when (event.keyCode) {
+                    KeyEvent.KEYCODE_DPAD_UP -> { query.requestFocus(); return true }
+                    KeyEvent.KEYCODE_DPAD_DOWN -> { goStart(); return true }
+                    KeyEvent.KEYCODE_DPAD_LEFT -> if (f === chips.getChildAt(0) && !narrowHeader) { focusRail(); return true }
+                }
+            } else if (f != null && inside(f, R.id.stRail) && !narrowHeader) {
+                if (event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                    rows.indices.firstOrNull { rows[it].tiles.isNotEmpty() }?.let { focusRow(lastRow.takeIf { i -> rows.getOrNull(i)?.tiles?.isNotEmpty() == true } ?: it) } ?: query.requestFocus()
+                    return true
+                }
             } else if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && f != null && inside(f, R.id.stSearchRow) &&
                     !(f === query && query.isPopupShowing)) {   // lista podpowiedzi: ▼ przechodzi do niej (obsługuje AutoCompleteTextView)
-                rows.indices.firstOrNull { rows[it].tiles.isNotEmpty() }?.let { focusRow(it) }
+                if (chipScroll.visibility == View.VISIBLE && chips.childCount > 0) chips.getChildAt(0).requestFocus() else goStart()
                 return true
             }
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    /** Rząd, w którym ostatnio był fokus (powrót z paska ikon). */
+    private var lastRow = 0
+
+    /** Pasek ikon po lewej (Start; z konta – pierwszy element). */
+    private fun focusRail() { findViewById<View>(R.id.stHome).requestFocus() }
+
+    private fun focusChipsOrQuery() {
+        if (chipScroll.visibility == View.VISIBLE && chips.childCount > 0) chips.getChildAt(0).requestFocus() else query.requestFocus()
     }
 
     private fun inside(v: View, parentId: Int): Boolean {
@@ -577,5 +693,5 @@ class STubeActivity : BaseActivity() {
         return false
     }
 
-    private fun toast(s: String) = android.widget.Toast.makeText(this, s, android.widget.Toast.LENGTH_SHORT).show()
+    private fun toast(s: String) = I18n.makeToast(this, s, android.widget.Toast.LENGTH_SHORT).show()
 }

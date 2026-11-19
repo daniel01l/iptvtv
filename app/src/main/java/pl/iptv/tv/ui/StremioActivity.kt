@@ -103,6 +103,9 @@ class StremioActivity : BaseActivity() {
             LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
         searchBar.addView(StremioUi.button(this, "🧩 Wtyczki") { startActivity(Intent(this, StremioAddonsActivity::class.java)) },
             LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
+        // (7.8) odświeżenie wtyczek (zmiany na koncie) i ponowne wczytanie tablicy
+        searchBar.addView(StremioUi.button(this, "⟳") { refreshAddons() }.apply { contentDescription = "Odśwież wtyczki" },
+            LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
         header.addView(searchBar, LinearLayout.LayoutParams(0, -2, 1f))
         account = StremioUi.button(this, "👤") { accountMenu() }
         header.addView(account, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
@@ -228,7 +231,7 @@ class StremioActivity : BaseActivity() {
                 StremioAccount.save(s); Prefs.stremioGuest = false
                 status.text = "Zalogowano: ${s.email}. Pobieranie wtyczek…"
                 runCatching { StremioStore.replaceFromAccount(StremioApi.addonCollection(s.authKey)) }
-                    .onFailure { Toast.makeText(this@StremioActivity, "Nie udało się pobrać wtyczek: ${it.message}", Toast.LENGTH_LONG).show() }
+                    .onFailure { I18n.makeToast(this@StremioActivity, "Nie udało się pobrać wtyczek: ${it.message}", Toast.LENGTH_LONG).show() }
                 askSync()
             }.onFailure { status.text = "Błąd logowania: " + (it.message ?: "brak połączenia") }
         }
@@ -242,8 +245,8 @@ class StremioActivity : BaseActivity() {
                 Prefs.stremioSync = 1
                 lifecycleScope.launch {
                     runCatching { StremioStore.syncLibrary() }
-                        .onSuccess { Toast.makeText(this@StremioActivity, "Zsynchronizowano historię ($it pozycji z konta)", Toast.LENGTH_SHORT).show() }
-                        .onFailure { Toast.makeText(this@StremioActivity, "Synchronizacja nieudana: ${it.message}", Toast.LENGTH_LONG).show() }
+                        .onSuccess { I18n.makeToast(this@StremioActivity, "Zsynchronizowano historię ($it pozycji z konta)", Toast.LENGTH_SHORT).show() }
+                        .onFailure { I18n.makeToast(this@StremioActivity, "Synchronizacja nieudana: ${it.message}", Toast.LENGTH_LONG).show() }
                     showBoard()
                 }
             }
@@ -328,6 +331,21 @@ class StremioActivity : BaseActivity() {
         }
     }
 
+    private var refreshingAddons = false
+
+    private fun refreshAddons() {
+        if (refreshingAddons) return
+        refreshingAddons = true
+        I18n.makeToast(this, "Odświeżanie wtyczek…", android.widget.Toast.LENGTH_SHORT).show()
+        lifecycleScope.launch {
+            val r = runCatching { StremioStore.refreshAddons() }
+            refreshingAddons = false
+            r.exceptionOrNull()?.let { if (it is kotlinx.coroutines.CancellationException) throw it }
+            I18n.makeToast(this@StremioActivity, r.fold({ "Wtyczki odświeżone ($it)" }, { "Błąd odświeżania: ${it.message}" }), android.widget.Toast.LENGTH_SHORT).show()
+            build(searchQuery)
+        }
+    }
+
     private fun rowsHaveFocus(): Boolean { var v: View? = window.decorView.findFocus(); while (v != null) { if (v === rowsBox) return true; v = v.parent as? View }; return false }
 
     private fun rowTitle(a: StremioAddon, c: StremioAddon.Catalog, search: Boolean): String {
@@ -407,5 +425,7 @@ class StremioActivity : BaseActivity() {
         }
     }
 
-    private fun open(t: StremioTile) = startActivity(StremioDetailActivity.intent(this, t.meta, t.progress?.videoId))
+    /** (7.8) „Kontynuuj oglądanie” – od razu odtwarzanie ([StremioPlayerActivity.resumeIntent]); katalog – ekran szczegółów. */
+    private fun open(t: StremioTile) = startActivity(t.progress?.let { StremioPlayerActivity.resumeIntent(this, it) }
+        ?: StremioDetailActivity.intent(this, t.meta, null))
 }

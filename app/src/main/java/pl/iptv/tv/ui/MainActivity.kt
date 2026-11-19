@@ -272,7 +272,7 @@ class MainActivity : BaseActivity() {
         refreshUi(); groupsRv.post { groupsRv.focusPosition(groupAdapter.items.indexOf(EDIT_GROUPS).coerceAtLeast(0)) }
     }
 
-    private fun toast(t: String) = Toast.makeText(this, t, Toast.LENGTH_SHORT).show()
+    private fun toast(t: String) = I18n.makeToast(this, t, Toast.LENGTH_SHORT).show()
 
     private fun launcherMenu() = Dialogs.menu(this, "Menu", listOf(
         "▦ Aplikacje" to { SystemTools.showApps(this) },
@@ -539,7 +539,7 @@ class MainActivity : BaseActivity() {
             .onSuccess { if (Repository.allChannels.map { it.key } != before) refreshUi() else refreshEpgOnly() }
         if (Repository.epgAutoBlocked) {
             // dwie awarie przy wczytywaniu EPG: bez automatycznego wczytywania (koniec pętli zacinania i zamykania)
-            Toast.makeText(this@MainActivity, "Program TV jest zbyt duży dla tego urządzenia – wczytywanie automatyczne wstrzymane. " +
+            I18n.makeToast(this@MainActivity, "Program TV jest zbyt duży dla tego urządzenia – wczytywanie automatyczne wstrzymane. " +
                 "Wczytaj go ręcznie w Ustawienia → Program TV (najlepiej z mniejszego pliku EPG).", Toast.LENGTH_LONG).show()
             status.text = ""; initialLoadDone = true; return@launch
         }
@@ -564,7 +564,7 @@ class MainActivity : BaseActivity() {
         epgLoading = true
         status.text = "Pobieranie EPG…"
         runCatching { Repository.loadEpg() }
-            .onFailure { Toast.makeText(this@MainActivity, "EPG: ${it.message}", Toast.LENGTH_LONG).show() }
+            .onFailure { I18n.makeToast(this@MainActivity, "EPG: ${it.message}", Toast.LENGTH_LONG).show() }
         epgLoading = false
         status.text = ""
         refreshEpgOnly()
@@ -745,7 +745,7 @@ class MainActivity : BaseActivity() {
                 .show()
             p.isNow(now) -> play(ch)
             archived -> play(ch, p)
-            else -> Toast.makeText(this, "Ten program nie jest dostępny w archiwum", Toast.LENGTH_SHORT).show()
+            else -> I18n.makeToast(this, "Ten program nie jest dostępny w archiwum", Toast.LENGTH_SHORT).show()
         }
     }
 

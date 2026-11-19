@@ -107,5 +107,5 @@ object ProgrammeActions {
             a.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 33)
     }
 
-    private fun toast(a: Activity, s: String) = Toast.makeText(a, s, Toast.LENGTH_LONG).show()
+    private fun toast(a: Activity, s: String) = I18n.makeToast(a, s, Toast.LENGTH_LONG).show()
 }

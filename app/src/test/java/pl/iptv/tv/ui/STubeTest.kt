@@ -182,17 +182,23 @@ class STubeTest {
         // ▼ do „Muzyka” i ▲ z powrotem na ten sam kafelek (pamięć pozycji rzędu)
         key(a, KeyEvent.KEYCODE_DPAD_DOWN); assertEquals(2, focusedRow(a).first)
         key(a, KeyEvent.KEYCODE_DPAD_UP); assertEquals(1 to 2, focusedRow(a))
-        // ◄ na pierwszym kafelku: fokus zostaje w rzędzie
-        key(a, KeyEvent.KEYCODE_DPAD_LEFT); key(a, KeyEvent.KEYCODE_DPAD_LEFT); key(a, KeyEvent.KEYCODE_DPAD_LEFT)
+        // ◄ na pierwszym kafelku: pasek ikon po lewej, ► wraca do tego samego rzędu
+        key(a, KeyEvent.KEYCODE_DPAD_LEFT); key(a, KeyEvent.KEYCODE_DPAD_LEFT)
         assertEquals(1 to 0, focusedRow(a))
+        key(a, KeyEvent.KEYCODE_DPAD_LEFT)
+        assertEquals(R.id.stHome, a.window.decorView.findFocus()?.id)
+        key(a, KeyEvent.KEYCODE_DPAD_RIGHT); assertEquals(1, focusedRow(a).first)
         // ostatni rząd (Biblioteka: Do obejrzenia później, Historia): ▼ nie wychodzi poza ekran, ► na ostatnim kafelku zostaje
         key(a, KeyEvent.KEYCODE_DPAD_DOWN); key(a, KeyEvent.KEYCODE_DPAD_DOWN); key(a, KeyEvent.KEYCODE_DPAD_DOWN)
         assertEquals(4, focusedRow(a).first)
         repeat(7) { key(a, KeyEvent.KEYCODE_DPAD_RIGHT) }
         assertEquals(4 to 1, focusedRow(a))
-        // ▲ z pierwszego rzędu → wyszukiwarka; ▼ z wyszukiwarki → pierwszy rząd
+        // ▲ z pierwszego rzędu → pigułki biblioteki → wyszukiwarka; ▼ z wyszukiwarki → pigułki → pierwszy rząd
         repeat(5) { key(a, KeyEvent.KEYCODE_DPAD_UP) }
+        assertTrue(a.window.decorView.findFocus() in a.chipViews)
+        key(a, KeyEvent.KEYCODE_DPAD_UP)
         assertEquals(R.id.stQuery, a.window.decorView.findFocus()?.id)
+        key(a, KeyEvent.KEYCODE_DPAD_DOWN); assertTrue(a.window.decorView.findFocus() in a.chipViews)
         key(a, KeyEvent.KEYCODE_DPAD_DOWN); assertEquals(0, focusedRow(a).first)
     }
 

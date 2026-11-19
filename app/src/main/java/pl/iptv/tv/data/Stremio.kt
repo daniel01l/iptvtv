@@ -1,6 +1,7 @@
 package pl.iptv.tv.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -141,10 +142,12 @@ data class StremioStream(
         externalUrl.isNotBlank() -> Kind.EXTERNAL; else -> Kind.NONE
     }
     private val text get() = "$name\n$title\n$description\n$filename"
-    val quality: String get() = StremioStreams.quality(text)
-    val hdr: List<String> get() = StremioStreams.hdr(text)
+    // (7.8) wyrażenia regularne raz na źródło (dawniej przy każdym odczycie – sortowanie setek źródeł na głównym wątku blokowało aplikację)
+    val quality: String by lazy(LazyThreadSafetyMode.PUBLICATION) { StremioStreams.quality(text) }
+    val hdr: List<String> by lazy(LazyThreadSafetyMode.PUBLICATION) { StremioStreams.hdr(text) }
+    private val rawLanguages: List<String> by lazy(LazyThreadSafetyMode.PUBLICATION) { StremioStreams.languages(text) }
     /** (7.4) Oznaczenia języka; lektor / dubbing PL pomijane, gdy odtwarzacz sprawdził, że źródło nie ma polskiej ścieżki. */
-    val languages: List<String> get() = StremioStreams.languages(text).let { l ->
+    val languages: List<String> get() = rawLanguages.let { l ->
         if (StremioStreams.verifiedNoPolishAudio(this)) l - setOf("Lektor PL", "Dubbing PL", "Audio PL") else l
     }
     /** Źródło deklaruje polski dźwięk (lektor / dubbing). */
@@ -325,6 +328,23 @@ object StremioStreams {
      * Źródło następnego odcinka z tej samej wtyczki: ta sama grupa (bingeGroup, jak w Stremio), potem ta sama jakość,
      * potem pierwsze odtwarzalne.
      */
+    /** (7.8) Kolejność jakości (indeks w [QUALITY_ORDER]; nieznane i CAM na końcu). */
+    private fun qualityIndex(q: String) = QUALITY_ORDER.indexOf(q).let { if (it < 0) QUALITY_ORDER.size else it }
+
+    /**
+     * (7.8) Źródło do wznowienia / następnego odcinka: ta sama wtyczka i grupa ([bingeGroup]), ta sama wtyczka i jakość, najlepsze
+     * z tej wtyczki, wreszcie najlepsze ze wszystkich (polska wersja pierwsza, potem najwyższa rozdzielczość, bez CAM). Tylko HTTP.
+     */
+    fun pickResume(addonUrl: String, bingeGroup: String, quality: String, candidates: List<StremioStream>): StremioStream? {
+        val playable = candidates.filter { it.kind == StremioStream.Kind.HTTP }
+        val best = compareBy<StremioStream>({ polishRank(it) }, { qualityIndex(it.quality) })
+        val same = playable.filter { addonUrl.isNotBlank() && it.addonUrl == addonUrl }
+        if (bingeGroup.isNotBlank()) same.firstOrNull { it.bingeGroup == bingeGroup }?.let { return it }
+        if (quality.isNotBlank()) same.filter { it.quality == quality }.minWithOrNull(best)?.let { return it }
+        same.filter { it.quality != "CAM" }.minWithOrNull(best)?.let { return it }
+        return playable.filter { it.quality != "CAM" }.minWithOrNull(best) ?: playable.firstOrNull()
+    }
+
     fun pickNext(prev: StremioStream, candidates: List<StremioStream>): StremioStream? {
         val playable = candidates.filter { it.kind == StremioStream.Kind.HTTP }
         if (prev.bingeGroup.isNotBlank()) playable.firstOrNull { it.bingeGroup == prev.bingeGroup }?.let { return it }
@@ -460,6 +480,10 @@ object StremioApi {
     suspend fun catalog(a: StremioAddon, c: StremioAddon.Catalog, search: String? = null): List<StremioMetaPreview> {
         val extra = search?.let { "/search=" + enc(it) }.orEmpty()
         val o = get("${a.base}/catalog/${c.type}/${enc(c.id)}$extra.json")
+        return withContext(Dispatchers.Default) { parseCatalog(c, o) }
+    }
+
+    private fun parseCatalog(c: StremioAddon.Catalog, o: JSONObject): List<StremioMetaPreview> {
         val arr = o.optJSONArray("metas") ?: return emptyList()
         return (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.map { m ->
             StremioMetaPreview(m.optString("id").ifBlank { m.optString("imdb_id") }, m.optString("type", c.type), m.optString("name"), m.optString("poster"),
@@ -479,8 +503,30 @@ object StremioApi {
             m.optJSONArray("genres")?.let { g -> (0 until g.length()).map { g.optString(it) } }.orEmpty(), m.optString("runtime"), videos)
     }
 
+    /** (7.8) Limit czasu odpowiedzi jednej wtyczki ze źródłami. */
+    const val STREAMS_TIMEOUT_MS = 20_000L
+
+    /**
+     * (7.8) Źródła ze wszystkich [addons] równolegle (wątki robocze, limit [timeoutMs] na wtyczkę, anulowanie z zadaniem nadrzędnym);
+     * wtyczka z błędem lub po czasie – pominięta.
+     */
+    suspend fun collectStreams(addons: List<StremioAddon>, type: String, id: String, timeoutMs: Long = STREAMS_TIMEOUT_MS): List<StremioStream> =
+        kotlinx.coroutines.coroutineScope {
+            addons.map { a -> async(Dispatchers.Default) {
+                try { kotlinx.coroutines.withTimeoutOrNull(timeoutMs) { streams(a, type, id) }.orEmpty() }
+                catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (e: Exception) { emptyList() }
+            } }.map { it.await() }.flatten()
+        }
+
     suspend fun streams(a: StremioAddon, type: String, id: String): List<StremioStream> {
-        val arr = get("${a.base}/stream/$type/${enc(id)}.json").optJSONArray("streams") ?: return emptyList()
+        val o = get("${a.base}/stream/$type/${enc(id)}.json")
+        // (7.8) parsowanie setek źródeł poza głównym wątkiem
+        return withContext(Dispatchers.Default) { parseStreams(a, o) }
+    }
+
+    private fun parseStreams(a: StremioAddon, o: JSONObject): List<StremioStream> {
+        val arr = o.optJSONArray("streams") ?: return emptyList()
         return (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.map { s ->
             val bh = s.optJSONObject("behaviorHints") ?: JSONObject()
             val headers = bh.optJSONObject("proxyHeaders")?.optJSONObject("request")?.let { h -> h.keys().asSequence().associateWith { h.optString(it) } }.orEmpty()

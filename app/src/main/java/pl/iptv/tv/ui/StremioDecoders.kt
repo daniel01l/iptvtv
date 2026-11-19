@@ -181,7 +181,20 @@ object StremioDecoders {
      * lektora / dubbingu w opisie źródła); [noPolishAudio] – źródło deklarowało polski dźwięk, a opisane ścieżki są w innych językach.
      */
     data class LangPlan(val audio: Int?, val subsOff: Boolean, val embeddedText: Int?, val addonSubs: Boolean,
-                        val polishAudio: Boolean = audio != null, val noPolishAudio: Boolean = false)
+                        val polishAudio: Boolean = audio != null, val noPolishAudio: Boolean = false,
+                        /** (7.8) Gdy nie ma polskiego dźwięku ani polskich napisów: angielska ścieżka dźwięku / angielskie napisy (wbudowane). */
+                        val englishAudio: Int? = null, val englishText: Int? = null)
+
+    /** (7.8) Angielska ścieżka: kod en / eng / en-US albo opis („English”, „angielski”). */
+    fun isEnglish(language: String?, label: String?): Boolean {
+        val l = language.orEmpty().lowercase()
+        if (l == "en" || l == "eng" || l.startsWith("en-") || l.startsWith("en_")) return true
+        val t = " " + label.orEmpty().lowercase() + " "
+        return listOf("english", "angielsk", " eng ", "[en]", "(en)").any { it in t }
+    }
+
+    /** (7.8) Angielskie napisy z wtyczki: „en”, „eng”, „English”. */
+    fun isEnglishSubtitle(lang: String): Boolean = isEnglish(lang, null) || lang.trim().lowercase() == "english"
 
     /** Język nieopisany w pliku (brak, „und”, „unknown”). */
     fun undefinedLanguage(language: String?) = language.isNullOrBlank() || language.lowercase() in setOf("und", "unknown", "mis", "zxx", "mul")
@@ -193,8 +206,11 @@ object StremioDecoders {
         if (sourceClaimsPolishAudio && audio.all { (lang, _) -> undefinedLanguage(lang) })
             return LangPlan(null, subsOff = true, embeddedText = null, addonSubs = false, polishAudio = true)
         val t = text.indexOfFirst { (lang, label) -> isPolish(lang, label) }
+        // (7.8) brak polskiego dźwięku i napisów – dalej angielski (dźwięk, potem napisy); polskie napisy z wtyczek mają pierwszeństwo (sprawdzane później)
+        val ea = audio.indexOfFirst { (lang, label) -> isEnglish(lang, label) }.takeIf { it >= 0 }
+        val et = text.indexOfFirst { (lang, label) -> isEnglish(lang, label) }.takeIf { it >= 0 }
         return LangPlan(null, subsOff = false, embeddedText = t.takeIf { it >= 0 }, addonSubs = t < 0,
-            noPolishAudio = sourceClaimsPolishAudio && audio.isNotEmpty())
+            noPolishAudio = sourceClaimsPolishAudio && audio.isNotEmpty(), englishAudio = ea, englishText = et)
     }
 
     /** (7.4) Polskie napisy z wtyczki: „pl”, „pol”, „pl-PL”, „Polish” – nie „por” / „pob” (portugalski, dawny błąd prefiksu „po”). */

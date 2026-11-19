@@ -1,6 +1,6 @@
 {
-  "versionCode": 67,
-  "versionName": "7.7",
+  "versionCode": 69,
+  "versionName": "7.9",
   "apk": "D-iptv-Player.apk",
-  "notes": "Stremio: OK / strzalka w prawo na odcinku od razu do zrodel, jeden napis Ladowanie zrodel, grupy rozdzielczosci (takze 4K) zwiniete, ikony odtwarzacza bez znikajacego kursora; przytrzymanie OK dziala na kazdym pilocie; plynniejszy motyw Nowoczesny (domyslny przy instalacji); zapis wlasnych motywow"
+  "notes": "STube: music-style layout (icon rail, library chips, square covers), two-zone music player (cover, controls, up next, lyrics) - optional, off by default (toggle in the player and in Settings); better recommendations from many artists, mixes of 100+ tracks that start right away in the player. / STube: wyglad jak aplikacje muzyczne (pasek ikon, pigulki biblioteki, kwadratowe okladki), dwustrefowy odtwarzacz muzyki (okladka, sterowanie, nastepne w kolejce, tekst) - opcjonalny, domyslnie wylaczony (przelacznik w odtwarzaczu i w Ustawieniach); trafniejsze rekomendacje z wielu wykonawcow, miksy 100+ utworow uruchamiane od razu w odtwarzaczu."
 }

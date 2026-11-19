@@ -103,6 +103,19 @@
 
 Kanał trafia do „ostatnio oglądanych” po co najmniej 1 minucie odtwarzania.
 
+**v7.9** (19.11.2026):
+- **STube – nowy wygląd w stylu muzycznych aplikacji na TV**: pionowy pasek ikon po lewej (konto, szukaj, start, biblioteka, telefon, SmartTube, odśwież, zamknij; ◄ na początku rzędu wchodzi w pasek, ► wraca do rzędu; na wąskim telefonie pasek jest poziomo u góry), pod wyszukiwarką pigułki biblioteki (Start / Ostatnie / Miksy 100+ / Playlisty / Polubione lub Na później / Subskrypcje), kwadratowe okładki w rzędach Muzyka, Miksy i Biblioteka, okrągłe kafelki kanałów. Kolory, obwódki fokusu i kształty z aktualnego motywu aplikacji; treść przycięta do swoich granic (bez wystających tekstur). Cała dotychczasowa funkcjonalność bez zmian.
+- **Odtwarzacz muzyczny (dwie strefy)**: po włączeniu (domyślnie wyłączony: przycisk „Widok muzyczny” na pasku odtwarzacza, MENU lub Ustawienia; działa dla bieżącego i kolejnych utworów) – rozmyte tło w kolorach okładki (zmieszane z motywem), po lewej / u góry (telefon w pionie) kwadratowa okładka, tytuł, wykonawca, pasek postępu z czasem oraz przyciski: Losowo, Poprzedni, Odtwórz/Pauza, Następny, Powtarzanie utworu, Teledysk, Opcje. Po prawej / na dole zakładki „Następne w kolejce” (pilotem lub dotykiem; pusta kolejka – propozycje) i „Tekst” piosenki (gdy dostępny; źródło: otwarta baza LRCLIB – wysyłany jest tylko tytuł, wykonawca i czas utworu; wyłączane `Prefs.ytLyrics`). „Teledysk” przełącza na zwykły odtwarzacz wideo, „Widok muzyczny” (pasek opcji / MENU) wraca. Tryb Tylko dźwięk i PiP na telefonie działają jak dotąd.
+- **Trafniejsze rekomendacje i playlisty 100+**: miksy bazują na gatunkach z historii i na propozycjach po utworach różnych wykonawców; muzyka układana „rundami” (po jednym utworze każdego wykonawcy), więc słuchacz jednego artysty dostaje wielu. Brakujące do 100 utworów uzupełniają równoległe zapytania gatunkowe i wariantowe. Dotknięcie miksu od razu uruchamia go w odtwarzaczu (reszta w kolejce); „Pokaż utwory miksu” w menu kafelka.
+
+**v7.8** (20.11.2026):
+- **Język angielski**: cały interfejs po angielsku do wyboru – Ustawienia → Wygląd → „Język / Language” oraz pierwszy krok kreatora pierwszego uruchomienia. Tłumaczenie obejmuje ekrany, okna, komunikaty i ekrany główne motywów; zmiana działa od razu (ekrany przebudowują się jak po zmianie motywu). Domyślnie polski.
+- **Okna bez suwaka**: przy zaznaczaniu opcji w oknach nie pojawia się już pasek przewijania (dłuższe listy sygnalizują wygaszone krawędzie).
+- **Stremio – „Wznów” i „Oglądaj dalej”**: od razu odtwarzają (bez ekranu źródeł) na tablicy Stremio i na pulpitach Nowoczesny / PS5 / X25; to samo źródło co poprzednio, polskie audio na górze. Następny odcinek otwiera się tylko, gdy okienko „Następny odcinek” już się pojawiło (zapisane w bazie), inaczej wznawia bieżący odcinek.
+- **Odtwarzacz Stremio**: okienko „Następny odcinek” w prawym górnym rogu (WSTECZ zamyka), pewniejsze uruchamianie kolejnego odcinka; gdy brak polskiego audio i napisów – angielskie audio, potem angielskie napisy.
+- **Stremio bez zawieszania**: pobieranie, parsowanie i sortowanie źródeł poza głównym wątkiem, z limitem czasu na wtyczkę; przycisk ⟳ odświeżania wtyczek (Wtyczki i tablica Stremio).
+- **Motyw Nowoczesny**: przycisk „Program TV” przy kanałach, Start: Live TV → STube → Stremio, podpisy pod kafelkami nie są już ucinane przy przewijaniu rzędów.
+
 **v7.7** (19.11.2026):
 - **Stremio – odcinek → źródła**: OK albo ► na odcinku od razu przenosi kursor na listę źródeł (dawniej, gdy źródła się wczytywały, lista nie miała nic do zaznaczenia i nic się nie działo); w trakcie wczytywania kursor stoi na „Ładowanie źródeł”, a po odpowiedzi wtyczek przechodzi na pierwszą grupę.
 - **Stremio – „Ładowanie źródeł”**: jeden, jednolity napis z kółkiem postępu w kolorze motywu zamiast listy wczytywanych wtyczek.
