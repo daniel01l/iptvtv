@@ -5,7 +5,7 @@
 - Kod: `IptvTv-source.tar.gz` (Gradle 8.14.3, AGP 8.7.3, Kotlin 2.0.21, Media3 1.5.0 + FFmpeg (Jellyfin), compileSdk 35, OkHttp, Coil 2.7, Robolectric 4.13).
 - Moduły: `:app` (pl.iptv.tv), `:admin` (pl.iptv.admin); wspólny kod `shared/pl/iptv/shared/` (RelayCrypto.kt, ActivationFormat.kt).
 - Flavory app: `full` (pl.iptv.tv, plik D-iptv-Player.apk, iptvtv.json, repo github daniel01l/iptvtv) i `secure` (pl.iptv.dplayer, wersja TEST, DPlayer.apk, dplayer.json, repo daniel01l/dplayer). Zmiany robimy tylko w `full`.
-- Aktualna wersja: Player 7.3 (versionCode 63, wydana na GitHubie 18.11.2026; poprzednia 7.2 / 62), Admin 2.4 (versionCode 10), TEST 1.2 (versionCode 3).
+- Aktualna wersja: Player 7.6 (versionCode 66, wydana na GitHubie 19.11.2026, zawiera 7.4 i 7.5; poprzednia 7.3 / 63), Admin 2.4 (versionCode 10), TEST 1.2 (versionCode 3).
 - Zależności YouTube (6.2): NewPipeExtractor v0.27.1 z JitPack (repo ograniczone do grupy com.github.TeamNewPipe w `settings.gradle.kts`, licencja GPLv3; YouTube często psuje ekstrakcję – przy problemach podbić wersję), desugaring `desugar_jdk_libs_nio`, `security-crypto` 1.1.0-alpha06. Klient OAuth/klucz API: `keystore/youtube_oauth.properties` (client_id, client_secret, api_key) – opcjonalnie, poza repo.
 
 ## Podpis i aktywacja
@@ -27,7 +27,7 @@ Na Windows: `JAVA_HOME=C:\Users\dkier\.jdks\jbr-21.0.11`.
 3. Zbudować, sprawdzić podpis (`apksigner verify --print-certs`, SHA-256 041b543f…).
 4. Zaktualizować `iptvtv.json` (versionCode, versionName, apk, notes) i wgrać wydanie na GitHub (daniel01l/iptvtv).
 
-## Zmiany 7.6 (versionCode 66, APK zbudowany 19.11.2026 – zawiera 7.4 i 7.5; niewydany)
+## Zmiany 7.6 (release v7.6, versionCode 66 – zawiera 7.4 i 7.5)
 Pion telefonu: `ModernHomeActivity.Dims(compact, narrow, portrait, availW)` (rail 56 dp, `wideW`/`posterW` z szerokości, `PillButton` węższy, „Więcej”); `X25DashboardActivity.Dims.portrait` → `FunctionGrid` (LazyVerticalGrid 2 kolumny, `FnTile(fill)`); `Ps5HomeActivity.Dims(portrait, availW)` → `Cards` jako LazyColumn (`heroW`/`midW`/`serviceW` = szerokość). Ustawienia: `animateTabIn` (alpha + translationX, `withLayer`, `TAB_ANIM_MS` 160, scroll na górę, bez animacji przy lowPerf), `swipe` GestureDetector w `dispatchTouchEvent` (fling poziomy po treści, nie po pasku kart), `tabStrip` z fading edge, `TAB_FOCUS_DELAY_MS` 180, tło `right` w Nowoczesnym. `MainActivity.applyGroup` – nowa kategoria: `scrollToPosition(0)` + przenikanie, `GROUP_FOCUS_DELAY_MS` 180. Nowoczesny: `sectionAnim`/`sectionFade` (graphicsLayer, `SECTION_ANIM_MS` 220), rzędy z `tick` tylko w sekcjach 0/1. `Ps5Compose.dashboardEnter` (`DASHBOARD_ENTER_MS` 260) w X25 i PS5. Emulator telefonu: APK testowy = `assembleFullDebug` + `apksigner sign` (keystore) → `run-as` działa (motyw: sed na `shared_prefs/iptv.xml`, `orientation`=2 – pion). Testy: `V76Test`.
 
 ## Zmiany 7.5 (w wersji 7.6)
