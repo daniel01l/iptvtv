@@ -93,6 +93,15 @@ object STubeScreen {
         id == PL_LATER -> "🕘"; id == PL_HISTORY -> "📜"; id.startsWith(PL_MIX) -> "🎵"; id == PL_LIKED -> "👍"; id.startsWith(PL_CHANNEL) -> "📺"; else -> "☰"
     }
 
+    /** Rysowana ikona kafelka playlisty (zamiast emoji). */
+    fun playlistIconKind(id: String) = when {
+        id == PL_LATER -> PlayerIcon.DELAY; id == PL_HISTORY -> PlayerIcon.QUEUE; id.startsWith(PL_MIX) -> PlayerIcon.MUSIC
+        id == PL_LIKED -> PlayerIcon.AUTOPLAY; id.startsWith(PL_CHANNEL) -> PlayerIcon.VIDEO; else -> PlayerIcon.QUEUE
+    }
+
+    /** Ikona kafelka akcji wg dawnego znaku emoji. */
+    fun actionIconKind(icon: String) = when (icon) { "👤" -> PlayerIcon.USER; "⟳" -> PlayerIcon.REFRESH; "🔎" -> PlayerIcon.SEARCH; else -> PlayerIcon.INFO }
+
     /** Kafelki Biblioteki: listy lokalne zawsze, z kontem – Polubione i playlisty konta (błąd API nie ukrywa list lokalnych). */
     suspend fun libraryPage(loggedIn: Boolean, page: String?): STubePage {
         val local = if (page == null) listOf(
@@ -152,7 +161,7 @@ object STubeScreen {
         return rowIds(logged, personal, query, StubeHistory.hasUnfinished, StubeHistory.historyCount >= pl.iptv.tv.data.StubeMixes.MIN_HISTORY).map { id ->
             when (id) {
                 // gotowe miksy z historii oglądania (Room) – filmy z YouTube po otwarciu
-                ROW_MIXES -> STubeRow(id, "🎵 Twoje miksy / gotowe playlisty") { _ ->
+                ROW_MIXES -> STubeRow(id, "Twoje miksy (100+ utworów)") { _ ->
                     STubePage(pl.iptv.tv.data.StubeMixes.current().map { STubeTile.Playlist(YtPlaylist(PL_MIX + it.id, it.title, it.thumb)) })
                 }
                 ROW_CONTINUE -> STubeRow(id, "Kontynuuj oglądanie") { _ -> STubePage(StubeHistory.unfinished().map { STubeTile.Video(it.toVideo()) }) }
@@ -214,7 +223,7 @@ class STubeTileAdapter(private val row: STubeRow) : RecyclerView.Adapter<STubeTi
     var onLongClick: (STubeTile) -> Unit = {}
     var onFocus: (Int) -> Unit = {}
 
-    class VH(val root: LinearLayout, val thumb: ImageView, val badge: TextView, val icon: TextView, val title: TextView, val sub: TextView,
+    class VH(val root: LinearLayout, val thumb: ImageView, val badge: TextView, val icon: ImageView, val title: TextView, val sub: TextView,
              val progress: WatchBar?) : RecyclerView.ViewHolder(root)
 
     override fun getItemCount() = row.tiles.size
@@ -241,7 +250,8 @@ class STubeTileAdapter(private val row: STubeRow) : RecyclerView.Adapter<STubeTi
         frame.addView(thumb, FrameLayout.LayoutParams(if (channel) imgH else imgW, imgH))
         Ui.roundClip(thumb, if (channel) imgH / 2f else Ui.dp(maxOf(Ui.preset.radius - 4, 6)).toFloat())
         // ikona kafelka akcji (zamiast miniatury)
-        val icon = TextView(c).apply { textSize = 44f; gravity = Gravity.CENTER; visibility = View.GONE }
+        // ikona kafelka (lista lokalna, akcja): rysowana, w kolorach motywu, zmienia kolor wraz z zaznaczeniem kafelka
+        val icon = ImageView(c).apply { scaleType = ImageView.ScaleType.CENTER_INSIDE; visibility = View.GONE; isDuplicateParentStateEnabled = true; setPadding(imgH / 4, imgH / 4, imgH / 4, imgH / 4) }
         frame.addView(icon, FrameLayout.LayoutParams(imgW, imgH))
         // czas filmu w rogu miniatury (stałe kolory – czytelny na każdym obrazie)
         val badge = TextView(c).apply {
@@ -273,6 +283,10 @@ class STubeTileAdapter(private val row: STubeRow) : RecyclerView.Adapter<STubeTi
         Ui.style(root)
         return vh
     }
+
+    private fun tileIcon(kind: String) = PlayerIcon(kind, android.content.res.ColorStateList(
+        arrayOf(intArrayOf(android.R.attr.state_focused), intArrayOf(android.R.attr.state_pressed), intArrayOf()),
+        intArrayOf(Ui.focusText, Ui.focusText, Ui.withAlpha(Ui.text, 0xB0))))
 
     /** Payload [STubeScreen.PAYLOAD_PROGRESS] – tylko pasek obejrzenia (powrót z odtwarzacza bez migania miniatur). */
     override fun onBindViewHolder(h: VH, position: Int, payloads: MutableList<Any>) {
@@ -311,7 +325,7 @@ class STubeTileAdapter(private val row: STubeRow) : RecyclerView.Adapter<STubeTi
             is STubeTile.Playlist -> {
                 // miniatura playlisty (konto/kanał) albo duża ikona (listy lokalne); liczba filmów w rogu
                 val hasThumb = t.p.thumb.isNotBlank()
-                h.icon.visibility = if (hasThumb) View.GONE else View.VISIBLE; h.icon.text = STubeScreen.playlistIcon(t.p.id)
+                h.icon.visibility = if (hasThumb) View.GONE else View.VISIBLE; h.icon.setImageDrawable(tileIcon(STubeScreen.playlistIconKind(t.p.id)))
                 if (hasThumb) h.thumb.load(t.p.thumb) { crossfade(false) }
                 val count = if (t.p.id == STubeScreen.PL_LATER) StubeHistory.watchLaterCount else t.p.count
                 h.badge.text = if (count >= 0) "☰ $count" else ""
@@ -329,7 +343,7 @@ class STubeTileAdapter(private val row: STubeRow) : RecyclerView.Adapter<STubeTi
                 h.root.contentDescription = t.p.title
             }
             is STubeTile.Action -> {
-                h.icon.visibility = View.VISIBLE; h.icon.text = t.icon; h.badge.visibility = View.GONE
+                h.icon.visibility = View.VISIBLE; h.icon.setImageDrawable(tileIcon(STubeScreen.actionIconKind(t.icon))); h.badge.visibility = View.GONE
                 h.title.text = t.label; h.sub.visibility = View.GONE
                 h.root.contentDescription = t.label
             }

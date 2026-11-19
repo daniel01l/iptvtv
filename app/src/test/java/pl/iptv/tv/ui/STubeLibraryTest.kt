@@ -176,7 +176,7 @@ class STubeLibraryTest {
         val texts = mutableListOf<String>()
         fun collect(v: View) { if (v is TextView && v.visibility == View.VISIBLE) texts += v.text.toString(); if (v is ViewGroup) (0 until v.childCount).forEach { collect(v.getChildAt(it)) } }
         collect(tile)
-        assertTrue(texts.containsAll(listOf("🕘", "☰ 0", "Do obejrzenia później", "Na tym urządzeniu")))
+        assertTrue(texts.containsAll(listOf("☰ 0", "Do obejrzenia później", "Na tym urządzeniu")))
         assertTrue(tile.isFocusable)
 
         // pusta lista: rząd z podpowiedzią, fokus zostaje na kafelku Biblioteki

@@ -73,6 +73,8 @@ object YtEngine {
     /** Poprzednio odtworzone filmy (przycisk „Poprzedni”), najnowszy na końcu. */
     private val played = ArrayList<YtVideo>()
     val canGoBack get() = played.isNotEmpty()
+    /** Identyfikatory ostatnio odtworzonych (propozycje ich nie powtarzają). */
+    val recentIds: Set<String> get() = played.mapTo(HashSet()) { it.id }
 
     val listeners = CopyOnWriteArraySet<Listener>()
     /** Usługa: koniec odtwarzania → zatrzymanie usługi (powiadomienie znika). */
@@ -263,11 +265,18 @@ object YtEngine {
                 next != null -> { if (listeners.reversed().none { it.onQueueChannel(next) }) stop() }
                 listeners.reversed().any { it.onEnded() } -> {}
                 // bez ekranu (gra w tle): autoodtwarzanie – następna propozycja YouTube (jak w aplikacji YouTube)
-                Prefs.ytAutoplay && playable?.related?.firstOrNull { it.id != cur && it.duration != "P0D" } != null ->
-                    load(app, playable!!.related.first { it.id != cur && it.duration != "P0D" }, force = true)
+                nextSuggestion(cur) != null && Prefs.ytAutoplay -> load(app, nextSuggestion(cur)!!, force = true)
                 else -> stop()
             }
         }
+    }
+
+    /** Następna propozycja (bez składanek, bez ostatnio odtworzonych, wykonawcy przeplatani) – autoodtwarzanie. */
+    fun nextSuggestion(cur: String?): YtVideo? {
+        val p = playable ?: return null
+        val v = video
+        val recent = played.mapTo(HashSet()) { it.id }
+        return pl.iptv.tv.data.StubeMixes.suggest(p.related, cur.orEmpty(), p.title.ifBlank { v?.title.orEmpty() }, p.channel.ifBlank { v?.channel.orEmpty() }, recent).firstOrNull()
     }
 
     private val listener = object : Player.Listener {

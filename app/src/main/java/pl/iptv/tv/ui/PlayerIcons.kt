@@ -28,9 +28,11 @@ class PlayerIcon(private val kind: String, private val tint: ColorStateList = Co
         // (7.5) sterowanie odtwarzaczem Stremio (dolny pasek) i tryb samego dźwięku STube
         const val PLAY = "play"; const val PAUSE = "pause"; const val PREV = "prev"; const val REW = "rew"; const val FWD = "fwd"; const val AUDIO_ONLY = "audio_only"
         // (7.9) widok muzyczny STube: losowo, powtarzanie, tekst piosenki, teledysk
-        const val SHUFFLE = "shuffle"; const val REPEAT = "repeat"; const val REPEAT_ONE = "repeat_one"; const val LYRICS = "lyrics"; const val VIDEO = "video"; const val MUSIC = "music"
+        const val SHUFFLE = "shuffle"; const val REPEAT = "repeat"; const val REPEAT_ONE = "repeat_one"; const val LYRICS = "lyrics"; const val VIDEO = "video"; const val MUSIC = "music"; const val STOP = "stop"
+        // (7.10) pasek ikon STube
+        const val SEARCH = "search"; const val HOME = "home"; const val PHONE = "phone"; const val REFRESH = "refresh"; const val CLOSE = "close"; const val USER = "user"
         val ALL = listOf(SPEED, QUALITY, AUDIO, CC, EQ, CHAPTERS, QUEUE, PIP, AUTOPLAY, NEXT, DELAY, STYLE, ASPECT, INFO, RELATED,
-            PLAY, PAUSE, PREV, REW, FWD, AUDIO_ONLY, SHUFFLE, REPEAT, REPEAT_ONE, LYRICS, VIDEO, MUSIC)
+            PLAY, PAUSE, PREV, REW, FWD, AUDIO_ONLY, SHUFFLE, REPEAT, REPEAT_ONE, LYRICS, VIDEO, MUSIC, STOP, SEARCH, HOME, PHONE, REFRESH, CLOSE, USER)
     }
 
     private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
@@ -88,6 +90,13 @@ class PlayerIcon(private val kind: String, private val tint: ColorStateList = Co
                 if (kind == REPEAT_ONE) { f.textSize = s * 0.34f; f.isFakeBoldText = true; f.textAlign = Paint.Align.CENTER; c.drawText("1", x(0.5f), y(0.62f), f) } }
             LYRICS -> { line(0.1f, 0.2f, 0.9f, 0.2f); line(0.1f, 0.42f, 0.9f, 0.42f); line(0.1f, 0.64f, 0.66f, 0.64f); line(0.1f, 0.86f, 0.48f, 0.86f) }
             VIDEO -> { rect(0.06f, 0.2f, 0.94f, 0.8f, 0.1f); tri(0.42f, 0.34f, 0.42f, 0.66f, 0.7f, 0.5f) }
+            SEARCH -> { c.drawCircle(x(0.42f), y(0.42f), s * 0.28f, p); line(0.63f, 0.63f, 0.9f, 0.9f) }
+            HOME -> { line(0.08f, 0.5f, 0.5f, 0.12f); line(0.5f, 0.12f, 0.92f, 0.5f); line(0.2f, 0.42f, 0.2f, 0.88f); line(0.8f, 0.42f, 0.8f, 0.88f); line(0.2f, 0.88f, 0.8f, 0.88f); line(0.42f, 0.88f, 0.42f, 0.62f); line(0.42f, 0.62f, 0.58f, 0.62f); line(0.58f, 0.62f, 0.58f, 0.88f) }
+            PHONE -> { rect(0.28f, 0.06f, 0.72f, 0.94f, 0.1f); line(0.44f, 0.82f, 0.56f, 0.82f) }
+            REFRESH -> { r.set(x(0.14f), y(0.14f), x(0.86f), y(0.86f)); c.drawArc(r, 40f, 290f, false, p); tri(0.78f, 0.04f, 0.78f, 0.36f, 0.5f, 0.2f) }
+            CLOSE -> { line(0.2f, 0.2f, 0.8f, 0.8f); line(0.8f, 0.2f, 0.2f, 0.8f) }
+            USER -> { c.drawCircle(x(0.5f), y(0.33f), s * 0.18f, p); r.set(x(0.16f), y(0.58f), x(0.84f), y(1.2f)); c.drawArc(r, 180f, 180f, false, p) }
+            STOP -> { r.set(x(0.2f), y(0.2f), x(0.8f), y(0.8f)); c.drawRoundRect(r, s * 0.08f, s * 0.08f, f) }
             MUSIC -> { line(0.38f, 0.2f, 0.38f, 0.72f); line(0.38f, 0.2f, 0.84f, 0.1f); line(0.84f, 0.1f, 0.84f, 0.6f); c.drawCircle(x(0.28f), y(0.76f), s * 0.12f, f); c.drawCircle(x(0.74f), y(0.66f), s * 0.12f, f) }
             else -> c.drawCircle(x(0.5f), y(0.5f), s * 0.3f, p)
         }

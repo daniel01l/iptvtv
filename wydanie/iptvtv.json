@@ -1,6 +1,6 @@
 {
-  "versionCode": 69,
-  "versionName": "7.9",
+  "versionCode": 70,
+  "versionName": "7.10",
   "apk": "D-iptv-Player.apk",
-  "notes": "STube: music-style layout (icon rail, library chips, square covers), two-zone music player (cover, controls, up next, lyrics) - optional, off by default (toggle in the player and in Settings); better recommendations from many artists, mixes of 100+ tracks that start right away in the player. / STube: wyglad jak aplikacje muzyczne (pasek ikon, pigulki biblioteki, kwadratowe okladki), dwustrefowy odtwarzacz muzyki (okladka, sterowanie, nastepne w kolejce, tekst) - opcjonalny, domyslnie wylaczony (przelacznik w odtwarzaczu i w Ustawieniach); trafniejsze rekomendacje z wielu wykonawcow, miksy 100+ utworow uruchamiane od razu w odtwarzaczu."
+  "notes": "STube music view: focus no longer disappears, stays on for next tracks, karaoke-style synced lyrics, new options window, hi-res cover and background; suggestions only from songs (no compilations, vlogs or films); shelf of suggestions slides up from the bottom (handle under the progress bar); drawn icons instead of emoji. / STube widok muzyczny: zaznaczenie nie znika, zostaje dla nastepnych utworow, tekst zsynchronizowany jak karaoke, nowe okno opcji, okladka i tlo w wysokiej rozdzielczosci; propozycje tylko z piosenek (bez skladanek, vlogow i filmow); polka propozycji wysuwana od dolu (uchwyt pod paskiem postepu); rysowane ikony zamiast emoji."
 }

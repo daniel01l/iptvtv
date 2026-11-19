@@ -16,8 +16,17 @@ import org.json.JSONObject
 object YtLyrics {
     var apiBase = "https://lrclib.net/api"
     const val CACHE_MAX = 30
-    private val cache = object : LinkedHashMap<String, String?>(16, 0.75f, true) {
-        override fun removeEldestEntry(e: MutableMap.MutableEntry<String, String?>) = size > CACHE_MAX
+
+    /** Wiersz tekstu z czasem (ms) rozpoczęcia – karaoke. */
+    data class Line(val ms: Long, val text: String)
+
+    /** Tekst: zwykły ([plain]) i – gdy baza ma znaczniki czasu – wiersze zsynchronizowane z utworem ([synced]). */
+    class Result(val plain: String, val synced: List<Line>) {
+        val isSynced get() = synced.size >= 2
+    }
+
+    private val cache = object : LinkedHashMap<String, Result?>(16, 0.75f, true) {
+        override fun removeEldestEntry(e: MutableMap.MutableEntry<String, Result?>) = size > CACHE_MAX
     }
 
     /** Tytuł bez dopisków typu „(Official Video)”, „[HD]”, „ft. …”, „- Topic”, „| kanał”. */
@@ -36,7 +45,7 @@ object YtLyrics {
     }
 
     /** Tekst (zwykły, bez znaczników czasu) albo null. Wywołanie w tle (Dispatchers.IO). */
-    suspend fun find(title: String, channel: String, durationSec: Long = 0): String? {
+    suspend fun find(title: String, channel: String, durationSec: Long = 0): Result? {
         if (!Prefs.ytLyrics) return null
         val (artist, track) = artistAndTrack(title, channel)
         if (track.isBlank()) return null
@@ -47,27 +56,45 @@ object YtLyrics {
         return text
     }
 
-    private fun fetch(artist: String, track: String, durationSec: Long): String? {
+    private fun fetch(artist: String, track: String, durationSec: Long): Result? {
         fun get(url: okhttp3.HttpUrl): String? = Repository.http.newCall(Request.Builder().url(url).header("User-Agent", "D-iptv-Player").build()).execute().use { r ->
             if (!r.isSuccessful) null else r.body?.string()
         }
         // dokładne dopasowanie (wykonawca + tytuł + czas ±2 s); bez wyniku – wyszukiwanie
         val exact = "$apiBase/get".toHttpUrl().newBuilder().addQueryParameter("artist_name", artist).addQueryParameter("track_name", track)
             .apply { if (durationSec > 0) addQueryParameter("duration", durationSec.toString()) }.build()
-        get(exact)?.let { parse(JSONObject(it))?.let { t -> return t } }
+        val first = get(exact)?.let { parse(JSONObject(it)) }
+        if (first?.isSynced == true) return first
         val search = "$apiBase/search".toHttpUrl().newBuilder().addQueryParameter("track_name", track)
             .apply { if (artist.isNotBlank()) addQueryParameter("artist_name", artist) }.build()
-        val arr = get(search)?.let { JSONArray(it) } ?: return null
-        for (i in 0 until arr.length()) parse(arr.optJSONObject(i) ?: continue)?.let { return it }
-        return null
+        val arr = runCatching { get(search)?.let { JSONArray(it) } }.getOrNull()
+        val found = if (arr == null) emptyList() else (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i)?.let(::parse) }
+        return found.firstOrNull { it.isSynced } ?: first ?: found.firstOrNull()
     }
 
-    /** Tekst z odpowiedzi: zwykły albo (gdy brak) zsynchronizowany bez znaczników czasu; utwór instrumentalny – null. */
-    fun parse(o: JSONObject): String? {
+    /** Tekst z odpowiedzi (zwykły + zsynchronizowany); utwór instrumentalny albo brak tekstu – null. */
+    fun parse(o: JSONObject): Result? {
         if (o.optBoolean("instrumental")) return null
-        val plain = o.optString("plainLyrics").trim()
-        if (plain.isNotEmpty()) return plain
-        val synced = o.optString("syncedLyrics")
-        return synced.lines().map { it.replace(Regex("^\\[[^\\]]*]\\s*"), "") }.joinToString("\n").trim().ifEmpty { null }
+        val synced = parseSynced(o.optString("syncedLyrics"))
+        var plain = o.optString("plainLyrics").trim()
+        if (plain.isEmpty() && synced.isNotEmpty()) plain = synced.joinToString("\n") { it.text }
+        if (plain.isEmpty()) return null
+        return Result(plain, synced)
+    }
+
+    /** Wiersze LRC: „[mm:ss.xx] tekst” (także kilka znaczników na wiersz), posortowane po czasie. */
+    fun parseSynced(lrc: String): List<Line> {
+        val tag = Regex("""\[(\d+):(\d+(?:[.:]\d+)?)]""")
+        val out = ArrayList<Line>()
+        for (raw in lrc.lines()) {
+            val stamps = tag.findAll(raw).toList()
+            if (stamps.isEmpty()) continue
+            val text = raw.substring(stamps.last().range.last + 1).trim()
+            for (s in stamps) {
+                val sec = s.groupValues[2].replace(':', '.').toDoubleOrNull() ?: continue
+                out += Line((s.groupValues[1].toLong() * 60_000 + sec * 1000).toLong(), text)
+            }
+        }
+        return out.sortedBy { it.ms }
     }
 }

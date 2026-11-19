@@ -103,6 +103,12 @@
 
 Kanał trafia do „ostatnio oglądanych” po co najmniej 1 minucie odtwarzania.
 
+**v7.10** (19.11.2026):
+- **Widok muzyczny STube**: zaznaczenie nie znika po zmianie utworu, widok zostaje na kolejnych piosenkach (koniec utworu = następna propozycja, bez okna z teledyskiem), przycisk „Teledysk” w rzędzie sterowania, okładka i rozmyte tło w wysokiej rozdzielczości, wyraźniejsze zakładki i bieżący utwór; **tekst zsynchronizowany jak karaoke** (śpiewany wiersz podświetlony i wyśrodkowany, stuknięcie przewija); **nowe okno opcji** w stylu widoku (ikony, wartości, kolory motywu).
+- **Propozycje tylko z piosenek**: bez składanek („Hity 2026”), wideo dłuższych niż 9 minut, vlogów, filmów i odcinków; w playlistach i autoodtwarzaniu wykonawcy przeplatani.
+- **Zwykły odtwarzator STube**: propozycje po OK nie zasłaniają już obrazu – wysuwa je od dołu uchwyt „⌃” pod paskiem postępu (▼ / OK).
+- **STube i cała aplikacja**: ikony paska i kafelków rysowane zamiast emoji (spójne z motywem), różne okładki miksów, podpisy podpowiedzi motywu PS5 tłumaczone na wybrany język.
+
 **v7.9** (19.11.2026):
 - **STube – nowy wygląd w stylu muzycznych aplikacji na TV**: pionowy pasek ikon po lewej (konto, szukaj, start, biblioteka, telefon, SmartTube, odśwież, zamknij; ◄ na początku rzędu wchodzi w pasek, ► wraca do rzędu; na wąskim telefonie pasek jest poziomo u góry), pod wyszukiwarką pigułki biblioteki (Start / Ostatnie / Miksy 100+ / Playlisty / Polubione lub Na później / Subskrypcje), kwadratowe okładki w rzędach Muzyka, Miksy i Biblioteka, okrągłe kafelki kanałów. Kolory, obwódki fokusu i kształty z aktualnego motywu aplikacji; treść przycięta do swoich granic (bez wystających tekstur). Cała dotychczasowa funkcjonalność bez zmian.
 - **Odtwarzacz muzyczny (dwie strefy)**: po włączeniu (domyślnie wyłączony: przycisk „Widok muzyczny” na pasku odtwarzacza, MENU lub Ustawienia; działa dla bieżącego i kolejnych utworów) – rozmyte tło w kolorach okładki (zmieszane z motywem), po lewej / u góry (telefon w pionie) kwadratowa okładka, tytuł, wykonawca, pasek postępu z czasem oraz przyciski: Losowo, Poprzedni, Odtwórz/Pauza, Następny, Powtarzanie utworu, Teledysk, Opcje. Po prawej / na dole zakładki „Następne w kolejce” (pilotem lub dotykiem; pusta kolejka – propozycje) i „Tekst” piosenki (gdy dostępny; źródło: otwarta baza LRCLIB – wysyłany jest tylko tytuł, wykonawca i czas utworu; wyłączane `Prefs.ytLyrics`). „Teledysk” przełącza na zwykły odtwarzacz wideo, „Widok muzyczny” (pasek opcji / MENU) wraca. Tryb Tylko dźwięk i PiP na telefonie działają jak dotąd.

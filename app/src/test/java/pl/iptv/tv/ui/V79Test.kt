@@ -54,7 +54,7 @@ class V79Test {
         StubeHistory.useDatabase(db)
         server = MockWebServer().apply { dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest) = when {
-                request.path!!.startsWith("/lyrics/get") -> MockResponse().setBody(JSONObject().put("plainLyrics", "Pierwsza linijka\nDruga linijka").toString())
+                request.path!!.startsWith("/lyrics/get") -> MockResponse().setBody(JSONObject().put("plainLyrics", "Pierwsza linijka\nDruga linijka").put("syncedLyrics", "[00:00.00] Pierwsza linijka\n[00:01.50] Druga linijka\n[10:00.00] Trzecia").toString())
                 request.path!!.startsWith("/sb/") -> MockResponse().setBody("[]")
                 else -> MockResponse().setResponseCode(404)
             }
@@ -174,7 +174,7 @@ class V79Test {
     }
 
     @Test fun musicStageHasTwoZonesWithQueueAndLyrics() {
-        val rel = (1..3).map { YtVideo("rel$it", "Utwór $it", "Wykonawca $it", duration = "PT3M") }
+        val rel = (1..3).map { YtVideo("rel$it", "Wykonawca $it – Utwór $it (Official Audio)", "Wykonawca $it", duration = "PT3M") }
         val a = player("Artist – Song (Official Music Video)", rel)
         assertTrue(a.stageWanted); assertTrue(a.stageShown)
         val s = a.stage
@@ -227,9 +227,99 @@ class V79Test {
         assertEquals("Song", YtLyrics.cleanTitle("Song (Official Video) ft. Ktoś"))
         assertEquals("Artist" to "Song", YtLyrics.artistAndTrack("Artist – Song (Official Music Video)", "VEVO"))
         assertEquals("Kanał" to "Sam tytuł", YtLyrics.artistAndTrack("Sam tytuł [HD]", "Kanał - Topic"))
-        assertEquals("a\nb", YtLyrics.parse(JSONObject().put("syncedLyrics", "[00:01.00] a\n[00:02.50] b")))
+        val r = YtLyrics.parse(JSONObject().put("syncedLyrics", "[00:01.00] a\n[00:02.50][00:09.00] b"))!!
+        assertEquals("a\nb\nb", r.plain); assertTrue(r.isSynced)
+        assertEquals(listOf(1000L, 2500L, 9000L), r.synced.map { it.ms })
         assertNull(YtLyrics.parse(JSONObject().put("instrumental", true).put("plainLyrics", "x")))
         Prefs.ytLyrics = false
         assertNull(runBlocking { YtLyrics.find("Inny tytuł 1", "Wykonawca", 100) })
     }
+    private fun pvOf(v: View): androidx.media3.ui.PlayerView? = v as? androidx.media3.ui.PlayerView
+        ?: (v as? android.view.ViewGroup)?.let { g -> (0 until g.childCount).firstNotNullOfOrNull { pvOf(g.getChildAt(it)) } }
+
+    // ---------------- poprawki widoku muzycznego ----------------
+
+    @Test fun compilationsAreNeverSuggestedAndArtistsAlternate() {
+        fun vv(id: String, t: String, ch: String, d: String) = YtVideo(id, t, ch, duration = d)
+        assertTrue(StubeMixes.isCompilation(vv("1", "Hity 2026 – Najlepsza muzyka", "K", "PT55M")))
+        assertTrue(StubeMixes.isCompilation(vv("2", "Pop Hits 2026 Mix", "K", "PT8M")))
+        assertTrue(StubeMixes.isCompilation(vv("3", "Piosenka", "K", "PT25M")))
+        assertTrue(StubeMixes.isCompilation(vv("5", "Top 50 songs of the year", "K", "PT3M")))
+        assertFalse(StubeMixes.isCompilation(vv("4", "Artist – Song (Official Video)", "K", "PT3M40S")))
+        val rel = listOf(vv("c1", "Hity 2026 – Składanka", "Mix", "PT1H2M"), vv("a1", "A – Jeden (Official Video)", "A - Topic", "PT3M"),
+            vv("a2", "A – Dwa (Official Video)", "A - Topic", "PT3M"), vv("a3", "A – Trzy (Official Video)", "A - Topic", "PT3M"),
+            vv("b1", "B – Jeden (Official Video)", "B - Topic", "PT3M"), vv("cur", "X", "Y", "PT3M"))
+        val s = StubeMixes.suggest(rel, "cur", "Artist – Song (Official Music Video)", "Artist - Topic")
+        assertTrue(s.none { StubeMixes.isCompilation(it) || it.id == "cur" })
+        assertEquals(listOf("a1", "b1", "a2", "a3"), s.map { it.id })         // wykonawcy naprzemiennie
+        // mix z wyszukiwania też bez składanek
+        val h = (1..6).map { wp("q$it", "Zespół – Rock Hit $it (Official Video)", "Zespół", System.currentTimeMillis() - it * 1000L) }
+        YtKeyless.source = object : YtKeyless.Source {
+            override fun kiosk(id: String) = emptyList<YtVideo>()
+            override fun search(q: String) = (1..20).map { vv("s${q.hashCode()}-$it", if (it % 3 == 0) "Rock Hits 2026 Mix $it" else "$q piosenka $it", "Art$it", if (it % 4 == 0) "PT45M" else "PT3M") }
+        }
+        val vids = runBlocking { StubeMixes.videos(StubeMixes.build(h).first { it.id == "g:rock" }, watchedIds = emptySet()) }
+        assertTrue(vids.size >= StubeMixes.MIN_PLAYLIST); assertTrue(vids.none { StubeMixes.isCompilation(it) })
+    }
+
+    @Test fun shelfSlidesUpFromHandleAndMusicViewStaysForNextTracks() {
+        Prefs.ytMusicView = false
+        val rel = (1..3).map { YtVideo("rel$it", "Wykonawca $it – Utwór $it (Official Audio)", "Wykonawca $it", duration = "PT3M") }
+        val a = player("Artist – Song (Official Music Video)", rel)
+        val pv = pvOf(a.window.decorView)!!
+        pv.showController(); idle()
+        // OK pokazuje tylko pasek – półka schowana, pod postępem uchwyt
+        assertFalse(a.shelfShown); assertTrue(a.shelfHandleShown)
+        a.openShelf(); idle(400)
+        assertTrue(a.shelfShown); assertFalse(a.shelfHandleShown)
+        a.closeShelf(); assertFalse(a.shelfShown); assertTrue(a.shelfHandleShown)
+        // przełącznik widoku muzycznego w odtwarzaczu: od teraz obecna i następne piosenki
+        a.setMusicView(true); idle()
+        assertTrue(a.stageShown)
+        a.playNow(rel[1]); waitFor { YtEngine.video?.id == "rel2" }; idle(400)
+        assertTrue("widok muzyczny zostaje dla następnego utworu", a.stageShown)
+        assertNotNull(a.stage.findFocus())                                   // zaznaczenie nie znika
+        assertSame(a.stage.videoBtn.parent, a.stage.playBtn.parent)          // przycisk teledysku w rzędzie sterowania
+        // koniec utworu: nadal widok muzyczny (nie wraca wideo / panel)
+        a.remote("next"); waitFor { YtEngine.video?.id != "rel2" }; idle(400)
+        assertTrue(a.stageShown); assertNull(a.panel?.takeIf { it.isOpen })
+    }
+
+    @Test fun lyricsAreSyncedLikeKaraoke() {
+        val a = player("Artist – Song (Official Music Video)", emptyList())
+        Prefs.ytMusicView = true; a.setMusicView(true); idle()
+        a.stage.lyricsTab.performClick()
+        waitFor { a.stage.currentLyricLine >= 0 }
+        assertEquals(0, a.stage.currentLyricLine)                            // pozycja ~0 s: śpiewany pierwszy wiersz
+        assertTrue(a.stage.lyricsLabel.contains("Druga linijka"))
+    }
+
+    @Test fun vlogsAndFilmsAreNeverSuggestedAfterASong() {
+        fun vv(id: String, t: String, ch: String, d: String = "PT4M") = YtVideo(id, t, ch, duration = d)
+        val rel = listOf(vv("v1", "Mój dzień – vlog z wakacji", "Youtuber"), vv("v2", "Moja podróż do Włoch", "Youtuber"),
+            vv("v3", "Recenzja nowego telefonu", "Tech"), vv("v4", "Wywiad z gwiazdą", "TV"), vv("v5", "Pełny film akcji", "Kino", "PT1H30M"),
+            vv("m1", "Artysta – Nowa piosenka (Official Video)", "Artysta VEVO"), vv("m2", "Inna – Ballada", "Inna - Topic", "PT3M30S"))
+        val s = StubeMixes.suggest(rel, "cur", "Ktoś – Piosenka (Official Video)", "Ktoś - Topic")
+        assertEquals(listOf("m1", "m2"), s.map { it.id }.sorted())
+        assertTrue(StubeMixes.isNonTrack(vv("x", "Ep. 12 – odcinek specjalny", "K")))
+        assertFalse(StubeMixes.isNonTrack(vv("y", "Zespół – Hit (Official Video)", "K")))
+    }
+
+    @Test fun musicOptionsSheetHasIconsAndBackClosesOnlyTheSheet() {
+        val a = player("Artist – Song (Official Music Video)", emptyList())
+        a.setMusicView(true); idle()
+        a.stage.optionsBtn.performClick(); idle(300)
+        assertTrue(a.stage.optionsOpen)
+        assertTrue(a.stage.optionRows.size >= 8)
+        assertTrue(a.stage.optionRows.first().isFocused || a.stage.findFocus() != null)
+        a.dispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_BACK)); idle(200)
+        assertFalse(a.stage.optionsOpen); assertFalse(a.isFinishing)
+        // podmenu (prędkość) w tym samym stylu; wybór zamyka okno
+        a.stage.optionsBtn.performClick(); idle(300)
+        a.stage.optionRows.first().performClick(); idle(300)
+        assertTrue(a.stage.optionsOpen)                                       // lista prędkości
+        a.stage.optionRows.first().performClick(); idle(300)
+        assertFalse(a.stage.optionsOpen)
+    }
+
 }

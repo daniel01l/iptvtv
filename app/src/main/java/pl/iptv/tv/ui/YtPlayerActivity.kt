@@ -113,6 +113,8 @@ class YtPlayerActivity : AppCompatActivity() {
     val eq: YtEqSession? get() = YtEngine.eq
     val chapters: List<YtChapter> get() = current?.chapters.orEmpty()
     val related: List<YtVideo> get() = current?.related.orEmpty()
+    /** Propozycje po utworze: bez składanek i wideo z kilkunastoma piosenkami, bez ostatnio słuchanych, wielu wykonawców ([pl.iptv.tv.data.StubeMixes.suggest]). */
+    val suggestions: List<YtVideo> get() = pl.iptv.tv.data.StubeMixes.suggest(related, videoId, titleView.text.toString(), current?.channel?.ifBlank { null } ?: video.channel, YtEngine.recentIds)
     /** Dane bieżącego filmu (gdy silnik gra film tego ekranu). */
     private val current: YtPlayable? get() = YtEngine.playable?.takeIf { YtEngine.video?.id == videoId }
     private val live get() = current is YtPlayable.Live
@@ -139,6 +141,10 @@ class YtPlayerActivity : AppCompatActivity() {
     private lateinit var shelfRow: LinearLayout
     private lateinit var shelfAutoplay: TextView
     private var shelfFor: String? = null
+    /** Uchwyt „▲” pod paskiem postępu: wysuwa półkę propozycji od dołu (OK / ▼ na uchwycie). */
+    private lateinit var shelfHandle: TextView
+    private var shelfOpen = false
+    val shelfHandleShown get() = ::shelfHandle.isInitialized && shelfHandle.visibility == View.VISIBLE
     /** Ostatnio zaznaczony kafelek półki (powrót ▼ na to samo miejsce). */
     private var shelfFocus = 0
     val shelfShown get() = ::shelf.isInitialized && shelf.visibility == View.VISIBLE
@@ -221,6 +227,14 @@ class YtPlayerActivity : AppCompatActivity() {
         }
         root.addView(upNextLabel, FrameLayout.LayoutParams(-2, -2, Gravity.END or Gravity.BOTTOM).apply { setMargins(0, 0, Ui.dp(32), Ui.dp(110)) })
         root.addView(buildShelf(), FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply { bottomMargin = Ui.dp(96) })
+        shelfHandle = TextView(this).apply {
+            text = "⌃"; textSize = 20f; gravity = Gravity.CENTER; isFocusable = true; isClickable = true; visibility = View.GONE; contentDescription = "Następne utwory"
+            setPadding(Ui.dp(34), 0, Ui.dp(34), 0); tag = "keepcolor nozoom"
+            setTextColor(PlayerChrome.colors())
+            background = PlayerChrome.pillBg()
+            setOnClickListener { openShelf() }
+        }
+        root.addView(shelfHandle, FrameLayout.LayoutParams(-2, Ui.dp(30), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = Ui.dp(6) })
         playerView.setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { v -> onControllerVisibility(v) })
         setContentView(root)
         // pasek postępu jak w YouTube: czerwony, ◄► na pasku przewija o 10 s
@@ -289,6 +303,7 @@ class YtPlayerActivity : AppCompatActivity() {
     override fun onNewIntent(i: Intent) {
         super.onNewIntent(i)
         setIntent(i)
+        if (!i.getBooleanExtra(EXTRA_RESUME_CURRENT, false) && i.getStringExtra(EXTRA_ID) != YtEngine.video?.id) stageSticky = false   // film wybrany z zewnątrz – znowu decydują jego znaczniki
         if (i.getBooleanExtra(EXTRA_RESUME_CURRENT, false) || i.getStringExtra(EXTRA_ID) == YtEngine.video?.id) { syncUi(); return }
         // inny film (STube, telefon) w tym samym oknie – także w trybie PiP
         fromStartPending = i.getBooleanExtra(EXTRA_FROM_START, false)
@@ -323,7 +338,7 @@ class YtPlayerActivity : AppCompatActivity() {
             handler.removeCallbacks(hideSkip); handler.postDelayed(hideSkip, 3000)
         }
         override fun onEnded(): Boolean {
-            if (related.isEmpty() || isFinishing || isInPip) return false
+            if (stageShown || suggestions.isEmpty() || isFinishing || isInPip) return false   // widok muzyczny: bez okna z teledyskiem – silnik gra następną propozycję
             endedPanel = true; openPanel(TAB_RELATED); startAutoplay(); return true
         }
         override fun onQueueChannel(q: QueueItem): Boolean { QueueUi.play(this@YtPlayerActivity, q); finish(); return true }
@@ -390,7 +405,7 @@ class YtPlayerActivity : AppCompatActivity() {
     private fun chaptersMenu() {
         if (chapters.isEmpty()) { toast("Ten film nie ma rozdziałów"); return }
         val cur = chapterIndex
-        Dialogs.menu(this, "Rozdziały", chapters.mapIndexed { i, c ->
+        playerMenu("Rozdziały", chapters.mapIndexed { i, c ->
             ((if (i == cur) "▶  " else "     ") + clock(c.startMs) + "   " + c.title) to { player?.seekTo(c.startMs); playerView.showController(); updateChapterLabel() }
         })
     }
@@ -410,7 +425,7 @@ class YtPlayerActivity : AppCompatActivity() {
     private fun speedMenu() {
         if (live) { toast("Transmisja na żywo – prędkość 1.0×"); return }
         val cur = Prefs.ytSpeedPct.takeIf { it in SPEEDS } ?: 100
-        Dialogs.menu(this, "Prędkość odtwarzania", SPEEDS.map { pct ->
+        playerMenu("Prędkość odtwarzania", SPEEDS.map { pct ->
             ((if (pct == cur) "✔  " else "     ") + speedLabel(pct) + if (pct == 100) "  (normalna)" else "") to { setSpeed(pct) }
         })
     }
@@ -440,7 +455,7 @@ class YtPlayerActivity : AppCompatActivity() {
         val qs = qualities()
         if (qs.isEmpty()) { toast("Jakość niedostępna dla tego filmu"); return }
         val cur = Prefs.ytQuality
-        Dialogs.menu(this, "Jakość obrazu", listOf((if (cur == 0) "✔  " else "     ") + "Automatycznie" + (playingHeight().takeIf { it > 0 }?.let { " (teraz ${it}p)" } ?: "") to { setQuality(0) }) +
+        playerMenu("Jakość obrazu", listOf((if (cur == 0) "✔  " else "     ") + "Automatycznie" + (playingHeight().takeIf { it > 0 }?.let { " (teraz ${it}p)" } ?: "") to { setQuality(0) }) +
             qs.map { h -> ((if (cur == h) "✔  " else "     ") + "${h}p" + if (h >= 2160) " 4K" else if (h >= 1080) " HD" else "") to { setQuality(h) } })
     }
 
@@ -462,7 +477,7 @@ class YtPlayerActivity : AppCompatActivity() {
     private fun audioMenu() {
         val gs = groups(C.TRACK_TYPE_AUDIO)
         if (gs.size < 2) { toast("Ten film ma jedną ścieżkę dźwięku" + (gs.firstOrNull()?.let { " (${label(it.getTrackFormat(0), 0)})" } ?: "")); return }
-        Dialogs.menu(this, "Ścieżka dźwięku", gs.mapIndexed { i, g ->
+        playerMenu("Ścieżka dźwięku", gs.mapIndexed { i, g ->
             ((if (g.isSelected) "✔  " else "     ") + label(g.getTrackFormat(0), i)) to { selectTrack(C.TRACK_TYPE_AUDIO, g) }
         })
     }
@@ -471,7 +486,7 @@ class YtPlayerActivity : AppCompatActivity() {
         val gs = groups(C.TRACK_TYPE_TEXT)
         if (gs.isEmpty()) { toast("Brak napisów dla tego filmu"); return }
         val anyOn = gs.any { it.isSelected }
-        Dialogs.menu(this, "Napisy", listOf((if (!anyOn) "✔  " else "     ") + "Wyłączone" to { selectTrack(C.TRACK_TYPE_TEXT, null) }) +
+        playerMenu("Napisy", listOf((if (!anyOn) "✔  " else "     ") + "Wyłączone" to { selectTrack(C.TRACK_TYPE_TEXT, null) }) +
             gs.mapIndexed { i, g -> ((if (g.isSelected) "✔  " else "     ") + label(g.getTrackFormat(0), i)) to { selectTrack(C.TRACK_TYPE_TEXT, g) } })
     }
 
@@ -506,7 +521,9 @@ class YtPlayerActivity : AppCompatActivity() {
     }
 
     private fun buildShelf(): View {
-        shelf = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE; setPadding(Ui.dp(40), 0, Ui.dp(40), 0)
+        shelf = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE; setPadding(Ui.dp(40), Ui.dp(28), Ui.dp(40), 0)
+            // ciemny gradient od góry: kontrolki środka paska nie prześwitują spod półki
+            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0x00000000, 0xE6000000.toInt(), 0xF0000000.toInt()))
             clipChildren = false; clipToPadding = false }
         val head = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; clipChildren = false }
         head.addView(TextView(this).apply { text = "Następne utwory"; setTextColor(Color.WHITE); textSize = 17f; typeface = Ui.typeface(android.graphics.Typeface.BOLD)
@@ -544,17 +561,40 @@ class YtPlayerActivity : AppCompatActivity() {
         return box
     }
 
-    /** Półka widoczna razem z paskiem – tylko przy muzyce z propozycjami (filmy: „Co następuje” w rogu). */
+    /**
+     * Półka propozycji (muzyka, zwykły odtwarzacz): domyślnie schowana; pod paskiem postępu jest uchwyt „⌃” (▼ z kontrolek),
+     * a OK / ▼ na nim wysuwa półkę od dołu. Znika razem z paskiem. W widoku muzycznym propozycje są po prawej stronie ekranu.
+     */
     private fun updateShelf() {
         if (!::shelf.isInitialized) return
-        val show = isMusic && related.isNotEmpty() && playerView.isControllerFullyVisible && !isInPip
+        val avail = isMusic && suggestions.isNotEmpty() && playerView.isControllerFullyVisible && !isInPip && !stageShown
+        if (!avail) shelfOpen = false
+        val show = avail && shelfOpen
         if (show && shelfFor != videoId) {
             shelfFor = videoId
             shelfRow.removeAllViews()
-            related.filter { it.id != videoId }.take(SHELF_MAX).forEach { shelfRow.addView(shelfTile(it), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = Ui.dp(14) }) }
+            suggestions.take(SHELF_MAX).forEach { shelfRow.addView(shelfTile(it), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = Ui.dp(14) }) }
         }
-        shelf.visibility = if (show) View.VISIBLE else View.GONE
+        if (show && shelf.visibility != View.VISIBLE) {
+            shelf.visibility = View.VISIBLE
+            shelf.translationY = Ui.dp(220).toFloat(); shelf.alpha = 0f
+            shelf.animate().translationY(0f).alpha(1f).setDuration(220).start()
+        } else if (!show) { shelf.animate().cancel(); shelf.translationY = 0f; shelf.alpha = 1f; shelf.visibility = View.GONE }
+        shelfHandle.visibility = if (avail && !shelfOpen) View.VISIBLE else View.GONE
         if (show) upNextLabel.visibility = View.GONE
+    }
+
+    /** Wysuwa półkę od dołu i zaznacza ostatnio wybrany kafelek. */
+    fun openShelf() {
+        shelfOpen = true; shelfFor = null; updateShelf()
+        playerView.showController()
+        (shelfRow.getChildAt(shelfFocus.coerceIn(0, maxOf(0, shelfRow.childCount - 1))) ?: shelfAutoplay).requestFocus()
+    }
+
+    /** Chowa półkę; fokus wraca na uchwyt. */
+    fun closeShelf() {
+        shelfOpen = false; updateShelf()
+        if (shelfHandle.visibility == View.VISIBLE) shelfHandle.requestFocus()
     }
 
     /** Odliczanie autoodtwarzania po końcu filmu (panel propozycji otwarty; dowolny klawisz – anulowanie). */
@@ -562,7 +602,7 @@ class YtPlayerActivity : AppCompatActivity() {
     val autoplayPending get() = autoplayAt > 0
     private val autoplayTick = object : Runnable {
         override fun run() {
-            val next = related.firstOrNull { it.id != videoId } ?: run { cancelAutoplay(); return }
+            val next = suggestions.firstOrNull() ?: run { cancelAutoplay(); return }
             val left = ((autoplayAt - android.os.SystemClock.uptimeMillis()) / 1000).toInt()
             if (left <= 0) { autoplayAt = 0; skipLabel.visibility = View.GONE; playNow(next); return }
             skipLabel.text = "▶  Za $left s: ${next.title}\nWSTECZ lub dowolny klawisz – anuluj"
@@ -572,7 +612,7 @@ class YtPlayerActivity : AppCompatActivity() {
     }
 
     private fun startAutoplay() {
-        if (!Prefs.ytAutoplay || related.none { it.id != videoId }) return
+        if (!Prefs.ytAutoplay || suggestions.isEmpty()) return
         autoplayAt = android.os.SystemClock.uptimeMillis() + AUTOPLAY_MS
         handler.removeCallbacks(autoplayTick); handler.post(autoplayTick)
     }
@@ -591,7 +631,7 @@ class YtPlayerActivity : AppCompatActivity() {
                 val prog = pl.iptv.tv.data.Repository.byKey(q.ref)?.let { pl.iptv.tv.data.Repository.current(it) }
                 "⏭ Co następuje:  📺 ${q.title}" + (prog?.let { "\n${it.title} • do ${Fmt.time(it.end)}" } ?: "")
             }
-            related.isNotEmpty() -> "Proponowane:  ▶ ${related.first().title}"
+            suggestions.isNotEmpty() -> "Proponowane:  ▶ ${suggestions.first().title}"
             else -> ""
         }
         upNextLabel.text = text
@@ -601,7 +641,9 @@ class YtPlayerActivity : AppCompatActivity() {
     // ---------------- widok muzyczny (7.9) ----------------
 
     /** Widok muzyczny na ekranie: utwór (nie transmisja), włączony ([Prefs.ytMusicView]), poza trybem PiP i oknem awaryjnym. */
-    val stageWanted: Boolean get() = Prefs.ytMusicView && isMusic && !live && !isInPip && fallbackDialog?.isShowing != true
+    val stageWanted: Boolean get() = Prefs.ytMusicView && !live && (isMusic || stageSticky) && !isInPip && fallbackDialog?.isShowing != true
+    /** Widok muzyczny już był na ekranie w tym oknie – zostaje dla kolejnych utworów (autoodtwarzanie, kolejka, poprzedni), także gdy tytuł nie ma znaczników muzyki. */
+    private var stageSticky = false
     val stageShown get() = ::stage.isInitialized && stage.visibility == View.VISIBLE
 
     private fun stageArtist() = (current?.channel?.ifBlank { null } ?: video.channel).removeSuffix("- Topic").trim()
@@ -613,8 +655,9 @@ class YtPlayerActivity : AppCompatActivity() {
         val want = stageWanted
         val was = stage.visibility == View.VISIBLE
         if (want) {
+            stageSticky = true
             stage.bind(videoId, titleView.text.toString(), stageArtist(), stageThumb())
-            val sig = "$videoId|${StubeQueue.version}|${related.size}"
+            val sig = "$videoId|${StubeQueue.version}|${suggestions.size}"
             if (sig != stageSig) { stageSig = sig; stage.refresh() } else stage.updatePlay()
         }
         if (want != was) {
@@ -628,6 +671,7 @@ class YtPlayerActivity : AppCompatActivity() {
         // widok muzyczny zasłania obraz – dekoder obrazu niepotrzebny (oszczędność); teledysk / zwykły widok włącza go z powrotem
         client?.let { if (stageBackground != want) { stageBackground = want; it.setBackground(want || YtEngine.audioOnly) } }
         musicBtn.visibility = if (!want && !Prefs.ytMusicView && isMusic && !live && !isInPip) View.VISIBLE else View.GONE
+        if (want && was && stage.findFocus() == null && panel?.isOpen != true && fallbackDialog?.isShowing != true) stage.focusDefault()
     }
 
     /** Przełącznik widoku: muzyka (okładka, kolejka, tekst) ↔ teledysk (zwykły odtwarzacz wideo z paskiem). */
@@ -666,7 +710,7 @@ class YtPlayerActivity : AppCompatActivity() {
         override fun entries(): List<YtMusicStage.Entry> {
             val cur = YtMusicStage.Entry(titleView.text.toString(), stageArtist(), stageThumb(), video, current = true)
             val queued = StubeQueue.cached.filter { !(it.isVideo && it.ref == videoId) }.map { YtMusicStage.Entry(it.title, it.subtitle, it.thumb, if (it.isVideo) it.toVideo() else null, it) }
-            val rest = queued.ifEmpty { related.filter { it.id != videoId }.take(25).map { YtMusicStage.Entry(it.title, it.channel, it.thumb, it) } }
+            val rest = queued.ifEmpty { suggestions.take(25).map { YtMusicStage.Entry(it.title, it.channel, it.thumb, it) } }
             return listOf(cur) + rest
         }
         override fun wantLyrics() {
@@ -817,8 +861,42 @@ class YtPlayerActivity : AppCompatActivity() {
     /** Okno korektora (testy). */
     var eqDialog: AlertDialog? = null; private set
 
+    /** Menu wyboru: w widoku muzycznym – okno w stylu widoku ([YtMusicStage.showOptions]), inaczej zwykłe okno systemowe z motywem. */
+    private fun playerMenu(title: String, items: List<Pair<String, () -> Unit>>) {
+        if (stageShown) stage.showOptions(title, items.map { (l, a) -> YtMusicStage.Opt("", l, action = a) })
+        else Dialogs.menu(this, title, items)
+    }
+
+    /** Opcje widoku muzycznego: ikony, wartości po prawej, wszystko w jednym oknie ze stylem motywu. */
+    private fun showMusicOptions() {
+        val opts = buildList {
+            add(YtMusicStage.Opt(PlayerIcon.SPEED, "Prędkość", speedLabel(if (live) 100 else Prefs.ytSpeedPct)) { speedMenu() })
+            add(YtMusicStage.Opt(PlayerIcon.QUALITY, "Jakość", if (Prefs.ytQuality > 0) "${Prefs.ytQuality}p" else "Auto") { qualityMenu() })
+            if (groups(C.TRACK_TYPE_AUDIO).size > 1) add(YtMusicStage.Opt(PlayerIcon.AUDIO, "Ścieżka dźwięku") { audioMenu() })
+            if (groups(C.TRACK_TYPE_TEXT).isNotEmpty()) add(YtMusicStage.Opt(PlayerIcon.CC, "Napisy") { subtitlesMenu() })
+            add(YtMusicStage.Opt(PlayerIcon.EQ, "Dźwięk – korektor", YtEq.PRESETS.getOrElse(Prefs.ytEqPreset) { "Płaski" }) { eqPanel() })
+            if (chapters.isNotEmpty()) add(YtMusicStage.Opt(PlayerIcon.CHAPTERS, "Rozdziały", "${chapters.size}") { chaptersMenu() })
+            add(YtMusicStage.Opt(PlayerIcon.AUTOPLAY, "Autoodtwarzanie", if (Prefs.ytAutoplay) "wł." else "wył.") { toggleAutoplay() })
+            add(YtMusicStage.Opt(PlayerIcon.LYRICS, "Teksty piosenek", if (Prefs.ytLyrics) "wł." else "wył.") {
+                Prefs.ytLyrics = !Prefs.ytLyrics; stage.resetLyrics(); toast("Teksty piosenek " + if (Prefs.ytLyrics) "włączone" else "wyłączone")
+            })
+            add(YtMusicStage.Opt(PlayerIcon.VIDEO, "Teledysk (wideo)") { setMusicView(false) })
+            if (!Tutorial.isTv(this@YtPlayerActivity)) add(YtMusicStage.Opt(PlayerIcon.AUDIO_ONLY, "Tylko dźwięk", if (YtEngine.audioOnly) "wł." else "wył.") { toggleAudioOnly() })
+            if (pipSupported && !YtEngine.audioOnly) add(YtMusicStage.Opt(PlayerIcon.PIP, "Obraz w obrazie") { enterPip() })
+            add(YtMusicStage.Opt(PlayerIcon.QUEUE, "Propozycje i kolejka") { openPanel(TAB_RELATED) })
+            add(YtMusicStage.Opt(PlayerIcon.INFO, "SponsorBlock", if (Prefs.sbEnabled) "wł." else "wył.") {
+                Prefs.sbEnabled = !Prefs.sbEnabled
+                toast("SponsorBlock " + if (Prefs.sbEnabled) "włączony (od następnego filmu)" else "wyłączony (od następnego filmu)")
+            })
+            add(YtMusicStage.Opt(PlayerIcon.INFO, "Wygaszacz teraz") { showAmbient() })
+            add(YtMusicStage.Opt(PlayerIcon.STOP, "Zatrzymaj odtwarzanie") { YtEngine.stop(); finish() })
+        }
+        stage.showOptions("Opcje odtwarzania", opts)
+    }
+
     /** Opcje odtwarzania (MENU na pilocie). */
     private fun optionsMenu() {
+        if (stageShown) { showMusicOptions(); return }
         Dialogs.menu(this, "Opcje odtwarzania", buildList {
             add("⏩ Prędkość: " + speedLabel(if (live) 100 else Prefs.ytSpeedPct) to { speedMenu() })
             add("🎞 Jakość: " + (if (Prefs.ytQuality > 0) "${Prefs.ytQuality}p" else "automatycznie") to { qualityMenu() })
@@ -848,7 +926,7 @@ class YtPlayerActivity : AppCompatActivity() {
     /** Panel boczny: „Propozycje” (podobne filmy) i „Kolejka” (filmy STube i kanały TV). */
     fun openPanel(tab: Int = TAB_RELATED) {
         val p = panel ?: SidePanel(this, listOf(
-            SidePanel.Tab("▶ Propozycje", "Brak propozycji dla tego filmu") { related.map { v -> QueueUi.videoEntry(this, v, { panel?.reload(); updateButtons() }) { playNow(it) } } },
+            SidePanel.Tab("▶ Propozycje", "Brak propozycji dla tego filmu") { suggestions.map { v -> QueueUi.videoEntry(this, v, { panel?.reload(); updateButtons() }) { playNow(it) } } },
             SidePanel.Tab("☰ Kolejka", "Kolejka jest pusta – długie OK na filmie (STube, propozycje) lub kanale (TV) → „Dodaj do kolejki”") {
                 QueueUi.entries(this, { panel?.reload(); updateButtons() }) { q ->
                     lifecycleScope.launch {
@@ -1039,6 +1117,9 @@ class YtPlayerActivity : AppCompatActivity() {
         if (event.keyCode == KeyEvent.KEYCODE_WINDOW) { if (event.action == KeyEvent.ACTION_DOWN) enterPip(); return true }
         // widok muzyczny prowadzi fokus sam (przyciski, pasek, lista, tekst); klawisze multimedialne działają jak w odtwarzaczu
         if (stageShown) {
+            // okno opcji w widoku muzycznym: WSTECZ zamyka je (nie cały odtwarzacz)
+            if (stage.optionsOpen && event.keyCode == KeyEvent.KEYCODE_BACK) { if (event.action == KeyEvent.ACTION_DOWN) stage.closeOptions(); return true }
+            if (stage.optionsOpen) return super.dispatchKeyEvent(event)
             val down = event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0
             when (event.keyCode) {
                 KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { if (down) stageHost.playPause(); return true }
@@ -1080,7 +1161,19 @@ class YtPlayerActivity : AppCompatActivity() {
             if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && f != null && isInside(f, optionsBar)) {
                 playerView.findViewById<View>(androidx.media3.ui.R.id.exo_play_pause)?.let { it.requestFocus(); playerView.showController(); return true }
             }
-            // półka muzyczna: ▼ z kontrolek / paska postępu – kafelki, ▲ z kafelków – ⏯; w półce pasek nie znika
+            // uchwyt pod paskiem postępu: ▼ z kontrolek → uchwyt; OK / ▼ na uchwycie wysuwa półkę od dołu, ▲ wraca na ⏯
+            if (shelfHandleShown && f != null) {
+                if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && !isInside(f, shelfHandle) && isInside(f, playerView)) { shelfHandle.requestFocus(); playerView.showController(); return true }
+                if (isInside(f, shelfHandle)) {
+                    playerView.showController()
+                    when (event.keyCode) {
+                        KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> { openShelf(); return true }
+                        KeyEvent.KEYCODE_DPAD_UP -> { playerView.findViewById<View>(androidx.media3.ui.R.id.exo_play_pause)?.requestFocus(); return true }
+                        KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> return true
+                    }
+                }
+            }
+            // półka wysunięta: w niej pasek nie znika; ▲ z kafelków – schowanie półki (fokus na uchwycie), ▼ z kontrolek – kafelki
             if (shelfShown && f != null) {
                 val inShelf = isInside(f, shelf)
                 if (inShelf) playerView.showController()
@@ -1090,7 +1183,7 @@ class YtPlayerActivity : AppCompatActivity() {
                 }
                 if (event.keyCode == KeyEvent.KEYCODE_DPAD_UP && inShelf && isInside(f, shelfRow)) {
                     shelfFocus = shelfRow.indexOfChild(f).coerceAtLeast(0)
-                    playerView.findViewById<View>(androidx.media3.ui.R.id.exo_play_pause)?.let { it.requestFocus(); playerView.showController(); return true }
+                    closeShelf(); return true
                 }
                 // na skraju półki ◄► nie wychodzą poza nią (fokus nie „przeskakuje” na kontrolki obok)
                 if (inShelf && isInside(f, shelfRow) && ((event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && shelfRow.indexOfChild(f) == 0) ||

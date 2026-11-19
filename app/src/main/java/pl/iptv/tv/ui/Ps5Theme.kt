@@ -186,11 +186,13 @@ class Ps5Hints(c: Context, val items: List<Pair<String, String>>) : View(c) {
     private val icon = Ui.dp(20).toFloat()
     private val gap = Ui.dp(8).toFloat()
     private val sep = Ui.dp(26).toFloat()
+    /** Podpisy podpowiedzi przez słownik języka (rysowane na płótnie – nie przechodzą przez drzewo widoków). */
+    private fun tr(s: String) = I18n.t(s)?.toString() ?: s
 
     override fun onMeasure(wSpec: Int, hSpec: Int) {
         if (mode == Ps5Input.Mode.TOUCH) { setMeasuredDimension(0, 0); return }
         var w = paddingLeft + paddingRight.toFloat()
-        items.forEachIndexed { i, (_, l) -> w += icon + gap + txt.measureText(l) + if (i < items.lastIndex) sep else 0f }
+        items.forEachIndexed { i, (_, l) -> w += icon + gap + txt.measureText(tr(l)) + if (i < items.lastIndex) sep else 0f }
         val h = (paddingTop + paddingBottom + maxOf(icon, txt.textSize * 1.4f)).toInt() + Ui.dp(8)
         setMeasuredDimension(resolveSize(w.toInt() + Ui.dp(16), wSpec), resolveSize(h, hSpec))
     }
@@ -199,14 +201,14 @@ class Ps5Hints(c: Context, val items: List<Pair<String, String>>) : View(c) {
         if (mode == Ps5Input.Mode.TOUCH) return
         // do prawej (jak na konsoli), w wąskim widoku od lewej
         var total = 0f
-        items.forEachIndexed { i, (_, l) -> total += icon + gap + txt.measureText(l) + if (i < items.lastIndex) sep else 0f }
+        items.forEachIndexed { i, (_, l) -> total += icon + gap + txt.measureText(tr(l)) + if (i < items.lastIndex) sep else 0f }
         var x = maxOf(paddingLeft.toFloat() + Ui.dp(8), width - paddingRight - total - Ui.dp(8))
         val cy = height / 2f
         for ((i, it) in items.withIndex()) {
             symbol(c, it.first, x + icon / 2, cy)
             x += icon + gap
-            c.drawText(it.second, x, cy - (txt.descent() + txt.ascent()) / 2, txt)
-            x += txt.measureText(it.second) + if (i < items.lastIndex) sep else 0f
+            c.drawText(tr(it.second), x, cy - (txt.descent() + txt.ascent()) / 2, txt)
+            x += txt.measureText(tr(it.second)) + if (i < items.lastIndex) sep else 0f
         }
     }
 

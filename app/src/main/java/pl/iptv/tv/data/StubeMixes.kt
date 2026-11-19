@@ -56,7 +56,7 @@ object StubeMixes {
     const val MAX_PER_ARTIST = 2
     /** Zapytań uruchamianych równolegle przy uzupełnianiu playlisty. */
     const val BATCH = 6
-    private val VARIANTS = listOf("hits", "best songs", "new", "2020s", "2010s", "2000s", "90s", "classics", "top 50", "playlist")
+    private val VARIANTS = listOf("hits", "new songs", "2020s", "2010s", "2000s", "90s", "official video", "songs")
 
     private val STOP = setOf(
         // PL
@@ -140,8 +140,53 @@ object StubeMixes {
             emptyList(), byWeight.getOrNull(1)?.thumb ?: byWeight.first().thumb, seeds = favs, fill = fill, diverse = music)
         out += Mix("again", "Wróć do ulubionych", "Najczęściej oglądane", emptyList(), byWeight.first().thumb,
             local = byWeight.take(MAX_VIDEOS).map { it.toVideo() }, fill = fill, diverse = music)
-        return out
+        // różne okładki miksów (ten sam film nie powtarza się na kilku kafelkach)
+        val used = HashSet<String>(); val pool = byWeight.map { it.thumb }.filter { it.isNotBlank() }.distinct()
+        return out.map { m ->
+            if (m.thumb.isNotBlank() && used.add(m.thumb)) m
+            else pool.firstOrNull { it !in used }?.let { t -> used.add(t); m.copy(thumb = t) } ?: m
+        }
     }
+
+    /** Najdłuższy film uznawany za pojedynczy utwór (s); dłuższe to składanki, mixy, albumy. */
+    const val MAX_TRACK_SEC = 11 * 60
+    private val COMPILATION = Regex("""(?i)mega ?mix|non-?stop|skladanka|składanka|best of|\btop ?\d+|full album|compilation|\bplaylist|mixtape|\b(dj|hits?|hity|music|muzyka) mix|\d+ ?(hours?|godz\w*|songs|piosenek|hit\w*|utwor\w*)|\b(hity|hits)\b[^|]*\b20\d\d\b|\b20\d\d\b[^|]*\b(hity|hits)\b|najlepsze|największe hity|nowe hity|\blive stream|\bradio\b.*24/7""")
+
+    /** Czas ISO 8601 (PT3M20S) → sekundy; 0 – nieznany / transmisja. */
+    fun durationSec(iso: String): Int {
+        val m = Regex("""^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$""").find(iso) ?: return 0
+        val (d, h, min, s) = m.destructured
+        return (d.toIntOrNull() ?: 0) * 86400 + (h.toIntOrNull() ?: 0) * 3600 + (min.toIntOrNull() ?: 0) * 60 + (s.toIntOrNull() ?: 0)
+    }
+
+    /** Składanka / mix / album w jednym wideo („Hity 2026”, „Best of”, kilkanaście piosenek) – nie jest propozycją utworu. */
+    fun isCompilation(v: YtVideo): Boolean = durationSec(v.duration) > MAX_TRACK_SEC || COMPILATION.containsMatchIn(v.title)
+
+    /** Tytuły typowe dla vlogów, filmów, odcinków, gier, wywiadów – nie piosenek. */
+    private val NON_MUSIC = Regex("""(?i)\bvlog|\bvlogi|#\d+|\bodc(inek)?\b|\bepisode|\bep\.? ?\d+|trailer|zwiastun|\breview|recenzj|reaction|reakcj|gameplay|let'?s play|unboxing|tutorial|poradnik|\bchallenge|wyzwanie|podcast|wywiad|interview|\bnews\b|wiadomo[sś]ci|q ?& ?a\b|full movie|cały film|\bstream\b|asmr|storytime|\bprank|\bshorts?\b|\bfail|\bfilm\b|\bserial|\bkurs\b|lekcj|\bunboxing|\bgra\b""")
+    private val ARTIST_TITLE = Regex("""^.{2,45}\s[-–—]\s.{2,}""")
+
+    /** Nie nadaje się na utwór w playliście: składanka, vlog / film / odcinek albo za długie (> [MAX_TRACK_SEC] / 9 min). */
+    fun isNonTrack(v: YtVideo): Boolean = isCompilation(v) || NON_MUSIC.containsMatchIn(v.title) || durationSec(v.duration) > 9 * 60
+
+    /**
+     * Pewny utwór (propozycje po piosence): nie [isNonTrack] i wyraźny znak muzyki – oznaczenia w tytule, kanał „- Topic” / VEVO,
+     * styl „Wykonawca – Tytuł” albo słowa gatunku. Zwykłe filmy i vlogi YouTuberów odpadają.
+     */
+    fun isTrack(v: YtVideo): Boolean = !isNonTrack(v) && (isMusicVideo(v.title, v.channel) || ARTIST_TITLE.containsMatchIn(v.title))
+
+    /**
+     * Propozycje po utworze: bez składanek, bez bieżącego i ostatnio słuchanych, gatunek bieżącego utworu wyżej, wykonawcy przeplatani
+     * (nie więcej niż [MAX_PER_ARTIST] z jednego, o ile jest z czego wybierać). Nie-muzyka – lista bez zmian. Czysta funkcja – testy.
+     */
+    fun suggest(related: List<YtVideo>, currentId: String, currentTitle: String, currentChannel: String, recent: Set<String> = emptySet()): List<YtVideo> {
+        if (!isMusicVideo(currentTitle, currentChannel) && related.none { isMusicVideo(it.title, it.channel) }) return related.filter { it.id != currentId }
+        val g = GENRES.firstOrNull { it.pattern.containsMatchIn(currentTitle + " " + currentChannel) }
+        val base = related.filter { it.id != currentId && it.id !in recent && it.duration != "P0D" && isTrack(it) }
+        val ranked = if (g == null) base else base.sortedByDescending { if (g.pattern.containsMatchIn(it.title + " " + it.channel)) 1 else 0 }
+        return diversify(ranked, MAX_PER_ARTIST, SUGGEST_MIN)
+    }
+    const val SUGGEST_MIN = 12
 
     /** Klucz wykonawcy filmu (kanał bez „- Topic” / VEVO). */
     fun artistKey(channel: String): String = channel.trim().removeSuffix("- Topic").removeSuffix("VEVO").trim().lowercase()
@@ -239,7 +284,7 @@ object StubeMixes {
     /** Filmy miksu: wyniki zapytań przeplatane, bez powtórzeń i bez filmów już obejrzanych. */
     suspend fun videos(m: Mix, watchedIds: Set<String>? = null): List<YtVideo> {
         val watched = watchedIds ?: StubeHistory.watched(500).map { it.videoId }.toSet()
-        fun ok(v: YtVideo) = v.id !in watched && v.id !in m.seeds && v.duration != "P0D"
+        fun ok(v: YtVideo) = v.id !in watched && v.id !in m.seeds && v.duration != "P0D" && (!m.diverse || !isNonTrack(v))
         val crowd = if (m.seeds.isEmpty()) emptyList() else {
             val lists = m.seeds.map { s -> runCatching { YtKeyless.related(s) }.getOrDefault(emptyList()).filter { it.id !in m.seeds } }
             // jeden zalążek: najpierw Twoje przejścia (z historii), potem propozycje innych widzów; kilka – ranking wspólnych

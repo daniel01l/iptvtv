@@ -155,10 +155,12 @@ class MediaUpgradeTest {
 
     @Test fun musicShelfAutoplayToggleAndCountdown() {
         Prefs.ytMusicView = false   // test półki i paska wideo – widok muzyczny ma osobne testy (V79Test)
-        val rel = (1..3).map { YtVideo("rel$it", "Utwór $it", "Wykonawca", duration = "PT3M") }
+        val rel = (1..3).map { YtVideo("rel$it", "Wykonawca – Utwór $it (Official Audio)", "Wykonawca", duration = "PT3M") }
         val a = player("Artist – Song (Official Music Video)", rel)
         assertTrue(a.isMusic)
         pv(a.window.decorView)!!.showController(); idle()
+        assertFalse(a.shelfShown); assertTrue(a.shelfHandleShown)     // półka wysuwana uchwytem pod paskiem postępu
+        a.openShelf(); idle(400)
         assertTrue(a.shelfShown); assertEquals(3, a.shelfTiles.size)
         // przełącznik autoodtwarzania (pasek / półka / MENU) – od razu w ustawieniach
         a.toggleAutoplay(); assertFalse(Prefs.ytAutoplay)
@@ -174,7 +176,7 @@ class MediaUpgradeTest {
     }
 
     @Test fun autoplayOffAndKeyCancelsCountdown() {
-        val a = player("Artist – Song (Official Music Video)", listOf(YtVideo("rel1", "Utwór 1", "W", duration = "PT3M")))
+        val a = player("Artist – Song (Official Music Video)", listOf(YtVideo("rel1", "W – Utwór 1 (Official Audio)", "W", duration = "PT3M")))
         a.remote("next"); waitFor { a.panel?.isOpen == true }
         assertTrue(a.autoplayPending)
         a.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN)); idle()

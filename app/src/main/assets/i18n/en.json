@@ -2037,5 +2037,21 @@
    "Widok muzyczny (okładka, kolejka, tekst)" : "Music view (cover, queue, lyrics)",
    "Teksty piosenek (z internetu)" : "Song lyrics (from the internet)",
    "Teksty pobierane są z otwartej bazy LRCLIB – wysyłany jest tylko tytuł, wykonawca i czas utworu. Wyłączone – zakładka „Tekst” pokazuje brak tekstu." : "Lyrics come from the open LRCLIB database – only the title, artist and length of the track are sent. When off, the \"Text\" tab shows no lyrics."
+,
+   "Prędkość" : "Speed",
+   "Jakość" : "Quality",
+   "Autoodtwarzanie" : "Autoplay",
+   "Teksty piosenek" : "Song lyrics",
+   "Teksty piosenek włączone" : "Song lyrics on",
+   "Teksty piosenek wyłączone" : "Song lyrics off",
+   "Obraz w obrazie" : "Picture-in-picture",
+   "Propozycje i kolejka" : "Suggestions and queue",
+   "SponsorBlock" : "SponsorBlock",
+   "Wygaszacz teraz" : "Screensaver now"
+,
+   "Twoje miksy (100+ utworów)" : "Your mixes (100+ tracks)"
+,
+   "Autoodtwarzanie: wł." : "Autoplay: on",
+   "Autoodtwarzanie: wył." : "Autoplay: off"
 
 }

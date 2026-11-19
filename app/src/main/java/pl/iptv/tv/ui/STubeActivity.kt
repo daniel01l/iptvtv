@@ -273,8 +273,11 @@ class STubeActivity : BaseActivity() {
     private fun build(force: Boolean = false) {
         jobs.forEach { it.cancel() }; jobs.clear()
         builtFor = stateKey()
-        account.text = if (YouTubeTokens.loggedIn) YouTubeTokens.accountName.trim().take(1).uppercase().ifBlank { "👤" } else "👤"
-        account.textSize = if (YouTubeTokens.loggedIn && account.text != "👤") 18f else 20f
+        // konto: pierwsza litera nazwy po zalogowaniu, inaczej rysowana ikona użytkownika
+        val initial = if (YouTubeTokens.loggedIn) YouTubeTokens.accountName.trim().take(1).uppercase() else ""
+        account.text = initial; account.textSize = 20f; account.typeface = android.graphics.Typeface.DEFAULT_BOLD
+        if (initial.isNotEmpty()) { account.setCompoundDrawables(null, null, null, null); account.setPadding(0, 0, 0, 0); account.gravity = Gravity.CENTER }
+        else account.setCompoundDrawables(PlayerIcon(PlayerIcon.USER, account.textColors).apply { setBounds(0, 0, Ui.dp(24), Ui.dp(24)) }, null, null, null)
         account.contentDescription = if (YouTubeTokens.loggedIn) "Konto YouTube: " + YouTubeTokens.accountName.ifBlank { "Konto" } else "Zaloguj do YouTube"
         info.visibility = View.GONE
         rows = STubeScreen.rows(searchQuery)
@@ -287,12 +290,23 @@ class STubeActivity : BaseActivity() {
 
     // ---------------- pigułki biblioteki (Ostatnie / Playlisty / Miksy / Polubione / Subskrypcje) ----------------
 
+    private val RAIL_ICONS = mapOf(R.id.stAccount to PlayerIcon.USER, R.id.stSearch to PlayerIcon.SEARCH, R.id.stHome to PlayerIcon.HOME, R.id.stLib to PlayerIcon.MUSIC,
+        R.id.stPhone to PlayerIcon.PHONE, R.id.stSmartTube to PlayerIcon.PLAY, R.id.stRefresh to PlayerIcon.REFRESH, R.id.stClose to PlayerIcon.CLOSE)
+
     /** Ikony paska: okrągłe, bez ramek; zaznaczona – wypełnienie koloru zaznaczenia motywu (jak aktywna ikona w aplikacjach muzycznych na TV). */
     private fun styleRail() {
         val foc = intArrayOf(android.R.attr.state_focused); val pr = intArrayOf(android.R.attr.state_pressed)
         for (i in 0 until rail.childCount) (rail.getChildAt(i) as? TextView)?.let { b ->
             b.tag = "keepcolor nozoom"
             b.setTextColor(android.content.res.ColorStateList(arrayOf(foc, pr, intArrayOf()), intArrayOf(Ui.focusText, Ui.focusText, Ui.text)))
+            // ikona rysowana (jak w odtwarzaczach) zamiast emoji: spójna z motywem, ostra w każdym rozmiarze, wyśrodkowana
+            RAIL_ICONS[b.id]?.let { kind ->
+                if (b.id == R.id.stAccount) { b.gravity = Gravity.CENTER; b.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ -> if ((v as TextView).text.isEmpty()) { val pad = (v.width - Ui.dp(24)) / 2; if (v.paddingLeft != pad) v.setPadding(pad, 0, pad, 0) } }; return@let }
+                b.text = ""
+                b.setCompoundDrawables(PlayerIcon(kind, b.textColors).apply { setBounds(0, 0, Ui.dp(24), Ui.dp(24)) }, null, null, null)
+                b.gravity = Gravity.CENTER_VERTICAL
+                b.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ -> val pad = (v.width - Ui.dp(24)) / 2; if (v.paddingLeft != pad) v.setPadding(pad, 0, pad, 0) }
+            }
             b.background = android.graphics.drawable.StateListDrawable().apply {
                 val on = android.graphics.drawable.GradientDrawable().apply { shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(Ui.focus or 0xFF000000.toInt()) }
                 addState(foc, on); addState(pr, on); addState(intArrayOf(), android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))

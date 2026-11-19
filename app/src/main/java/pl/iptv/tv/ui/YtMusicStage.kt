@@ -54,7 +54,7 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
     }
 
     companion object {
-        const val TICK_MS = 500L
+        const val TICK_MS = 250L
         const val TAB_QUEUE = 0; const val TAB_LYRICS = 1
     }
 
@@ -72,16 +72,25 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
     private val list = RecyclerView(c)
     private val lyricsScroll = ScrollView(c)
     private val lyricsText = TextView(c)
+    private val lyricsBox = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL }
+    private var lyricLines: List<TextView> = emptyList()
+    private var lyricTimes = LongArray(0)
+    private var lyricIdx = -1
+    private var holdScrollUntil = 0L
+    private var lyricsPlain = ""
     private val adapter = Adapter()
     private var items: List<Entry> = emptyList()
     var tab = TAB_QUEUE; private set
     private var boundId: String? = null
     private var scrubbing = false
     private var lastPlaying: Boolean? = null
+    private var bodyRef: View? = null
     private var lyricsState = 0       // 0 – nie pobierano, 1 – pobieranie, 2 – jest, 3 – brak
     /** Pierwsza pozycja listy – cel fokusu przy wejściu do prawej strefy (testy). */
     val listView: RecyclerView get() = list
-    val lyricsLabel: String get() = lyricsText.text.toString()
+    val lyricsLabel: String get() = lyricsPlain
+    /** Indeks wiersza tekstu śpiewanego teraz (karaoke; -1 – brak synchronizacji) – testy. */
+    val currentLyricLine: Int get() = lyricIdx
 
     private fun dp(v: Int) = Ui.dp(v)
 
@@ -98,7 +107,7 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
         addView(tintView, LayoutParams(-1, -1))
         tintView.background = scrim(Ui.bg)
 
-        val coverSide = if (wide) minOf((dm.heightPixels * 0.46f).toInt(), (dm.widthPixels * 0.30f).toInt()) else minOf((dm.widthPixels * 0.56f).toInt(), (dm.heightPixels * 0.30f).toInt())
+        val coverSide = if (wide) minOf((dm.heightPixels * 0.40f).toInt(), (dm.widthPixels * 0.30f).toInt()) else minOf((dm.widthPixels * 0.56f).toInt(), (dm.heightPixels * 0.30f).toInt())
         Ui.roundClip(cover, dp(14).toFloat())
 
         titleView.apply { setTextColor(Ui.text); textSize = if (wide) 28f else 22f; typeface = Ui.typeface(android.graphics.Typeface.BOLD); maxLines = 2; ellipsize = TextUtils.TruncateAt.END; gravity = Gravity.CENTER_HORIZONTAL }
@@ -128,9 +137,9 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
         videoBtn = round(PlayerIcon.VIDEO, "Teledysk (wideo)", 44) { host.toVideo() }
         optionsBtn = round(PlayerIcon.CHAPTERS, "Opcje", 44) { host.options() }
         val buttons = LinearLayout(c).apply { gravity = Gravity.CENTER; orientation = LinearLayout.HORIZONTAL; clipChildren = false }
-        for (b in listOf(shuffleBtn, prevBtn, playBtn, nextBtn, repeatBtn)) buttons.addView(b, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(5); marginEnd = dp(5) })
+        for (b in if (wide) listOf(shuffleBtn, prevBtn, playBtn, nextBtn, repeatBtn, videoBtn, optionsBtn) else listOf(shuffleBtn, prevBtn, playBtn, nextBtn, repeatBtn)) buttons.addView(b, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(5); marginEnd = dp(5) })
         val extras = LinearLayout(c).apply { gravity = Gravity.CENTER; orientation = LinearLayout.HORIZONTAL; clipChildren = false }
-        for (b in listOf(videoBtn, optionsBtn)) extras.addView(b, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(5); marginEnd = dp(5) })
+        for (b in if (wide) emptyList() else listOf(videoBtn, optionsBtn)) extras.addView(b, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(5); marginEnd = dp(5) })
 
         val left = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; clipChildren = false }
         left.addView(cover, LinearLayout.LayoutParams(coverSide, coverSide))
@@ -148,7 +157,9 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
         list.apply { layoutManager = LinearLayoutManager(c); adapter = this@YtMusicStage.adapter; itemAnimator = null; clipToPadding = false
             setPadding(0, dp(2), dp(4), dp(24)); isFocusable = false; descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS; overScrollMode = OVER_SCROLL_NEVER }
         lyricsText.apply { setTextColor(Ui.text); textSize = if (wide) 20f else 17f; setLineSpacing(0f, 1.25f); setPadding(dp(6), dp(6), dp(10), dp(30)) }
-        lyricsScroll.apply { addView(lyricsText); visibility = View.GONE; isFocusable = true; isFocusableInTouchMode = false; isVerticalScrollBarEnabled = false
+        lyricsBox.addView(lyricsText)
+        lyricsScroll.apply { addView(lyricsBox); visibility = View.GONE; setOnKeyListener { _, _, e -> if (e.action == android.view.KeyEvent.ACTION_DOWN) holdScrollUntil = android.os.SystemClock.uptimeMillis() + 4000; false }
+            setOnTouchListener { _, _ -> holdScrollUntil = android.os.SystemClock.uptimeMillis() + 4000; false }; isFocusable = true; isFocusableInTouchMode = false; isVerticalScrollBarEnabled = false
             background = focusFrame() }
         val rightBody = FrameLayout(c).apply { clipChildren = true }
         rightBody.addView(list, LayoutParams(-1, -1)); rightBody.addView(lyricsScroll, LayoutParams(-1, -1))
@@ -165,6 +176,7 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
             body.addView(left, LinearLayout.LayoutParams(-1, -2))
             body.addView(right, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(10) })
         }
+        bodyRef = body
         addView(body, LayoutParams(-1, -1))
         selectTab(TAB_QUEUE)
     }
@@ -226,8 +238,8 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
     private fun pill(text: String, onClick: () -> Unit): TextView = TextView(context).apply {
         this.text = text; textSize = 16f; maxLines = 1; isFocusable = true; isClickable = true; gravity = Gravity.CENTER; tag = "keepcolor nozoom"
         setPadding(dp(18), dp(8), dp(18), dp(8))
-        setTextColor(states(Ui.focusText, Ui.text, Ui.accent))
-        background = fillStates(Ui.focus or 0xFF000000.toInt(), Ui.withAlpha(Ui.text2, 0x30), Ui.withAlpha(Ui.accent, 0x33))
+        setTextColor(states(Ui.focusText, Ui.text, Color.WHITE))
+        background = fillStates(Ui.focus or 0xFF000000.toInt(), Ui.withAlpha(Ui.text2, 0x30), Ui.withAlpha(Ui.accent, 0xCC))
         setOnClickListener { onClick() }
     }
 
@@ -245,12 +257,20 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
         boundId = id
         cover.setImageDrawable(null); back.setImageDrawable(null); tintView.background = scrim(Ui.bg)
         if (thumb.isNotBlank()) {
-            cover.load(thumb) { crossfade(false); size(512, 512); allowHardware(false) }
-            back.load(thumb) { crossfade(true); size(48, 48); allowHardware(false); listener(onSuccess = { _, r -> tintFrom((r.drawable as? BitmapDrawable)?.bitmap) }) }
+            val hi = hires(thumb)
+            // okładka w pełnej rozdzielczości (1280×720 z kadrowaniem do kwadratu); brak dużej wersji – miniatura z listy
+            cover.load(hi) { crossfade(false); size(1024, 1024); allowHardware(false); listener(onError = { _, _ -> cover.load(thumb) { size(1024, 1024); allowHardware(false) } }) }
+            // tło: większa miniatura rozmyta sprzętowo (Android 12+), starsze – powiększona mała (gładkie przejścia)
+            val blur = android.os.Build.VERSION.SDK_INT >= 31
+            if (blur) back.setRenderEffect(android.graphics.RenderEffect.createBlurEffect(40f, 40f, android.graphics.Shader.TileMode.CLAMP))
+            back.scaleX = 1.25f; back.scaleY = 1.25f
+            val bs = if (blur) 480 else 96
+            back.load(hi) { crossfade(true); size(bs, bs); allowHardware(false); listener(onError = { _, _ -> back.load(thumb) { size(bs, bs); allowHardware(false) } }, onSuccess = { _, r -> tintFrom((r.drawable as? BitmapDrawable)?.bitmap) }) }
         }
-        lyricsState = 0; lyricsText.text = ""
-        if (tab == TAB_LYRICS) { lyricsState = 1; lyricsText.text = "Szukanie tekstu…"; host.wantLyrics() }
+        lyricsState = 0; showLyricsStatus("")
+        if (tab == TAB_LYRICS) { lyricsState = 1; showLyricsStatus("Szukanie tekstu…"); host.wantLyrics() }
         scrollToCurrent()
+        ensureFocus()
     }
 
     /** Odświeża listę „Następne” (kolejka / propozycje) i stan przycisków. */
@@ -259,14 +279,60 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
         adapter.notifyDataSetChanged()
         queueTab.text = "Następne w kolejce" + (items.count { !it.current }.takeIf { it > 0 }?.let { " ($it)" } ?: "")
         updatePlay()
+        ensureFocus()
     }
+
+    /** Odświeżenie listy / zmiana utworu potrafi zabrać zaznaczenie – wraca na ⏯ (nawigacja pilotem nigdy nie zostaje bez fokusu). */
+    fun ensureFocus() { post { if (isShown && findFocus() == null) playBtn.requestFocus() } }
+
+    /** Okładka w największym dostępnym rozmiarze (miniatury YouTube: …/vi/ID/mqdefault.jpg → maxresdefault.jpg). */
+    private fun hires(url: String) = url.replace(Regex("""/(default|mqdefault|hqdefault|sddefault)(\.jpg|\.webp)"""), "/maxresdefault.jpg")
 
     private fun scrollToCurrent() { list.scrollToPosition(0) }
 
-    fun setLyrics(text: String?) {
-        lyricsState = if (text.isNullOrBlank()) 3 else 2
-        lyricsText.text = if (text.isNullOrBlank()) "Brak tekstu dla tego utworu" else text
-        lyricsTab.alpha = if (lyricsState == 3) 0.6f else 1f
+    /** Komunikat w zakładce „Tekst” (pobieranie / brak tekstu) zamiast wierszy. */
+    private fun showLyricsStatus(msg: String) {
+        lyricsPlain = msg; lyricIdx = -1; lyricLines = emptyList(); lyricTimes = LongArray(0)
+        while (lyricsBox.childCount > 1) lyricsBox.removeViewAt(1)
+        lyricsText.text = msg; lyricsText.visibility = if (msg.isEmpty()) View.GONE else View.VISIBLE
+    }
+
+    /**
+     * Tekst piosenki. Z znacznikami czasu – wiersze zsynchronizowane z odtwarzaniem (karaoke: śpiewany wiersz podświetlony i
+     * wyśrodkowany, stuknięcie w wiersz przewija do niego); bez – zwykły tekst. null – brak tekstu.
+     */
+    fun setLyrics(r: pl.iptv.tv.data.YtLyrics.Result?) {
+        if (r == null) { lyricsState = 3; showLyricsStatus("Brak tekstu dla tego utworu"); lyricsTab.alpha = 0.6f; return }
+        lyricsState = 2; lyricsTab.alpha = 1f
+        if (!r.isSynced) { showLyricsStatus(r.plain); return }
+        showLyricsStatus("")
+        lyricsPlain = r.synced.joinToString("\n") { it.text }
+        lyricTimes = LongArray(r.synced.size) { r.synced[it].ms }
+        lyricLines = r.synced.map { l ->
+            TextView(context).apply {
+                text = l.text.ifBlank { "♪" }; textSize = if (wide) 22f else 18f; setLineSpacing(0f, 1.15f)
+                setTextColor(Ui.withAlpha(Ui.text, 0x88)); setPadding(dp(6), dp(9), dp(10), dp(9)); isClickable = true
+                setOnClickListener { host.player?.seekTo(l.ms) }
+            }.also { lyricsBox.addView(it, LinearLayout.LayoutParams(-1, -2)) }
+        }
+        lyricsBox.addView(View(context), LinearLayout.LayoutParams(-1, dp(120)))     // miejsce na wyśrodkowanie ostatnich wierszy
+        updateLyricLine(force = true)
+    }
+
+    /** Wiersz śpiewany teraz wg pozycji odtwarzacza: podświetlenie i płynne wyśrodkowanie (chyba że użytkownik przewija ręcznie). */
+    private fun updateLyricLine(force: Boolean = false) {
+        if (lyricLines.isEmpty()) return
+        val pos = (host.player?.currentPosition ?: 0L) + 250          // lekkie wyprzedzenie – wiersz podświetla się tuż przed śpiewem
+        var i = -1
+        for (k in lyricTimes.indices) { if (lyricTimes[k] <= pos) i = k else break }
+        if (i == lyricIdx && !force) return
+        val old = lyricIdx; lyricIdx = i
+        if (old in lyricLines.indices) lyricLines[old].apply { setTextColor(Ui.withAlpha(Ui.text, 0x88)); typeface = Ui.typeface(android.graphics.Typeface.NORMAL); textSize = if (wide) 22f else 18f }
+        if (i !in lyricLines.indices) return
+        val cur = lyricLines[i]
+        cur.setTextColor(Ui.text); cur.typeface = Ui.typeface(android.graphics.Typeface.BOLD); cur.textSize = if (wide) 28f else 22f
+        if (tab == TAB_LYRICS && android.os.SystemClock.uptimeMillis() >= holdScrollUntil)
+            lyricsScroll.post { lyricsScroll.smoothScrollTo(0, (cur.top - (lyricsScroll.height - cur.height) / 2).coerceAtLeast(0)) }
     }
 
     fun selectTab(t: Int) {
@@ -274,7 +340,8 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
         queueTab.isSelected = t == TAB_QUEUE; lyricsTab.isSelected = t == TAB_LYRICS
         list.visibility = if (t == TAB_QUEUE) View.VISIBLE else View.GONE
         lyricsScroll.visibility = if (t == TAB_LYRICS) View.VISIBLE else View.GONE
-        if (t == TAB_LYRICS && lyricsState == 0) { lyricsState = 1; lyricsText.text = "Szukanie tekstu…"; host.wantLyrics() }
+        if (t == TAB_LYRICS && lyricsState == 0) { lyricsState = 1; showLyricsStatus("Szukanie tekstu…"); host.wantLyrics() }
+        if (t == TAB_LYRICS) { holdScrollUntil = 0; updateLyricLine(force = true) }
     }
 
     /** Ikona ⏯ wg stanu odtwarzacza. */
@@ -290,14 +357,102 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
         val dur = p.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
         timeBar.setDuration(dur); timeBar.setBufferedPosition(p.bufferedPosition)
         if (!scrubbing) { timeBar.setPosition(p.currentPosition); posView.text = clock(p.currentPosition) }
+        updateLyricLine()
         durView.text = if (p.isCurrentMediaItemLive) "NA ŻYWO" else clock(dur)
     }
 
     override fun onAttachedToWindow() { super.onAttachedToWindow(); removeCallbacks(tick); post(tick) }
     override fun onDetachedFromWindow() { removeCallbacks(tick); super.onDetachedFromWindow() }
 
+    /** Pobierz tekst od nowa (przełącznik „Teksty piosenek”). */
+    fun resetLyrics() { lyricsState = 0; showLyricsStatus(""); if (tab == TAB_LYRICS) selectTab(TAB_LYRICS) }
+
     /** Fokus startowy: ⏯. */
     fun focusDefault() { playBtn.requestFocus() }
+
+
+    // ---------------- okno opcji w stylu widoku muzycznego ----------------
+
+    /** Pozycja okna opcji: ikona ([PlayerIcon], puste – bez ikony), nazwa, wartość po prawej i akcja. */
+    data class Opt(val icon: String, val label: String, val value: String = "", val action: () -> Unit)
+
+    private var sheet: FrameLayout? = null
+    private var sheetOpener: View? = null
+    val optionsOpen get() = sheet != null
+    /** Wiersze okna opcji (testy). */
+    val optionRows: List<View> get() = (sheet?.findViewWithTag<LinearLayout>("rows")?.let { r -> (0 until r.childCount).map(r::getChildAt) }) ?: emptyList()
+
+    /**
+     * Okno opcji (zamiast systemowego okna): panel z prawej (telefon w pionie – od dołu), zaokrąglony, w kolorach motywu z cienką
+     * obwódką akcentu, tło ściemnione; wiersze z ikonami, zaznaczony – kolor zaznaczenia motywu. WSTECZ zamyka ([closeOptions]).
+     */
+    fun showOptions(title: String, opts: List<Opt>, headerIcon: String = PlayerIcon.MUSIC) {
+        closeOptions(refocus = false)
+        if (opts.isEmpty()) return
+        sheetOpener = findFocus()
+        val c = context
+        val dim = FrameLayout(c).apply {
+            isClickable = true; setOnClickListener { closeOptions() }
+            background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(Ui.withAlpha(Ui.bg, 0x40), Ui.withAlpha(Ui.bg, 0xE0)))
+        }
+        val card = LinearLayout(c).apply {
+            orientation = LinearLayout.VERTICAL; isClickable = true; clipChildren = true; clipToPadding = true
+            setPadding(dp(12), dp(12), dp(12), dp(12)); elevation = dp(12).toFloat()
+            background = GradientDrawable().apply {
+                setColor(blend(Ui.panel or 0xFF000000.toInt(), Ui.bg or 0xFF000000.toInt(), 0.35f))
+                cornerRadius = dp(24).toFloat(); setStroke(dp(1), Ui.withAlpha(Ui.accent, 0x70))
+            }
+            Ui.roundClip(this, dp(24).toFloat())
+        }
+        val head = LinearLayout(c).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(14), dp(8), dp(14), dp(10)) }
+        head.addView(TextView(c).apply {
+            setCompoundDrawables(PlayerIcon(headerIcon, ColorStateList.valueOf(Ui.accent or 0xFF000000.toInt())).apply { setBounds(0, 0, dp(26), dp(26)) }, null, null, null)
+            compoundDrawablePadding = dp(12); text = title; textSize = 22f; setTextColor(Ui.text); typeface = Ui.typeface(android.graphics.Typeface.BOLD)
+        })
+        card.addView(head, LinearLayout.LayoutParams(-1, -2))
+        card.addView(View(c).apply { setBackgroundColor(Ui.withAlpha(Ui.text, 0x22)) }, LinearLayout.LayoutParams(-1, dp(1)).apply { setMargins(dp(10), 0, dp(10), dp(6)) })
+        val rows = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; tag = "rows"; clipChildren = false }
+        val ink = states(Ui.focusText, Ui.text)
+        opts.forEach { o ->
+            rows.addView(LinearLayout(c).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; isFocusable = true; isClickable = true; tag = "keepcolor nozoom"
+                setPadding(dp(14), dp(11), dp(16), dp(11)); minimumHeight = dp(52)
+                background = fillStates(Ui.focus or 0xFF000000.toInt(), Color.TRANSPARENT, Ui.withAlpha(Ui.accent, 0x26), 16)
+                if (o.icon.isNotEmpty()) addView(ImageView(c).apply { setImageDrawable(PlayerIcon(o.icon, ink).apply { setBounds(0, 0, dp(24), dp(24)) }); isDuplicateParentStateEnabled = true },
+                    LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginEnd = dp(16) })
+                val sel = o.label.startsWith("✔")
+                addView(TextView(c).apply { text = o.label.removePrefix("✔").trim(); textSize = 18f; maxLines = 2; setTextColor(ink); isDuplicateParentStateEnabled = true
+                    typeface = Ui.typeface(if (sel) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL) }, LinearLayout.LayoutParams(0, -2, 1f))
+                val value = if (sel) "✔" else o.value
+                if (value.isNotEmpty()) addView(TextView(c).apply { text = value; textSize = 16f; setTextColor(states(Ui.focusText, Ui.accent or 0xFF000000.toInt())); isDuplicateParentStateEnabled = true },
+                    LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(12) })
+                setOnClickListener { closeOptions(); o.action() }
+            }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(3) })
+        }
+        card.addView(ScrollView(c).apply { addView(rows); isVerticalScrollBarEnabled = false; isFocusable = false; clipChildren = false }, LinearLayout.LayoutParams(-1, 0, 1f))
+        val dm = resources.displayMetrics
+        val lp = if (wide) LayoutParams(minOf(dp(440), (dm.widthPixels * 0.44f).toInt()), -2, Gravity.END or Gravity.CENTER_VERTICAL).apply { setMargins(dp(24), dp(24), dp(32), dp(24)) }
+        else LayoutParams(-1, -2, Gravity.BOTTOM).apply { setMargins(dp(10), dp(60), dp(10), dp(10)) }
+        card.layoutParams = lp
+        dim.addView(card)
+        (card.layoutParams as LayoutParams).height = if (wide) (dm.heightPixels - dp(48)).coerceAtMost(dp(76) * opts.size + dp(110)) else (dm.heightPixels * 0.62f).toInt().coerceAtMost(dp(60) * opts.size + dp(110))
+        addView(dim, LayoutParams(-1, -1))
+        sheet = dim
+        bodyRef?.let { (it as? ViewGroup)?.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS }
+        card.alpha = 0f; card.translationX = if (wide) dp(40).toFloat() else 0f; card.translationY = if (wide) 0f else dp(60).toFloat()
+        card.animate().alpha(1f).translationX(0f).translationY(0f).setDuration(180).start()
+        rows.getChildAt(opts.indexOfFirst { it.label.startsWith("✔") }.coerceAtLeast(0))?.requestFocus()
+    }
+
+    /** Zamyka okno opcji; fokus wraca na przycisk, z którego je otwarto. */
+    fun closeOptions(refocus: Boolean = true) {
+        val s = sheet ?: return
+        sheet = null
+        removeView(s)
+        bodyRef?.let { (it as? ViewGroup)?.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS }
+        if (refocus) { val o = sheetOpener; if (o != null && o.isAttachedToWindow) o.requestFocus() else playBtn.requestFocus() }
+        sheetOpener = null
+    }
 
     // ---------------- lista „Następne” ----------------
 
@@ -311,7 +466,7 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
             val root = LinearLayout(c).apply {
                 orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; isFocusable = true; isClickable = true; tag = "keepcolor nozoom"
                 setPadding(dp(8), dp(6), dp(12), dp(6))
-                background = fillStates(Ui.focus or 0xFF000000.toInt(), Color.TRANSPARENT, Ui.withAlpha(Ui.accent, 0x22), 14)
+                background = fillStates(Ui.focus or 0xFF000000.toInt(), Color.TRANSPARENT, Ui.withAlpha(Ui.accent, 0x55), 14)
                 layoutParams = RecyclerView.LayoutParams(-1, -2).apply { bottomMargin = dp(4) }
             }
             val img = ImageView(c).apply { scaleType = ImageView.ScaleType.CENTER_CROP; setBackgroundColor(Ui.withAlpha(Ui.text2, 0x40)) }
@@ -322,7 +477,7 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
             val sub = TextView(c).apply { textSize = 14f; maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
             col.addView(title); col.addView(sub)
             root.addView(col, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(14) })
-            val mark = TextView(c).apply { textSize = 18f; text = "♪"; visibility = View.GONE }
+            val mark = TextView(c).apply { textSize = 20f; text = "♪"; visibility = View.GONE; setTextColor(Ui.accent or 0xFF000000.toInt()) }
             root.addView(mark)
             val vh = VH(root, img, title, sub, mark)
             root.setOnClickListener { items.getOrNull(vh.bindingAdapterPosition)?.takeIf { !it.current }?.let(host::pick) }
@@ -333,13 +488,12 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
             val e = items[position]
             h.root.isSelected = e.current
             val focusText = Ui.focusText
-            val tc = states(focusText, Ui.text, Ui.accent); val sc = states(focusText, Ui.text2, Ui.text2)
-            h.title.setTextColor(tc); h.sub.setTextColor(sc); h.mark.setTextColor(tc)
-            h.title.text = e.title; h.sub.text = e.artist.ifBlank { if (e.queue?.isVideo == false) "Kanał TV" else "" }
+            val tc = states(focusText, Ui.text, Ui.text); val sc = states(focusText, Ui.text2, Ui.text)
+            h.title.setTextColor(tc); h.sub.setTextColor(sc);             h.title.text = e.title; h.sub.text = e.artist.ifBlank { if (e.queue?.isVideo == false) "Kanał TV" else "" }
             h.mark.visibility = if (e.current) View.VISIBLE else View.GONE
             h.root.contentDescription = e.title
             coil.util.CoilUtils.dispose(h.img); h.img.setImageDrawable(null)
-            if (e.thumb.isNotBlank()) h.img.load(e.thumb) { crossfade(false); size(112, 112) }
+            if (e.thumb.isNotBlank()) h.img.load(e.thumb) { crossfade(false); size(224, 224) }
         }
     }
 
