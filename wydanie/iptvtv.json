@@ -1,6 +1,6 @@
 {
-  "versionCode": 66,
-  "versionName": "7.6",
+  "versionCode": 67,
+  "versionName": "7.7",
   "apk": "D-iptv-Player.apk",
-  "notes": "Wszystkie motywy dopasowane do telefonu w pionie, szybsze i plynniejsze Ustawienia, kategorie i pulpity; reczne dopasowanie silnika kanalu (przytrzymaj OK); Stremio: nowy pasek odtwarzacza, przewijanie strzalkami, PiP, poprawny polski lektor i napisy; STube: tylko dzwiek i PiP na telefonie; kanaly bez zacinania jak w 6.5"
+  "notes": "Stremio: OK / strzalka w prawo na odcinku od razu do zrodel, jeden napis Ladowanie zrodel, grupy rozdzielczosci (takze 4K) zwiniete, ikony odtwarzacza bez znikajacego kursora; przytrzymanie OK dziala na kazdym pilocie; plynniejszy motyw Nowoczesny (domyslny przy instalacji); zapis wlasnych motywow"
 }

@@ -103,6 +103,15 @@
 
 Kanał trafia do „ostatnio oglądanych” po co najmniej 1 minucie odtwarzania.
 
+**v7.7** (19.11.2026):
+- **Stremio – odcinek → źródła**: OK albo ► na odcinku od razu przenosi kursor na listę źródeł (dawniej, gdy źródła się wczytywały, lista nie miała nic do zaznaczenia i nic się nie działo); w trakcie wczytywania kursor stoi na „Ładowanie źródeł”, a po odpowiedzi wtyczek przechodzi na pierwszą grupę.
+- **Stremio – „Ładowanie źródeł”**: jeden, jednolity napis z kółkiem postępu w kolorze motywu zamiast listy wczytywanych wtyczek.
+- **Stremio – grupy rozdzielczości**: wszystkie domyślnie zwinięte, także 4K; OK rozwija / zwija grupę.
+- **Stremio – pasek odtwarzacza**: ikony mają stałą szerokość, a nazwa zaznaczonej ikony pojawia się nad nią – dawniej rozwijane podpisy wypychały ikony (dźwięk, obraz) poza ekran i kursor „znikał”.
+- **Przytrzymanie OK**: w odtwarzaczu kanałów działa także na pilotach / TV, które nie wysyłają powtórzeń klawisza OK (0,5 s przytrzymania – menu); w odtwarzaczu Stremio przytrzymanie OK otwiera menu opcji (krótkie OK – pasek, strzałki – przewijanie).
+- **Nowoczesny – płynność**: przejścia ekranów bez skalowania całego okna (samo przenikanie), przenikanie sekcji bez pełnoekranowego bufora pośredniego, podgląd sekcji z paska bocznego dopiero po zatrzymaniu kursora (szybki ruch po pasku nie przebudowuje po drodze każdej sekcji). Nowoczesny jest domyślnym motywem przy instalacji.
+- **Własne motywy**: Ustawienia → Wygląd → „Zapisz bieżący wygląd jako własny motyw…” (kolory, gradienty, czcionka, animacje, pasek informacji, powiększenie + motyw bazowy); zapisane motywy na liście („Zastosuj” / „Usuń”). Przed przełączeniem na inny motyw własne zmiany zapisują się same jako „Własny – <motyw>”.
+
 **v7.6** (19.11.2026, zawiera też zmiany 7.4 i 7.5):
 - **Telefon w pionie we wszystkich motywach**: Nowoczesny – węższy pasek boczny, kafelki i plakaty liczone z szerokości ekranu (2 szerokie / 3 plakaty w rzędzie zamiast półtora kafelka), krótsze przyciski („Więcej”); X25 – nagłówek u góry, a kafelki funkcji w siatce 2 kolumn na resztę ekranu (bez pustej połowy ekranu); PS5 – karty (ostatnio odtwarzane, STube, Stremio, skróty, ustawienia) jedna pod drugą na całą szerokość. Poziom i Android TV bez zmian.
 - **Ustawienia**: zmiana karty z płynnym przejściem treści (przenikanie z przesunięciem w stronę karty, 160 ms, na warstwie GPU) i zawsze od góry; na telefonie przesunięcie palcem w bok po treści – sąsiednia karta; pasek kart z wygaszonymi krawędziami (widać, że jest ich więcej); karta pod kursorem pilota otwiera się szybciej (180 ms); w motywie Nowoczesnym treść na lekkiej, zaokrąglonej powierzchni.

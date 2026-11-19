@@ -267,9 +267,12 @@ class StremioTest {
         assertTrue(paths.any { it.startsWith("/a/stream/series/tt2%3A1%3A1") || it.startsWith("/a/stream/series/tt2:1:1") })
         assertFalse(paths.any { it.startsWith("/b/stream") })      // wyłączona wtyczka nie jest pytana
         assertEquals(6, a.sourceAdapter.sourceItems.size)
-        // 7.0: źródła w zwijanych grupach rozdzielczości – rozwinięta najwyższa (4K: 1), 1080p zwinięta
+        // 7.0: źródła w zwijanych grupach rozdzielczości; (7.7) wszystkie zwinięte, także 4K – OK rozwija
         assertEquals(listOf("4K", "1080p"), a.sourceAdapter.items.filterIsInstance<SourceItem.Quality>().map { it.q })
+        assertEquals(0, a.sourceAdapter.items.count { it is SourceItem.Source })
+        a.sourceAdapter.toggle("4K")
         assertEquals(1, a.sourceAdapter.items.count { it is SourceItem.Source })
+        assertFalse("bez komunikatów o wczytywaniu wtyczek", a.sourceAdapter.items.any { it is SourceItem.Loading || (it is SourceItem.Note && it.t.startsWith("Wczytywanie")) })
         // odcinek 2 – nowe źródła
         a.selectEpisode(a.meta!!.episodes(1)[1])
         waitFor { a.videoId == "tt2:1:2" && a.groups.none { it.loading } }

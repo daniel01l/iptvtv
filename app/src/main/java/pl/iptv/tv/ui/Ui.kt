@@ -220,7 +220,8 @@ object Ui {
     )
 
     /** Ustawienia, które motyw ustawia na nowo przy wyborze. */
-    private val PRESET_KEYS = arrayOf("font", "anim", "progress", "info_pos", "info_style", "zoom", "grad_dir") +
+    /** Ustawienia wyglądu nadpisujące motyw (zerowane przy zmianie motywu; (7.7) zapisywane we własnym motywie). */
+    val PRESET_KEYS = arrayOf("font", "anim", "progress", "info_pos", "info_style", "zoom", "grad_dir") +
         COLOR_KEYS.map { "c_${it.first}" } + GRADIENT_KEYS.map { "c2_$it" }
 
     /** Zwiększane po każdej zmianie wyglądu – ekrany odświeżają styl przy powrocie. */
@@ -235,13 +236,13 @@ object Ui {
         "light" to "modern", "neon" to "modern", "cinema" to "modern", "forest" to "modern")
 
     /**
-     * Pierwsze uruchomienie po instalacji (nie po aktualizacji) bez wybranego motywu – motyw PS5 (ekran główny konsoli).
-     * Poprzedni motyw („wyłącz PS5”) – Nowoczesny. Zwraca true, gdy motyw ustawiono.
+     * Pierwsze uruchomienie po instalacji (nie po aktualizacji) bez wybranego motywu – (7.7) motyw Nowoczesny z jego ekranem
+     * głównym (dawniej PS5). Zwraca true, gdy motyw ustawiono.
      */
     fun applyFirstRunTheme(freshInstall: Boolean): Boolean {
         if (!freshInstall || Prefs.has("theme")) return false
-        applyPreset(Ps5Theme.ID)
-        Prefs.ps5PrevTheme = "modern"
+        applyPreset(ModernTheme.ID)
+        Prefs.modernHome = true
         X25Theme.justEnabled = false
         return true
     }
@@ -260,6 +261,8 @@ object Ui {
     /** [restoring] – powrót do poprzedniego motywu (wyłączenie X25 / PS5): jego zapamiętany „poprzedni” motyw zostaje bez zmian. */
     fun applyPreset(id: String, restoring: Boolean = false) {
         themeEpoch++
+        // (7.7) własne zmiany bieżącego motywu zapisane, zanim nowy motyw je wyzeruje ("Własny – <motyw>" w Ustawieniach)
+        if (id != Prefs.theme) runCatching { CustomThemes.autoSave() }
         val old = preset
         Prefs.theme = id; Prefs.remove(*PRESET_KEYS)
         // motywy konsolowe ustawiają też układ menu (karty poziome); powrót do zwykłego motywu przywraca układ klasyczny

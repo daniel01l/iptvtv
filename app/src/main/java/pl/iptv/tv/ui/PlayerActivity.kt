@@ -61,6 +61,8 @@ class PlayerActivity : BaseActivity() {
         const val RECENT_AFTER_MODERN_MS = 10_000L
         fun recentAfterMs() = if (ModernTheme.active) RECENT_AFTER_MODERN_MS else RECENT_AFTER_MS
         private const val PANEL_TIMEOUT_MS = 30_000L
+        /** (7.7) Przytrzymanie OK (jak systemowe długie naciśnięcie). */
+        const val HOLD_OK_MS = 500L
     }
 
     private lateinit var playerView: PlayerView
@@ -1181,6 +1183,8 @@ class PlayerActivity : BaseActivity() {
     }
 
     private var okPending = false; private var okLong = false; private var okReplay = false
+    /** (7.7) OK trzymane [HOLD_OK_MS] bez puszczenia – menu (bez względu na powtórzenia klawisza pilota). */
+    private val holdOkTimer = Runnable { if (okPending && !okLong && !isFinishing) { okLong = true; onHoldOk() } }
     /** Ostatnio zmieniono kategorię ◄ ► z nagłówka panelu (fokus na pierwszym kanale). */
     private var groupBrowsing = false
 
@@ -1188,7 +1192,7 @@ class PlayerActivity : BaseActivity() {
         // panel „Teraz w TV / Kolejka” prowadzi nawigację sam (fokus nie wychodzi do paneli i kontrolek pod spodem)
         sidePanel?.let { if (it.onKey(event)) return true; if (it.isOpen) return super.dispatchKeyEvent(event) }
         if (event.action == KeyEvent.ACTION_UP && okPending && (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)) {
-            okPending = false
+            okPending = false; handler.removeCallbacks(holdOkTimer)
             if (!okLong) { okReplay = true; try { dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, event.keyCode)) } finally { okReplay = false } }
             return true
         }
@@ -1248,8 +1252,11 @@ class PlayerActivity : BaseActivity() {
         val ok = code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER
         val ctl = isCatchup && playerView.isControllerFullyVisible
         if (ok && !ctl && !okReplay && holdOkEnabled) {
-            if (event.repeatCount == 0) { okPending = true; okLong = false }
-            else if (!okLong && okPending) { okLong = true; onHoldOk() }
+            if (event.repeatCount == 0) {
+                okPending = true; okLong = false
+                // (7.7) przytrzymanie wykrywane też czasem – część pilotów / TV nie wysyła powtórzeń OK (menu się nie otwierało)
+                handler.removeCallbacks(holdOkTimer); handler.postDelayed(holdOkTimer, HOLD_OK_MS)
+            } else if (!okLong && okPending) { handler.removeCallbacks(holdOkTimer); okLong = true; onHoldOk() }
             return true
         }
         if (zapOpen) when (code) {

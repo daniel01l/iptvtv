@@ -164,6 +164,7 @@ fun Modifier.dashboardEnter(): Modifier {
     }
     return this.then(Modifier.graphicsLayer {
         alpha = a.value
+        compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha     // (7.7) bez bufora pośredniego
         translationY = (1f - a.value) * 16.dp.toPx()
     })
 }

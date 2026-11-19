@@ -278,11 +278,11 @@ class Ps5Test {
             Prefs.theme = gone; assertEquals(gone, "modern", Ui.preset.id)
         }
         Prefs.theme = "ps5"; assertEquals("xbox", Ui.preset.id)
-        // świeża instalacja bez motywu – PS5 (poprzedni: Nowoczesny); aktualizacja / wybrany motyw – bez zmian
+        // świeża instalacja bez motywu – (7.7) Nowoczesny z ekranem głównym; aktualizacja / wybrany motyw – bez zmian
         Prefs.remove("theme")
         assertFalse(Ui.applyFirstRunTheme(freshInstall = false)); assertEquals("modern", Ui.preset.id)
         assertTrue(Ui.applyFirstRunTheme(freshInstall = true))
-        assertTrue(Ps5Theme.active); assertEquals("modern", Prefs.ps5PrevTheme)
+        assertTrue(ModernTheme.active); assertTrue(ModernTheme.homeOn); assertFalse(Ps5Theme.active)
         Ui.applyPreset("classic")
         assertFalse(Ui.applyFirstRunTheme(freshInstall = true)); assertEquals("classic", Ui.preset.id)
     }

@@ -79,6 +79,17 @@ object Prefs {
     fun remove(vararg keys: String) = sp.edit().apply { keys.forEach { remove(it) } }.apply()
     fun has(key: String) = sp.contains(key)
 
+    /** (7.7) Bieżące wartości [keys] (tylko ustawione) – zapis własnego motywu. */
+    fun snapshot(keys: Collection<String>): Map<String, Any> = sp.all.filterKeys { it in keys }.mapNotNull { (k, v) -> v?.let { k to it } }.toMap()
+
+    /** (7.7) Przywrócenie wartości z [snapshot] (typy: Int, Long, Float, Boolean, String). */
+    fun restore(values: Map<String, Any>) = sp.edit().apply {
+        values.forEach { (k, v) -> when (v) { is Int -> putInt(k, v); is Long -> putLong(k, v); is Float -> putFloat(k, v); is Boolean -> putBoolean(k, v); else -> putString(k, v.toString()) } }
+    }.apply()
+
+    /** (7.7) Zapisane własne motywy (JSON, [pl.iptv.tv.ui.CustomThemes]). */
+    var customThemes: String get() = str("custom_themes", "[]"); set(v) = put("custom_themes", v)
+
     // ---- YouTube (tokeny konta: YouTubeTokens – szyfrowane, poza kopią zapasową) ----
     /** Źródło filmów: 0 = spersonalizowane (konto), 1 = trendy publiczne. */
     var ytSource: Int get() = int("yt_source", 0); set(v) = putInt("yt_source", v)

@@ -38,6 +38,7 @@ import androidx.media3.ui.PlayerView
 import androidx.media3.ui.SubtitleView
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import pl.iptv.tv.R
 import pl.iptv.tv.data.Prefs
 import pl.iptv.tv.data.Repository
 import pl.iptv.tv.data.StremioApi
@@ -203,7 +204,7 @@ class StremioPlayerActivity : AppCompatActivity() {
         controls.addView(progressRow, LinearLayout.LayoutParams(-1, -2))
         // przyciski: w lewym dolnym rogu ⏪ ⏯ ⏩ (i „Następny odcinek” pod koniec), z prawej – ikony funkcji
         buttonsRow = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; clipChildren = false; clipToPadding = false }
-        fun left(icon: String, t: String, a: () -> Unit) = PlayerChrome.expandingButton(this, icon, t) { a(); scheduleHide() }
+        fun left(icon: String, t: String, a: () -> Unit) = iconButton(icon, t) { a(); scheduleHide() }
             .also { buttonsRow.addView(it, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = Ui.dp(10) }) }
         left(PlayerIcon.REW, "Do tyłu 10 s") { seekBy(-SEEK_STEP_MS, badge = false) }
         playBtn = left(PlayerIcon.PAUSE, "Pauza") { togglePlay() }
@@ -213,7 +214,7 @@ class StremioPlayerActivity : AppCompatActivity() {
         buttonsRow.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
         topBar = LinearLayout(this).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL; clipChildren = false; clipToPadding = false }
         // ikony funkcji (7.4): zaznaczona wysuwa swój podpis
-        fun btn(icon: String, t: String, a: () -> Unit) = PlayerChrome.expandingButton(this, icon, t) { a(); scheduleHide() }
+        fun btn(icon: String, t: String, a: () -> Unit) = iconButton(icon, t) { a(); scheduleHide() }
             .also { topBar.addView(it, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(10) }) }
         btn(PlayerIcon.CC, "Napisy") { subtitlesMenu() }
         btn(PlayerIcon.DELAY, "Opóźnienie napisów") { delayMenu() }
@@ -222,10 +223,59 @@ class StremioPlayerActivity : AppCompatActivity() {
         btn(PlayerIcon.ASPECT, "Dopasowanie obrazu") { aspectMenu() }
         pipBtn = btn(PlayerIcon.PIP, "Okno") { enterPip() }.apply { visibility = if (pipSupported && !Tutorial.isTv(this@StremioPlayerActivity)) View.VISIBLE else View.GONE }
         buttonsRow.addView(topBar)
-        PlayerChrome.expandingRow(buttonsRow); PlayerChrome.expandingRow(topBar)
-        controls.addView(buttonsRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(10) })
+        // (7.7) bez zmiany szerokości ikon (podpis nad ikoną) – rząd nie wypycha ikon poza ekran
+        controls.addView(captionBox, LinearLayout.LayoutParams(-1, Ui.dp(30)).apply { topMargin = Ui.dp(6) })
+        controls.addView(buttonsRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(2) })
         return controls
     }
+
+    /** (7.7) OK wciśnięte przy schowanym pasku; [okLong] – przytrzymanie już obsłużone (menu). */
+    private var okDown = false
+    private var okLong = false
+    private val holdOk = Runnable { if (okDown && !okLong && !isFinishing) { okLong = true; optionsMenu() } }
+    /** Testy: menu opcji po przytrzymaniu OK. */
+    val holdOkHandled get() = okLong
+
+    // ---------------- (7.7) podpis zaznaczonej ikony ----------------
+
+    /** Pas nad ikonami z podpisem zaznaczonej ikony (ikony mają stałą szerokość – nic się nie przesuwa). */
+    private val captionBox by lazy { FrameLayout(this).apply { clipChildren = false; clipToPadding = false; addView(caption, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START)) } }
+    /** Podpis zaznaczonej ikony (testy). */
+    val caption: TextView by lazy {
+        TextView(this).apply {
+            setTextColor(Color.WHITE); textSize = 14f; setTypeface(typeface, android.graphics.Typeface.BOLD); maxLines = 1; alpha = 0f
+            setPadding(Ui.dp(12), Ui.dp(4), Ui.dp(12), Ui.dp(4))
+            background = GradientDrawable().apply { cornerRadius = Ui.dp(12).toFloat(); setColor(0xE6000000.toInt()); setStroke(Ui.dp(1), PlayerChrome.STREMIO) }
+        }
+    }
+
+    /** Okrągła ikona (stała szerokość); zaznaczenie pokazuje nad nią podpis [label]. */
+    private val ICON_TAG = "icon"
+    private fun iconButton(icon: String, label: String, onClick: () -> Unit) = PlayerChrome.button(this, icon, "", onClick).apply {
+        setTag(R.id.row_key, ICON_TAG)
+        contentDescription = label
+        val base = onFocusChangeListener
+        setOnFocusChangeListener { v, has ->
+            base?.onFocusChange(v, has)
+            // (7.7) podpis tylko nad ikoną z fokusem (fokus na innym elemencie – np. „Następny odcinek” – chowa go)
+            if (has) showCaption(v) else v.post { if (controls.findFocus()?.getTag(R.id.row_key) != ICON_TAG) hideCaption() }
+        }
+    }
+
+    private fun showCaption(v: View) {
+        caption.text = v.contentDescription
+        caption.post {
+            val box = IntArray(2).also { captionBox.getLocationInWindow(it) }
+            val at = IntArray(2).also { v.getLocationInWindow(it) }
+            // szerokość z pomiaru nowego tekstu (caption.width bywa jeszcze sprzed zmiany napisu)
+            caption.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED); val cw = caption.measuredWidth
+            val x = at[0] - box[0] + v.width / 2 - cw / 2
+            caption.translationX = x.coerceIn(0, (captionBox.width - cw).coerceAtLeast(0)).toFloat()
+            caption.animate().alpha(1f).setDuration(110).start()
+        }
+    }
+
+    private fun hideCaption() { caption.animate().alpha(0f).setDuration(110).start() }
 
     /** Krok przewijania ◄► i ⏪ ⏩. */
     val SEEK_STEP_MS = 10_000L
@@ -243,6 +293,7 @@ class StremioPlayerActivity : AppCompatActivity() {
         }
         controls.animate().cancel(); controls.alpha = 1f; controls.visibility = View.VISIBLE
         buttonsRow.visibility = if (m == Bar.FULL) View.VISIBLE else View.GONE
+        captionBox.visibility = buttonsRow.visibility                // (7.7) bez pustego pasa nad paskiem postępu przy przewijaniu
         seekBadge.visibility = if (m == Bar.SEEK) View.VISIBLE else View.GONE
         titleView.visibility = if (m == Bar.FULL) View.VISIBLE else View.GONE
         if (m == Bar.SEEK && controls.findFocus() != null) rootView.requestFocus()
@@ -298,7 +349,7 @@ class StremioPlayerActivity : AppCompatActivity() {
             playBtn.tag = icon
             playBtn.setCompoundDrawables(PlayerIcon(icon, PlayerChrome.colors()).apply { setBounds(0, 0, Ui.dp(20), Ui.dp(20)) }, null, null, null)
             playBtn.contentDescription = if (playing) "Pauza" else "Odtwórz"
-            if (playBtn.isFocused) playBtn.text = playBtn.contentDescription
+            if (playBtn.isFocused) showCaption(playBtn)
         }
     }
 
@@ -708,14 +759,21 @@ class StremioPlayerActivity : AppCompatActivity() {
                 KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> if (!full && !nextCard.isFocused) {
                     seekBy(if (e.keyCode == KeyEvent.KEYCODE_DPAD_LEFT) -SEEK_STEP_MS else SEEK_STEP_MS); return true
                 }
+                // (7.7) krótkie OK (po puszczeniu) – pasek z fokusem na ⏯; przytrzymanie – menu opcji (napisy, dźwięk, obraz…)
                 KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> if (!full && !nextCard.isFocused) {
-                    if (e.repeatCount == 0) setBar(Bar.FULL)
+                    if (e.repeatCount == 0) { okDown = true; okLong = false; handler.removeCallbacks(holdOk); handler.postDelayed(holdOk, PlayerActivity.HOLD_OK_MS) }
+                    else if (okDown && !okLong) { handler.removeCallbacks(holdOk); holdOk.run() }
                     return true
                 }
                 KeyEvent.KEYCODE_DPAD_UP -> if (!full && !nextCard.isFocused) { setBar(Bar.FULL); topBar.getChildAt(0)?.requestFocus(); return true }
                 KeyEvent.KEYCODE_DPAD_DOWN -> if (!full && !nextCard.isFocused) { setBar(Bar.FULL); return true }
                 KeyEvent.KEYCODE_BACK -> if (bar != Bar.HIDDEN) { setBar(Bar.HIDDEN); backHid = true; return true }
             }
+        }
+        if (e.action == KeyEvent.ACTION_UP && okDown && (e.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || e.keyCode == KeyEvent.KEYCODE_ENTER)) {
+            okDown = false; handler.removeCallbacks(holdOk)
+            if (!okLong) setBar(Bar.FULL)
+            return true
         }
         // zwolnienie OK, które otworzyło menu, nie „klika” ⏯ (przycisk nie dostał wciśnięcia)
         if (e.keyCode == KeyEvent.KEYCODE_BACK && e.action == KeyEvent.ACTION_UP && backHid) { backHid = false; return true }

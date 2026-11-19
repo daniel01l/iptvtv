@@ -197,13 +197,15 @@ class MediaUpgradeTest {
             StremioSourceGroup(addB, listOf(s("B", "1080p", 2, pl = true), s("B", "1080p", 3))), StremioSourceGroup(addB, emptyList(), loading = true))
         a.sourceAdapter.set(gs, null); idle()
         val ad = a.sourceAdapter
-        // grupy wg rozdzielczości (od najwyższej), rozwinięta pierwsza (4K), pozostałe zwinięte
+        // grupy wg rozdzielczości (od najwyższej); (7.7) wszystkie zwinięte, także 4K
         val qs = ad.items.filterIsInstance<SourceItem.Quality>()
         assertEquals(listOf("4K", "1080p", "720p"), qs.map { it.q })
-        assertEquals(setOf("4K"), ad.expandedNow)
+        assertEquals(emptySet<String>(), ad.expandedNow)
+        assertEquals(0, ad.items.count { it is SourceItem.Source })
+        ad.toggle("4K")                                             // OK na 4K – rozwinięcie
         assertEquals(1, ad.items.count { it is SourceItem.Source })
         assertEquals(5, ad.sourceItems.size)                       // wszystkie źródła (także w zwiniętych grupach)
-        assertTrue(ad.items.last() is SourceItem.Note)              // „Wczytywanie: Wtyczka B…”
+        assertTrue(ad.items.last() is SourceItem.Loading)           // (7.7) „Ładowanie źródeł” zamiast nazw wtyczek
         // OK na „1080p” – rozwinięcie: źródła obu wtyczek, polska wersja na górze
         ad.toggle("1080p")
         val shown = ad.items.filterIsInstance<SourceItem.Source>().map { it.s }

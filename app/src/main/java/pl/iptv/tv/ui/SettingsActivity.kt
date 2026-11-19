@@ -645,7 +645,23 @@ class SettingsActivity : BaseActivity() {
         choice("Motyw", Ui.PRESETS.map { it.name }, { Ui.PRESETS.indexOf(Ui.preset) }) {
             Ui.applyPreset(Ui.PRESETS[it].id)
         }
+        // (7.7) własne motywy: zapis bieżącego wyglądu (kolory, czcionka, animacje…) i przywracanie
+        row("💾 Zapisz bieżący wygląd jako własny motyw…") {
+            Dialogs.input(this, "Własny motyw", "Mój motyw", "Nazwa motywu") { name ->
+                val s = CustomThemes.save(name)
+                toast("Zapisano motyw „${s.name}”"); build(keepFocus = true)
+            }
+        }
+        CustomThemes.list().forEach { s ->
+            row("★ ${s.name}", Ui.PRESETS.firstOrNull { it.id == s.base }?.name.orEmpty()) {
+                Dialogs.menu(this, s.name, listOf(
+                    "Zastosuj" to { CustomThemes.apply(s); toast("Motyw „${s.name}”"); lookChanged() },
+                    "Usuń" to { CustomThemes.delete(s.name); build(keepFocus = true) },
+                ))
+            }
+        }
         note("Motyw działa od razu na wszystkich ekranach (menu, odtwarzacz, pasek informacji, okna) – bez ponownego uruchamiania.")
+        note("Własne zmiany wyglądu zapisują się same jako „Własny – <motyw>” przed przełączeniem na inny motyw – można do nich wrócić.")
         note("Wybór motywu ustawia kolory, czcionkę, animacje, pasek postępu i położenie paska informacji. Każdą z tych opcji możesz potem zmienić osobno.")
         header("Nowoczesny")
         if (ModernTheme.active) {

@@ -1,8 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Nowoczesny: nowy ekran łagodnie się wyłania (przenikanie + lekkie „przybliżenie” 1.04 → 1), hamowanie na końcu -->
-<set xmlns:android="http://schemas.android.com/apk/res/android" android:duration="240"
-    android:interpolator="@android:interpolator/decelerate_cubic" android:shareInterpolator="true">
-    <alpha android:fromAlpha="0" android:toAlpha="1"/>
-    <scale android:fromXScale="1.04" android:toXScale="1" android:fromYScale="1.04" android:toYScale="1"
-        android:pivotX="50%" android:pivotY="50%"/>
-</set>
+<!-- Nowoczesny (7.7): nowy ekran łagodnie się wyłania – samo przenikanie (bez skalowania całego okna: na słabszych TV
+     skalowanie pełnoekranowych okien dawało kilka klatek na sekundę), hamowanie na końcu -->
+<alpha xmlns:android="http://schemas.android.com/apk/res/android" android:duration="200"
+    android:interpolator="@android:interpolator/decelerate_quad"
+    android:fromAlpha="0" android:toAlpha="1" />

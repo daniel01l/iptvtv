@@ -37,6 +37,8 @@ sealed class SourceItem {
     data class Quality(val q: String, val count: Int, val polish: Int, val open: Boolean) : SourceItem()
     data class Source(val s: StremioStream) : SourceItem()
     data class Note(val t: String) : SourceItem()
+    /** (7.7) Jednolity wiersz „Ładowanie źródeł” (zaznaczalny – OK / ► z odcinka od razu przenosi tu kursor). */
+    object Loading : SourceItem()
 }
 
 /**
@@ -52,6 +54,8 @@ class StremioDetailActivity : BaseActivity() {
             .putExtra(EXTRA_TYPE, m.type).putExtra(EXTRA_ID, m.id).putExtra(EXTRA_NAME, m.name).putExtra(EXTRA_POSTER, m.poster).putExtra(EXTRA_VIDEO, videoId)
         /** (7.4) Źródła odcinka zaznaczonego pilotem – dopiero po tej chwili bez ruchu (szybkie przewijanie bez zapytań). */
         const val EPISODE_SOURCES_DELAY_MS = 350L
+        /** (7.7) Jedyny komunikat w trakcie wczytywania źródeł. */
+        const val LOADING_TEXT = "Ładowanie źródeł"
     }
 
     private val type get() = intent.getStringExtra(EXTRA_TYPE).orEmpty()
@@ -92,6 +96,22 @@ class StremioDetailActivity : BaseActivity() {
             if (m == null) { desc.text = "Nie udało się wczytać informacji – źródła poniżej."; videoId = metaId; loadSources(); return@launch }
             bind(m)
         }
+    }
+
+    /**
+     * (7.7) ► na odcinku – od razu do listy źródeł (dawniej, gdy źródła się wczytywały, lista nie miała żadnego zaznaczalnego
+     * elementu i ► nic nie robiło); kursor na pierwszym źródle albo na „Ładowanie źródeł”.
+     */
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        if (event.action == android.view.KeyEvent.ACTION_DOWN && event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT && ::episodes.isInitialized) {
+            val f = window.decorView.findFocus()
+            if (f != null && episodes.findContainingItemView(f) != null) {
+                KeyActivity.lastUserKeyAt = event.eventTime          // odwołuje wcześniejsze ustawianie fokusu na liście odcinków
+                focusSourcesWhenReady()
+                return true
+            }
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     override fun onResume() {
@@ -183,8 +203,23 @@ class StremioDetailActivity : BaseActivity() {
      */
     private var sourceFocusAt = 0L
 
+    /** (7.7) Kursor na wybranym odcinku (serial) – gdy lista źródeł nie ma nic do zaznaczenia. */
+    private fun backToEpisodes() {
+        sourceFocusAt = 0
+        if (episodesCol.visibility != View.VISIBLE) return
+        val i = episodeAdapter.items.indexOfFirst { it.id == episodeAdapter.selected }.coerceAtLeast(0)
+        episodes.post { episodes.focusPosition(i) }
+    }
+
     fun focusSourcesWhenReady() {
+        // (7.7) źródła czekały na zatrzymanie kursora – wczytywanie od razu
+        if (sourcesPending) loadSources()
         sourceFocusAt = android.os.SystemClock.uptimeMillis()
+        // kursor od razu na liście źródeł: na pierwszym źródle albo (jeszcze się wczytują) na „Ładowanie źródeł”
+        if (sourceAdapter.items.none { it is SourceItem.Source || it is SourceItem.Quality }) {
+            val i = sourceAdapter.items.indexOf(SourceItem.Loading)
+            if (i >= 0) { val at = sourceFocusAt; sources.post { sources.focusPosition(i, since = at) } }
+        }
         applySourceFocus()
     }
 
@@ -230,7 +265,8 @@ class StremioDetailActivity : BaseActivity() {
         val streamType = if (meta?.isSeries == true) "series" else type
         val label = meta?.videos?.firstOrNull { it.id == vid }?.label?.takeIf { meta?.isSeries == true }
         sourcesTitle.text = "Źródła" + (label?.let { " – $it" } ?: "")
-        if (delayMs > 0) { groups = emptyList(); sourceAdapter.set(emptyList(), "Wczytywanie źródeł…") }
+        // (7.7) od razu „Ładowanie źródeł” (lista poprzedniego odcinka znika – OK nie trafi w jego źródła)
+        groups = emptyList(); sourceAdapter.showLoading()
         sourcesPending = delayMs > 0
         sourcesJob = lifecycleScope.launch {
             if (delayMs > 0) kotlinx.coroutines.delay(delayMs)
@@ -347,10 +383,10 @@ class StremioDetailActivity : BaseActivity() {
         /** Wszystkie źródła w kolejności wyświetlania (także w zwiniętych grupach). */
         var sourceItems: List<StremioStream> = emptyList(); private set
         private var byQuality: List<Pair<String, List<StremioStream>>> = emptyList()
-        private var notes: List<SourceItem.Note> = emptyList()
-        /** Rozwinięte grupy; null – jeszcze bez wyboru użytkownika (rozwinięta pierwsza). */
+        private var notes: List<SourceItem> = emptyList()
+        /** Rozwinięte grupy; null – jeszcze bez wyboru użytkownika ((7.7) wszystkie zwinięte, także 4K – OK rozwija). */
         private var expanded: MutableSet<String>? = null
-        val expandedNow: Set<String> get() = expanded ?: setOfNotNull(byQuality.firstOrNull()?.first)
+        val expandedNow: Set<String> get() = expanded ?: emptySet()
 
         fun set(gs: List<StremioSourceGroup>, empty: String?) {
             if (empty != null) { byQuality = emptyList(); sourceItems = emptyList(); notes = listOf(SourceItem.Note(empty)); rebuild(); return }
@@ -360,7 +396,8 @@ class StremioDetailActivity : BaseActivity() {
             byQuality = order.mapNotNull { q -> groups[q]?.sortedBy { StremioStreams.polishRank(it) }?.let { q to it } }
             sourceItems = byQuality.flatMap { it.second }
             notes = buildList {
-                gs.filter { it.loading }.takeIf { it.isNotEmpty() }?.let { l -> add(SourceItem.Note("Wczytywanie: " + l.joinToString(", ") { it.addon.name } + "…")) }
+                // (7.7) jeden, jednolity wiersz zamiast listy wczytywanych wtyczek
+                if (gs.any { it.loading }) add(SourceItem.Loading)
                 gs.filter { it.error != null }.forEach { add(SourceItem.Note("🧩 ${it.addon.name}: błąd – ${it.error}")) }
                 if (all.isEmpty() && gs.none { it.loading }) add(SourceItem.Note("Brak źródeł dla tego tytułu we włączonych wtyczkach."))
             }
@@ -377,10 +414,21 @@ class StremioDetailActivity : BaseActivity() {
             val focusedKey = sources.findFocus()?.let { f -> sources.findContainingViewHolder(f)?.bindingAdapterPosition }?.let { items.getOrNull(it)?.let(::keyOf) }
             items = build()
             notifyDataSetChanged()
-            if (focusedKey != null) items.indexOfFirst { keyOf(it) == focusedKey }.takeIf { it >= 0 }?.let { p -> sources.post { sources.focusPosition(p) } }
+            if (focusedKey != null) {
+                val p = items.indexOfFirst { keyOf(it) == focusedKey }
+                // (7.7) kursor był na „Ładowanie źródeł”, a wiersz zniknął (wszystkie wtyczki odpowiedziały) – pierwsze źródło / grupa
+                val hasPick = items.any { it is SourceItem.Source || it is SourceItem.Quality }
+                val target = if (p >= 0) p else if (focusedKey == "loading" && hasPick) firstSource() else -1
+                if (target >= 0) sources.post { sources.focusPosition(target) }
+                // wtyczki nic nie zwróciły (same komunikaty – nic do zaznaczenia): kursor wraca na wybrany odcinek / listę
+                else if (focusedKey == "loading") backToEpisodes()
+            }
         }
 
-        private fun keyOf(i: SourceItem) = when (i) { is SourceItem.Quality -> "q:" + i.q; is SourceItem.Source -> "s:" + i.s.url + i.s.infoHash + i.s.name; is SourceItem.Note -> "n:" + i.t }
+        /** (7.7) Tylko „Ładowanie źródeł” (nowy odcinek / film – przed odpowiedzią wtyczek). */
+        fun showLoading() { byQuality = emptyList(); sourceItems = emptyList(); notes = listOf(SourceItem.Loading); rebuild() }
+
+        private fun keyOf(i: SourceItem) = when (i) { is SourceItem.Quality -> "q:" + i.q; is SourceItem.Source -> "s:" + i.s.url + i.s.infoHash + i.s.name; is SourceItem.Note -> "n:" + i.t; SourceItem.Loading -> "loading" }
 
         /** OK na grupie: rozwinięcie / zwinięcie bez przebudowy listy (wstawienie / usunięcie pozycji) – zaznaczenie zostaje na grupie. */
         fun toggle(q: String) {
@@ -393,11 +441,12 @@ class StremioDetailActivity : BaseActivity() {
             if (q in set) notifyItemRangeInserted(p + 1, n) else notifyItemRangeRemoved(p + 1, n)
         }
 
-        fun firstSource() = items.indexOfFirst { it is SourceItem.Source }.takeIf { it >= 0 } ?: items.indexOfFirst { it is SourceItem.Quality }.coerceAtLeast(0)
+        fun firstSource() = items.indexOfFirst { it is SourceItem.Source }.takeIf { it >= 0 } ?: items.indexOfFirst { it is SourceItem.Quality }.takeIf { it >= 0 }
+            ?: items.indexOf(SourceItem.Loading).coerceAtLeast(0)
         fun qualityName(q: String) = when (q) { "4K" -> "4K UHD"; "" -> "Inna jakość"; "CAM" -> "CAM (nagranie z kina)"; else -> q }
 
         override fun getItemCount() = items.size
-        override fun getItemViewType(position: Int) = when (items[position]) { is SourceItem.Quality -> 0; is SourceItem.Source -> 1; is SourceItem.Note -> 2 }
+        override fun getItemViewType(position: Int) = when (items[position]) { is SourceItem.Quality -> 0; is SourceItem.Source -> 1; is SourceItem.Note -> 2; SourceItem.Loading -> 3 }
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
             val c = parent.context
             val v: View = when (viewType) {
@@ -411,6 +460,17 @@ class StremioDetailActivity : BaseActivity() {
                     orientation = LinearLayout.VERTICAL; tag = "item"; isFocusable = true; isClickable = true
                     setPadding(Ui.dp(26), Ui.dp(9), Ui.dp(14), Ui.dp(9))
                     addView(StremioUi.text(c, "", 15f, bold = true, lines = 1)); addView(StremioUi.text(c, "", 13f, "text2", lines = 2))
+                }
+                // (7.7) „Ładowanie źródeł” – kółko postępu w kolorze akcentu motywu i jeden napis, zaznaczalne
+                3 -> LinearLayout(c).apply {
+                    gravity = android.view.Gravity.CENTER_VERTICAL; tag = "item"; isFocusable = true; isClickable = true
+                    setPadding(Ui.dp(14), Ui.dp(12), Ui.dp(14), Ui.dp(12))
+                    addView(android.widget.ProgressBar(c).apply {
+                        // kolor tekstu zaznaczenia / zwykłego (na zaznaczeniu w kolorze akcentu kółko nie znika)
+                        isIndeterminate = true; isDuplicateParentStateEnabled = true; indeterminateTintList = Ui.textColors(Ui.text)
+                    }, LinearLayout.LayoutParams(Ui.dp(22), Ui.dp(22)))
+                    addView(StremioUi.text(c, LOADING_TEXT, 16f, "accent", bold = true, lines = 1).apply { setPadding(Ui.dp(12), 0, 0, 0) })
+                    contentDescription = LOADING_TEXT
                 }
                 else -> StremioUi.text(c, "", 14f, "text2").apply { setPadding(Ui.dp(14), Ui.dp(6), Ui.dp(6), Ui.dp(6)) }
             }
@@ -430,6 +490,7 @@ class StremioDetailActivity : BaseActivity() {
                     h.itemView.isActivated = it.open
                 }
                 is SourceItem.Note -> (h.itemView as TextView).text = it.t
+                SourceItem.Loading -> {}
                 is SourceItem.Source -> (h.itemView as LinearLayout).let { box ->
                     val s = it.s
                     (box.getChildAt(0) as TextView).text = s.badges.ifBlank { s.name.replace('\n', ' ') }

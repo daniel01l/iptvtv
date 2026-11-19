@@ -423,7 +423,20 @@ class ModernHomeActivity : BaseActivity() {
     private fun Modifier.sectionFade(): Modifier = graphicsLayer {
         val v = sectionAnim.value
         alpha = 0.2f + 0.8f * v
+        // (7.7) przezroczystość nakładana przy rysowaniu (bez pełnoekranowego bufora pośredniego w każdej klatce – płynniej na TV)
+        compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
         translationY = (1f - v) * 18.dp.toPx()
+    }
+
+    /**
+     * (7.7) Podgląd sekcji dopiero, gdy kursor zatrzyma się na pasku ([PREVIEW_DELAY_MS]) – szybkie przejście po kilku ikonach
+     * nie przebudowuje po drodze każdej sekcji (rzędy, hero, obrazy) – płynny ruch po pasku.
+     */
+    private var previewJob: Job? = null
+    private fun schedulePreview(i: Int) {
+        previewJob?.cancel()
+        if (section == i) return
+        previewJob = lifecycleScope.launch { delay(PREVIEW_DELAY_MS); previewSection(i) }
     }
 
     /** (7.5) Zaznaczenie sekcji w pasku – podgląd jej rzędów i hero (fokus zostaje w pasku). */
@@ -439,6 +452,7 @@ class ModernHomeActivity : BaseActivity() {
      * Domek (Start) – kursor w prawo na „Ostatnio oglądane”.
      */
     private fun openSection(i: Int) {
+        previewJob?.cancel()
         when (i) {
             0 -> {
                 if (section != 0) { section = 0; rowLast.clear() }
@@ -816,7 +830,8 @@ class ModernHomeActivity : BaseActivity() {
                 drawRect(Brush.horizontalGradient(0f to Color.Black.copy(alpha = if (open) 0.96f else 0.72f), 0.7f to Color.Black.copy(alpha = if (open) 0.9f else 0.35f),
                     1f to Color.Transparent))
             }
-            .onFocusChanged { if (railOpen != it.hasFocus) railOpen = it.hasFocus }
+            // (7.7) kursor opuścił pasek – zaplanowany podgląd sekcji odwołany (nie podmienia rzędów pod kursorem)
+            .onFocusChanged { if (railOpen != it.hasFocus) railOpen = it.hasFocus; if (!it.hasFocus) previewJob?.cancel() }
             .focusProperties { enter = { "nav:s$section".takeIf { it in attached }?.let { requester(it) } ?: FocusRequester.Default } }
             .focusGroup()
             .padding(vertical = if (dims.compact) 8.dp else 18.dp, horizontal = dims.railPad),
@@ -825,7 +840,7 @@ class ModernHomeActivity : BaseActivity() {
             RailItem("nav:search", X25Icons.SEARCH, "Szukaj") { search() }
             Spacer(Modifier.height(if (dims.compact) 4.dp else 10.dp))
             // (7.5) zaznaczenie sekcji – podgląd jej rzędów; OK / dotknięcie – od razu ta zakładka (Domek – kursor na „Ostatnio oglądane”)
-            NAV.forEachIndexed { i, n -> RailItem("nav:s$i", n.icon, n.label, selected = section == i, onFocus = { previewSection(i) }) { openSection(i) } }
+            NAV.forEachIndexed { i, n -> RailItem("nav:s$i", n.icon, n.label, selected = section == i, onFocus = { schedulePreview(i) }) { openSection(i) } }
             Spacer(Modifier.weight(1f))
             RailItem("nav:settings", X25Action.SETTINGS, "Ustawienia") { X25Actions.run(this@ModernHomeActivity, X25Action(X25Action.SETTINGS)) }
             // launcher: ekran główny się nie zamyka – bez „Wyjścia”
@@ -912,7 +927,9 @@ class ModernHomeActivity : BaseActivity() {
         /** Opóźnienie zmiany hero po zaznaczeniu kafelka (szybkie przewijanie nie wczytuje obrazów po drodze). */
         const val FEATURE_DELAY_MS = 300L
         /** (7.6) Przejście między sekcjami ekranu głównego. */
-        const val SECTION_ANIM_MS = 220
+        const val SECTION_ANIM_MS = 180
+        /** (7.7) Podgląd sekcji po zatrzymaniu kursora na pasku. */
+        const val PREVIEW_DELAY_MS = 220L
     }
 }
 

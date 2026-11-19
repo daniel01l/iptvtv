@@ -182,6 +182,7 @@ class ModernTest {
         // ▼ – zaznaczenie „Na żywo”: podgląd sekcji (fokus zostaje w pasku); OK – od razu ekran Live TV
         key(a, KeyEvent.KEYCODE_DPAD_DOWN)
         assertEquals("nav:s1", a.focusedKey)
+        idle(400)                                                 // 7.7: podgląd po zatrzymaniu kursora na pasku
         assertEquals(1, a.sectionNow)
         generateSequence { shadowOf(a).nextStartedActivity }.toList()
         key(a, KeyEvent.KEYCODE_DPAD_CENTER)
