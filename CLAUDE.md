@@ -5,7 +5,7 @@
 - Kod: `IptvTv-source.tar.gz` (Gradle 8.14.3, AGP 8.7.3, Kotlin 2.0.21, Media3 1.5.0 + FFmpeg (Jellyfin), compileSdk 35, OkHttp, Coil 2.7, Robolectric 4.13).
 - Moduły: `:app` (pl.iptv.tv), `:admin` (pl.iptv.admin); wspólny kod `shared/pl/iptv/shared/` (RelayCrypto.kt, ActivationFormat.kt).
 - Flavory app: `full` (pl.iptv.tv, plik D-iptv-Player.apk, iptvtv.json, repo github daniel01l/iptvtv) i `secure` (pl.iptv.dplayer, wersja TEST, DPlayer.apk, dplayer.json, repo daniel01l/dplayer). Zmiany robimy tylko w `full`.
-- Aktualna wersja: Player 7.13 (versionCode 73, wydana na GitHubie 20.11.2026; poprzednia 7.11 / 71), Admin 2.4 (versionCode 10), TEST 1.2 (versionCode 3).
+- Aktualna wersja: Player 7.14 (versionCode 74, wydana na GitHubie 20.11.2026; poprzednia 7.13 / 73), Admin 2.4 (versionCode 10), TEST 1.2 (versionCode 3).
 - Zależności YouTube (6.2): NewPipeExtractor v0.27.1 z JitPack (repo ograniczone do grupy com.github.TeamNewPipe w `settings.gradle.kts`, licencja GPLv3; YouTube często psuje ekstrakcję – przy problemach podbić wersję), desugaring `desugar_jdk_libs_nio`, `security-crypto` 1.1.0-alpha06. Klient OAuth/klucz API: `keystore/youtube_oauth.properties` (client_id, client_secret, api_key) – opcjonalnie, poza repo.
 
 ## Podpis i aktywacja
@@ -26,6 +26,9 @@ Na Windows: `JAVA_HOME=C:\Users\dkier\.jdks\jbr-21.0.11`.
 2. Dopisać sekcję w README.md.
 3. Zbudować, sprawdzić podpis (`apksigner verify --print-certs`, SHA-256 041b543f…).
 4. Zaktualizować `iptvtv.json` (versionCode, versionName, apk, notes) i wgrać wydanie na GitHub (daniel01l/iptvtv).
+
+## Zmiany 7.14 (release v7.14, versionCode 74)
+STube: `data/StubeTaste.kt` (profil gustu z historii + przesłanych playlist i odrzuceń `Prefs.ytDislikes`; `score`/`rank`/`afterSkip`/`isSkip`), `YtEngine.next` (pominięcie → `adaptQueue` przed `pop`), `YtMusicStage.removeAt` (► usuwa, `Host.remove`), `enterContent` → kafelek „Tekst”. `data/StubeImport.kt`: `classify`/`resolve`/`pick`/`parseSpotify`, Room v10 `ImportedPlaylist` (AutoMigration 9→10), `RemoteServer.musicPlaylistOffer` (ten sam kanał co M3U), `StubeRemote` `import_playlist`, `ui/StubeImportUi` (ikona `stAdd`), miks `mine` w `StubeMixes.build(imported)`. Nowoczesny: `animSection` (stan) + `sectionFade` bez przesunięcia, hero od góry (`SpaceBetween`), pełny „Program TV”. Uwaga: perl/sed z ogranicznikiem „|” psuje wzorzec lub plik przy znaku „|” w tekście – używać Edit. Testy: `V714Test`, `V714ImportTest`.
 
 ## Zmiany 7.12 (w wersji 7.13)
 Płynność: `focusSpring`/`focusScale` (Ps5Compose.kt) – skala fokusu sprężyną (animacja obwódki `*Frame` psuła testy fokusu Modern/X25 w pełnym przebiegu – obwódka bez animacji), `Ui.zoomAnimator` z `PathInterpolator` i min. 130 ms, rail Nowoczesnego sprężyną; `TileImage` – stały `sizePx`, `memoryCacheKey` `url@rozmiar`, `Precision.INEXACT`, `clip`.

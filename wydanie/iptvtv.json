@@ -1,6 +1,6 @@
 {
-  "versionCode": 73,
-  "versionName": "7.13",
+  "versionCode": 74,
+  "versionName": "7.14",
   "apk": "D-iptv-Player.apk",
-  "notes": "Smoother focus on all themes and home screens (spring scale, soft easing), stable tile images (fixed decode size, no flicker, clipped to the tile). STube: live category previews, sub-category pills, more lyrics sources. Stremio: long-press marks season / title as watched, new 'In cinemas' row, smoother rows. / Plynniejszy fokus we wszystkich motywach i pulpitach (sprezyna, miekka krzywa), stabilne obrazy kafelkow (staly rozmiar, bez migotania, przyciete do kafelka). STube: podglad kategorii na zywo, pigulki podkategorii, wiecej zrodel tekstow. Stremio: przytrzymanie oznacza sezon / tytul jako obejrzany, nowy rzad Obecnie w kinach, plynniejsze rzedy."
+  "notes": "STube: skips and removals (right arrow) tune the up-next queue to your taste, better matched suggestions, + button to add a YouTube / Spotify playlist (paste or send from phone), saved in the library and used for your mixes. Modern theme: no layout jumping when changing category, full 'TV guide' label. / STube: pominiecia i usuwanie (strzalka w prawo) dopasowuja kolejke do gustu, trafniejsze propozycje, przycisk + do dodawania playlist YouTube / Spotify (wklejenie lub wyslanie z telefonu), zapis w bibliotece i wplyw na miksy. Motyw Nowoczesny: bez skakania ukladu przy zmianie kategorii, pelny napis Program TV."
 }

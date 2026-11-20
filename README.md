@@ -103,6 +103,11 @@
 
 Kanał trafia do „ostatnio oglądanych” po co najmniej 1 minucie odtwarzania.
 
+**v7.14** (20.11.2026):
+- **STube – gust słuchacza**: pominięcie utworu przed połową (albo ► na pozycji listy „Następne w kolejce”) dopasowuje kolejkę w tle – utwory tego samego wykonawcy znikają, o podobnym gatunku / klimacie co drugi, reszta zostaje; propozycje oceniane wg historii (gatunki, wykonawcy) i odrzuceń, bez „propozycji od czapy”. Z ikon nawigacji widoku muzycznego fokus wraca na kafelek „Tekst”.
+- **STube – ＋ Dodaj playlistę**: link do playlisty YouTube / Spotify (albo lista „Wykonawca – Tytuł”) wklejony w oknie lub wysłany z telefonu tym samym kanałem co lista M3U (strona wysyłania + PIN); podgląd dopasowań, start jako aktywna kolejka i zapis na stałe w Bibliotece; przesłane utwory wzmacniają „Twoje miksy” (miks „Z Twoich playlist”).
+- **Nowoczesny**: bez skakania układu przy zmianie kategorii (stałe miejsca tytułu i przycisków, przejście bez migotania), pełny napis „Program TV”.
+
 **v7.13** (20.11.2026) – zawiera 7.12:
 - **Płynność i tekstury (wszystkie motywy i pulpity)**: skala zaznaczenia sprężyną (przejmuje prędkość przy szybkim klikaniu), miękka krzywa zaznaczenia na widokach (min. 130 ms), obrazy kafelków i hero w stałym rozmiarze z stałym kluczem pamięci (bez ponownego dekodowania i migotania) i przycięte do kafelka.
 
