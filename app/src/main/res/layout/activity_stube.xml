@@ -13,6 +13,7 @@
         <TextView android:id="@+id/stSearch" style="@style/StubeRail" android:layout_marginTop="14dp" android:text="🔎"/>
         <TextView android:id="@+id/stHome" style="@style/StubeRail" android:text="🏠"/>
         <TextView android:id="@+id/stLib" style="@style/StubeRail" android:text="🎵"/>
+        <TextView android:id="@+id/stAdd" style="@style/StubeRail" android:text="＋"/>
         <TextView android:id="@+id/stCat0" style="@style/StubeRail" android:text="•"/>
         <TextView android:id="@+id/stCat1" style="@style/StubeRail" android:text="•"/>
         <TextView android:id="@+id/stCat2" style="@style/StubeRail" android:text="•"/>

@@ -22,6 +22,8 @@ import pl.iptv.tv.R
 import pl.iptv.tv.data.YouTubeRepository
 import pl.iptv.tv.data.YouTubeTokens
 import pl.iptv.tv.data.StubeHistory
+import pl.iptv.tv.data.StubeImport
+import pl.iptv.tv.data.StubeQueue
 
 /**
  * STube – przeglądanie YouTube na TV: wyszukiwarka u góry (podpowiedzi z historii) i poziome rzędy (Kontynuuj oglądanie, Dla Ciebie,
@@ -39,7 +41,7 @@ class STubeActivity : BaseActivity() {
     /** Wygląd, z którym zbudowano ekran (zmiana motywu STube w Ustawieniach → przebudowa). */
     private var builtLook = ""
 
-    override fun onPause() { super.onPause(); StubeTheme.exit() }
+    override fun onPause() { super.onPause(); StubeTheme.exit(); if (StubeImportUi.current == null) StubeImport.onPending = null }
 
     companion object {
         /** Fraza do wyszukania od razu (polecenie z telefonu). */
@@ -86,11 +88,12 @@ class STubeActivity : BaseActivity() {
         scroll = findViewById(R.id.stScroll)
         account = findViewById(R.id.stAccount)
         rail = findViewById(R.id.stRail); chips = findViewById(R.id.stChips); chipScroll = findViewById(R.id.stChipScroll)
-        for ((id, desc) in listOf(R.id.stSearch to "Szukaj", R.id.stHome to "Start", R.id.stLib to "Biblioteka", R.id.stPhone to "Sterowanie z telefonu",
+        for ((id, desc) in listOf(R.id.stSearch to "Szukaj", R.id.stHome to "Start", R.id.stLib to "Biblioteka", R.id.stAdd to "Dodaj playlistę (link YouTube / Spotify)", R.id.stPhone to "Sterowanie z telefonu",
             R.id.stNow to "Teraz odtwarzane – otwórz odtwarzacz", R.id.stSmartTube to "SmartTube", R.id.stRefresh to "Odśwież", R.id.stClose to "Zamknij")) findViewById<View>(id).contentDescription = desc
         styleRail()
         findViewById<View>(R.id.stHome).setOnClickListener { goStart() }
         findViewById<View>(R.id.stLib).setOnClickListener { jumpTo(STubeScreen.ROW_LIBRARY) }
+        findViewById<View>(R.id.stAdd).setOnClickListener { StubeImportUi.show(this) }
         if (narrowHeader) {
             // wąski ekran (telefon w pionie): pasek ikon poziomo u góry, bez tytułu – wszystko mieści się w szerokości
             val root = findViewById<LinearLayout>(R.id.stRoot); root.orientation = LinearLayout.VERTICAL
@@ -173,11 +176,17 @@ class STubeActivity : BaseActivity() {
         super.onResume()
         StubeTheme.enter()
         if (builtLook != StubeTheme.key) { recreate(); return }
+        // (7.14) link do playlisty odebrany z telefonu (kanał listy M3U): okno „＋” od razu z podglądem
+        StubeImport.onPending = { if (StubeImportUi.current == null) StubeImportUi.show(this) }
+        if (StubeImport.pending != null && StubeImportUi.current == null) StubeImportUi.show(this)
         if (builtFor == null) return   // pierwsze rzędy po wczytaniu postępu (onCreate)
         // powrót z Ustawień / odtwarzacza: nowe rzędy (konto, źródło, historia) – z zachowaniem rzędu i kafelka, na którym był fokus
         if (builtFor != stateKey()) buildKeepingPosition()
         else refreshProgress()
     }
+
+    /** Biblioteka po zapisaniu / usunięciu przesłanej playlisty (kafelki i „Twoje miksy”). */
+    fun libraryChanged() { if (builtFor != stateKey()) buildKeepingPosition() }
 
     /** Przebudowa rzędów bez gubienia miejsca: fokus wraca na ten sam rząd (po id) i kafelek, o ile rząd nadal istnieje. */
     private fun buildKeepingPosition() {
@@ -190,7 +199,7 @@ class STubeActivity : BaseActivity() {
     }
 
     private fun stateKey() = "${YouTubeTokens.loggedIn}|${YouTubeRepository.source}|${pl.iptv.tv.data.Prefs.ytRegion}|${searchQuery.orEmpty()}|" +
-        "${StubeHistory.hasUnfinished}|${StubeHistory.historyCount >= pl.iptv.tv.data.StubeMixes.MIN_HISTORY}"
+        "${StubeHistory.hasUnfinished}|${STubeScreen.hasMixHistory()}|${pl.iptv.tv.data.StubeImport.version}"
 
     /**
      * Powrót z odtwarzacza: paski obejrzenia odświeżone w miejscu (payload – bez migania miniatur, fokus zostaje),
@@ -525,7 +534,7 @@ class STubeActivity : BaseActivity() {
     }
     // ---------------- pigułki biblioteki (Ostatnie / Playlisty / Miksy / Polubione / Subskrypcje) ----------------
 
-    private val RAIL_ICONS = mapOf(R.id.stAccount to PlayerIcon.USER, R.id.stSearch to PlayerIcon.SEARCH, R.id.stHome to PlayerIcon.HOME, R.id.stLib to PlayerIcon.QUEUE,
+    private val RAIL_ICONS = mapOf(R.id.stAccount to PlayerIcon.USER, R.id.stSearch to PlayerIcon.SEARCH, R.id.stHome to PlayerIcon.HOME, R.id.stLib to PlayerIcon.QUEUE, R.id.stAdd to PlayerIcon.PLUS,
         R.id.stCat0 to PlayerIcon.NEWS, R.id.stCat1 to PlayerIcon.TRENDING, R.id.stCat2 to PlayerIcon.MUSIC, R.id.stCat3 to PlayerIcon.SPORT, R.id.stCat4 to PlayerIcon.KIDS, R.id.stCat5 to PlayerIcon.HEADLINES, R.id.stCat6 to PlayerIcon.GAMES,
         R.id.stPhone to PlayerIcon.PHONE, R.id.stNow to PlayerIcon.AUDIO_ONLY, R.id.stSmartTube to PlayerIcon.PLAY, R.id.stRefresh to PlayerIcon.REFRESH, R.id.stClose to PlayerIcon.CLOSE)
 
@@ -798,6 +807,16 @@ class STubeActivity : BaseActivity() {
                     add("☰ Pokaż utwory miksu" to { openPlaylist(r, p) })
                     add("＋ Dodaj miks do kolejki" to { playMix(p, playNow = false) })
                 }
+                p.id.startsWith(STubeScreen.PL_IMPORTED) -> {
+                    add("▶ Odtwórz jako kolejkę" to { playImported(p, playNow = true) })
+                    add("☰ Pokaż utwory" to { openPlaylist(r, p) })
+                    add("＋ Dodaj do kolejki" to { playImported(p, playNow = false) })
+                    add("✖ Usuń z biblioteki" to {
+                        Dialogs.confirm(this@STubeActivity, "Usunąć playlistę?", "Playlista „${p.title}” zniknie z biblioteki i przestanie wpływać na „Twoje miksy”.") {
+                            lifecycleScope.launch { p.id.removePrefix(STubeScreen.PL_IMPORTED).toLongOrNull()?.let { StubeImport.remove(it) }; libraryChanged() }
+                        }
+                    })
+                }
                 p.id == STubeScreen.PL_LIKED || p.id.startsWith(STubeScreen.PL_CHANNEL) -> Unit
                 else -> {
                     val url = "https://www.youtube.com/playlist?list=${p.id}"
@@ -806,6 +825,16 @@ class STubeActivity : BaseActivity() {
                 }
             }
         })
+    }
+
+    /** Przesłana playlista [p] (Room): jako aktywna kolejka z natychmiastowym startem albo dodana na koniec kolejki. */
+    private fun playImported(p: pl.iptv.tv.data.YtPlaylist, playNow: Boolean) {
+        lifecycleScope.launch {
+            val vids = StubeImport.all().firstOrNull { it.id == p.id.removePrefix(STubeScreen.PL_IMPORTED).toLongOrNull() }?.videos().orEmpty()
+            if (vids.isEmpty()) { toast("Playlista jest pusta"); return@launch }
+            if (playNow) StubeImportUi.start(this@STubeActivity, vids)
+            else { vids.forEach { StubeQueue.add(pl.iptv.tv.data.QueueItem.of(it)) }; toast("Dodano do kolejki: ${vids.size} utworów") }
+        }
     }
 
     /** Miks [p]: filmy z YouTube → pierwszy od razu (gdy [playNow]), pozostałe do kolejki. */

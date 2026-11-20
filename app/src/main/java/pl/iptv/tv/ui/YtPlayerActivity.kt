@@ -114,7 +114,7 @@ class YtPlayerActivity : AppCompatActivity() {
     val chapters: List<YtChapter> get() = current?.chapters.orEmpty()
     val related: List<YtVideo> get() = current?.related.orEmpty()
     /** Propozycje po utworze: bez składanek i wideo z kilkunastoma piosenkami, bez ostatnio słuchanych, wielu wykonawców ([pl.iptv.tv.data.StubeMixes.suggest]). */
-    val suggestions: List<YtVideo> get() = pl.iptv.tv.data.StubeMixes.suggest(related, videoId, titleView.text.toString(), current?.channel?.ifBlank { null } ?: video.channel, YtEngine.recentIds)
+    val suggestions: List<YtVideo> get() = pl.iptv.tv.data.StubeMixes.suggest(related, videoId, titleView.text.toString(), current?.channel?.ifBlank { null } ?: video.channel, YtEngine.recentIds, pl.iptv.tv.data.StubeTaste.current())
     /** Dane bieżącego filmu (gdy silnik gra film tego ekranu). */
     private val current: YtPlayable? get() = YtEngine.playable?.takeIf { YtEngine.video?.id == videoId }
     private val live get() = current is YtPlayable.Live
@@ -730,6 +730,18 @@ class YtPlayerActivity : AppCompatActivity() {
                 StubeQueue.remove(q.id)
                 if (q.isVideo) playNow(q.toVideo()) else { QueueUi.play(this@YtPlayerActivity, q); YtEngine.stop(); finish() }
             } else e.video?.let { playNow(it) }
+        }
+        override fun remove(e: YtMusicStage.Entry) {
+            val q = e.queue; val v = e.video
+            lifecycleScope.launch {
+                if (q != null) StubeQueue.remove(q.id)
+                if (v != null) {
+                    // odrzucony utwór: kara dla wykonawcy / gatunku, kolejka dopasowuje się w tle (podobne znikają), propozycje go nie pokażą
+                    pl.iptv.tv.data.StubeTaste.recordDislike(v.id, v.title, v.channel)
+                    runCatching { YtEngine.adaptQueue(v) }
+                }
+                stageSig = ""; updateStage()
+            }
         }
         /** Bieżący utwór, potem kolejka STube / TV; pusta kolejka – propozycje (podobne utwory). */
         override fun entries(): List<YtMusicStage.Entry> {

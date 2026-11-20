@@ -10,6 +10,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import pl.iptv.tv.data.Prefs
 import pl.iptv.tv.data.QueueItem
+import pl.iptv.tv.data.StubeImport
 import pl.iptv.tv.data.StubeQueue
 import pl.iptv.tv.data.YtKeyless
 import pl.iptv.tv.data.YtVideo
@@ -26,7 +27,7 @@ import java.util.concurrent.TimeUnit
  * po [MAX_FAILS] błędnych kodach – blokada na [LOCK_MS] (4 cyfry nie dają się zgadnąć seryjnie).
  *
  * Polecenia (`POST /api/stube/cmd`, JSON `{"cmd": …, "arg": …}`): toggle, play, pause, seek (arg ms), chapter_next, chapter_prev,
- * next, stop – odtwarzacz; play_video / queue_add / queue_next (arg: link lub ID filmu), search (arg: fraza), open (STube).
+ * next, stop – odtwarzacz; import_playlist (arg: link YouTube / Spotify); play_video / queue_add / queue_next (arg: link lub ID filmu), search (arg: fraza), open (STube).
  */
 object StubeRemote {
     const val MAX_FAILS = 5
@@ -129,6 +130,9 @@ object StubeRemote {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)) }
             ok("Wyszukiwanie na TV: $q")
         } ?: fail("Wpisz frazę")
+        // (7.14) link do playlisty (YouTube / Spotify) albo lista tytułów – ten sam odbiór co przy listach M3U; okno „＋” w STube pokazuje podgląd
+        "import_playlist" -> arg.trim().takeIf { StubeImport.classify(it) != null || StubeImport.looksLikeTrackList(it) }?.let { StubeImport.offer(it); ok("Playlista przekazana do STube – potwierdź na TV (＋)") }
+            ?: fail("Podaj link do playlisty YouTube lub Spotify")
         "open" -> { onMain { app.startActivity(Intent(app, STubeActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)) }; ok("STube otwarte") }
         else -> fail("Nieznane polecenie")
     }
@@ -170,6 +174,7 @@ li{margin:4px 0}</style></head><body>
 </div>
 <div class="card"><input id="link" placeholder="Link YouTube lub ID filmu">
 <div class="r"><button class="p" onclick="cmd('play_video',v('link'))">▶ Odtwórz</button><button onclick="cmd('queue_next',v('link'))">⏭ Jako następny</button><button onclick="cmd('queue_add',v('link'))">＋ Kolejka</button></div></div>
+<div class="card"><input id="plink" placeholder="Link do playlisty YouTube / Spotify"><div class="r"><button class="p" onclick="cmd('import_playlist',v('plink'))">＋ Dodaj playlistę do STube</button></div></div>
 <div class="card"><input id="q" placeholder="Szukaj w STube…" onkeydown="if(event.key=='Enter')cmd('search',v('q'))">
 <div class="r"><button onclick="cmd('search',v('q'))">🔎 Szukaj na TV</button><button onclick="cmd('stop')">⏹ Zamknij film</button></div></div>
 <div class="card"><b>Kolejka</b><ol id="queue" class="m"></ol></div>

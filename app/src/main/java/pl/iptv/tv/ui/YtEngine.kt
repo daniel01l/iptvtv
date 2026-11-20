@@ -21,6 +21,7 @@ import pl.iptv.tv.data.SbSegment
 import pl.iptv.tv.data.SponsorBlock
 import pl.iptv.tv.data.StubeHistory
 import pl.iptv.tv.data.StubeQueue
+import pl.iptv.tv.data.StubeTaste
 import pl.iptv.tv.data.YtPlayable
 import pl.iptv.tv.data.YtStreamException
 import pl.iptv.tv.data.YtStreams
@@ -230,7 +231,25 @@ object YtEngine {
     }
 
     /** Następny materiał teraz (pilot, telefon, ⏭). */
-    fun next() { if (video != null) finished(natural = false) }
+    fun next() {
+        val v = video ?: return
+        // (7.14) pominięcie przed połową utworu = odrzucenie: kolejka dopasowuje się w tle (zanim zostanie zdjęty następny utwór)
+        val p = player
+        val skip = p != null && !live && StubeTaste.isSkip(p.currentPosition, p.duration.takeIf { it != C.TIME_UNSET } ?: 0L)
+        if (skip) StubeTaste.recordDislike(v.id, v.title, v.channel)
+        finished(natural = false, skipped = if (skip) v else null)
+    }
+
+    /**
+     * (7.14) Dopasowanie kolejki „Następne” do odrzuconego utworu [skipped] (pominięty / usunięty ►) – w tle, bez dotykania
+     * odtwarzania: podobne (ten sam wykonawca, gatunek, klimat) znikają lub lądują na końcu, reszta zostaje dostępna.
+     */
+    suspend fun adaptQueue(skipped: YtVideo) {
+        val q = StubeQueue.items()
+        if (q.none { it.isVideo }) return
+        val out = StubeTaste.afterSkip(q, skipped)
+        if (out.map { it.kind + it.ref } != q.map { it.kind + it.ref }) StubeQueue.replaceAll(out)
+    }
 
     private var goingBack = false
 
@@ -257,12 +276,13 @@ object YtEngine {
     }
 
     /** Koniec filmu: następny z kolejki (film – tutaj, kanał TV – ekran), inaczej propozycje na ekranie albo zatrzymanie. */
-    private fun finished(natural: Boolean = true) {
+    private fun finished(natural: Boolean = true, skipped: YtVideo? = null) {
         // powtarzanie utworu: naturalny koniec → od początku (ręczne „Następny” przechodzi dalej)
         if (natural && repeatOne && !live) { player?.let { it.seekTo(0); it.playWhenReady = true; it.play() }; return }
         ended = true; saveProgress()
         val cur = video?.id
         scope.launch {
+            skipped?.let { runCatching { adaptQueue(it) } }          // (7.14) najpierw dopasowanie – następny utwór nie jest podobny do pominiętego
             val next = if (Prefs.queueAutoplay) StubeQueue.pop(skipRef = cur, random = shuffle) else null
             when {
                 next?.isVideo == true -> load(app, next.toVideo(), force = true)
@@ -280,7 +300,7 @@ object YtEngine {
         val p = playable ?: return null
         val v = video
         val recent = played.mapTo(HashSet()) { it.id }
-        return pl.iptv.tv.data.StubeMixes.suggest(p.related, cur.orEmpty(), p.title.ifBlank { v?.title.orEmpty() }, p.channel.ifBlank { v?.channel.orEmpty() }, recent).firstOrNull()
+        return pl.iptv.tv.data.StubeMixes.suggest(p.related, cur.orEmpty(), p.title.ifBlank { v?.title.orEmpty() }, p.channel.ifBlank { v?.channel.orEmpty() }, recent, StubeTaste.current()).firstOrNull()
     }
 
     private val listener = object : Player.Listener {

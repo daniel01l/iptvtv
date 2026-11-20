@@ -240,7 +240,10 @@ class V79Test {
         assertSame(inText, s.findFocus())
         key(a, android.view.KeyEvent.KEYCODE_DPAD_LEFT)
         assertSame(s.optionsBtn, s.findFocus())
+        // (7.14) z ikon wraca na kafelek „Tekst”, dopiero ▼ wchodzi w okno tekstu
         key(a, android.view.KeyEvent.KEYCODE_DPAD_RIGHT)
+        assertSame(s.lyricsTab, s.findFocus())
+        key(a, android.view.KeyEvent.KEYCODE_DPAD_DOWN)
         assertSame(inText, s.findFocus())
     }
 

@@ -24,6 +24,8 @@ object YtKeyless {
         fun search(q: String): List<YtVideo>
         /** Propozycje YouTube po filmie (lista „Następne” – kolejność z zachowań innych widzów). */
         fun related(id: String): List<YtVideo> = emptyList()
+        /** (7.14) Playlista YouTube: nazwa i utwory (do [MAX] pozycji) – przesyłanie linków do STube. */
+        fun playlist(id: String): Pair<String, List<YtVideo>> = "" to emptyList()
     }
 
     object NewPipeSource : Source {
@@ -43,6 +45,19 @@ object YtKeyless {
             YtStreams.ensureInit()
             return org.schabi.newpipe.extractor.stream.StreamInfo.getInfo(ServiceList.YouTube, "https://www.youtube.com/watch?v=$id")
                 .relatedItems.filterIsInstance<StreamInfoItem>().mapNotNull(::video)
+        }
+        override fun playlist(id: String): Pair<String, List<YtVideo>> {
+            YtStreams.ensureInit()
+            val yt = ServiceList.YouTube; val url = "https://www.youtube.com/playlist?list=$id"
+            val info = org.schabi.newpipe.extractor.playlist.PlaylistInfo.getInfo(yt, url)
+            val out = ArrayList<YtVideo>()
+            info.relatedItems.filterIsInstance<StreamInfoItem>().mapNotNullTo(out, ::video)
+            var next = info.nextPage
+            while (next != null && out.size < StubeImport.MAX_ITEMS) {
+                val page = org.schabi.newpipe.extractor.playlist.PlaylistInfo.getMoreItems(yt, url, next)
+                page.items.filterIsInstance<StreamInfoItem>().mapNotNullTo(out, ::video); next = page.nextPage
+            }
+            return info.name.orEmpty() to out
         }
     }
 
@@ -70,6 +85,11 @@ object YtKeyless {
         val l = try { source.related(id) } catch (e: Exception) { throw YtException(YtStreams.message(e)) }
         synchronized(cache) { cache[k] = System.currentTimeMillis() to l }
         l
+    }
+
+    /** Playlista YouTube [id] (przesyłanie linków): nazwa i utwory; błąd → [YtException]. */
+    suspend fun playlist(id: String): Pair<String, List<YtVideo>> = withContext(Dispatchers.IO) {
+        try { source.playlist(id) } catch (e: Exception) { throw YtException(YtStreams.message(e)) }
     }
 
     /** Identyfikator z adresu filmu (watch?v=…, youtu.be/…, /shorts/…). */

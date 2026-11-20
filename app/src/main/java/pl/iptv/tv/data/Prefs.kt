@@ -125,6 +125,8 @@ object Prefs {
     /** (7.9) Widok muzyczny odtwarzacza STube (okładka, kolejka, tekst) dla utworów; domyślnie wyłączony (przycisk „Widok muzyczny” w odtwarzaczu włącza go dla bieżącego i kolejnych utworów); wyłączony – zwykły odtwarzacz wideo. */
     var ytMusicView: Boolean get() = bool("yt_music_view", false); set(v) = putBool("yt_music_view", v)
     /** (7.9) Tekst piosenki w widoku muzycznym (zapytanie z tytułem i wykonawcą do bazy tekstów). */
+    /** (7.14) Odrzucone utwory STube (wykonawcy, gatunki, id) – patrz [StubeTaste]. */
+    var ytDislikes: String get() = str("yt_dislikes"); set(v) = put("yt_dislikes", v)
     var ytLyrics: Boolean get() = bool("yt_lyrics", true); set(v) = putBool("yt_lyrics", v)
     /** Korektor dźwięku: preset ([pl.iptv.tv.ui.YtEq]) i poziomy pasm presetu „Własny” (millibele, po przecinku). */
     var ytEqPreset: Int get() = int("yt_eq", 0); set(v) = putInt("yt_eq", v)

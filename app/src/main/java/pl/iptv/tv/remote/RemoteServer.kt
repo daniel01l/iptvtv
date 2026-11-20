@@ -15,6 +15,7 @@ import pl.iptv.tv.data.M3uParser
 import pl.iptv.tv.data.Playlists
 import pl.iptv.tv.data.Prefs
 import pl.iptv.tv.data.Repository
+import pl.iptv.tv.data.StubeImport
 import java.io.BufferedInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -187,9 +188,23 @@ object RemoteServer {
         return pl.iptv.tv.update.Updater.handleIncoming(app, f)
     }
 
+    /**
+     * (7.14) Odebrany tekst / plik, który nie jest listą kanałów M3U, ale linkiem do playlisty muzycznej (YouTube, Spotify) albo listą
+     * tytułów: przekazany do STube ([StubeImport.offer]) – okno „＋” pokazuje podgląd. Null – to zwykła lista M3U (obsługa bez zmian).
+     */
+    private fun musicPlaylistOffer(url: String, bytes: ByteArray): Pair<Boolean, String>? {
+        val text = if (bytes.isNotEmpty()) String(bytes, Charsets.UTF_8).takeIf { !it.trimStart().startsWith("#EXTM3U") && M3uParser.parse(it).channels.isEmpty() } ?: return null else url.trim()
+        if (StubeImport.classify(text) == null && !(bytes.isNotEmpty() && StubeImport.looksLikeTrackList(text))) return null
+        StubeImport.offer(text)
+        main.post { pl.iptv.tv.ui.I18n.makeToast(app, "🎵 Otrzymano playlistę dla STube – otwórz STube i wybierz ＋", Toast.LENGTH_LONG).show() }
+        return true to "Playlista przekazana do STube na urządzeniu $deviceName"
+    }
+
     /** Zapisuje odebraną listę; zwraca (sukces, komunikat). */
     fun receive(pin: String, name: String, url: String, bytes: ByteArray, epg: String, expiry: String, activate: Boolean): Pair<Boolean, String> {
         if (pin != Prefs.remotePin) return false to "Błędny kod PIN"
+        // (7.14) link do playlisty muzycznej (YouTube / Spotify) albo lista „Wykonawca – Tytuł” → STube (ten sam kanał i PIN co lista M3U)
+        musicPlaylistOffer(url, bytes)?.let { return it }
         val exp = Playlists.parseDate(expiry.replace('-', '.').let { e ->
             // pole <input type=date> wysyła RRRR-MM-DD
             if (Regex("\\d{4}\\.\\d{2}\\.\\d{2}").matches(e)) e.split('.').reversed().joinToString(".") else e
@@ -225,7 +240,7 @@ button{background:#2f80ed;border:0;font-weight:bold}.m{padding:12px;border-radiu
 <label>Kod PIN (widoczny na telewizorze)</label><input name="pin" inputmode="numeric" maxlength="4" required>
 <label>Nazwa listy</label><input name="name" placeholder="np. Moja lista">
 <label>Plik .m3u</label><input type="file" name="file" accept=".m3u,.m3u8,audio/x-mpegurl,text/plain">
-<label>…albo link do listy</label><input name="url" placeholder="http://…/lista.m3u">
+<label>…albo link do listy (M3U) – lub do playlisty YouTube / Spotify (trafi do STube)</label><input name="url" placeholder="http://…/lista.m3u  lub  https://open.spotify.com/playlist/…">
 <label>Link do EPG (opcjonalnie)</label><input name="epg" placeholder="http://…/epg.xml.gz">
 <label>Data ważności (opcjonalnie)</label><input type="date" name="expiry">
 <label><input type="checkbox" name="activate" style="width:auto"> Od razu ustaw jako aktywną</label>

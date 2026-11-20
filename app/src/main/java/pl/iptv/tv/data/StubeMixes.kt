@@ -85,7 +85,7 @@ object StubeMixes {
     fun isMusic(history: List<WatchProgress>) = history.isNotEmpty() && history.count { MUSIC.containsMatchIn(it.title) } * 10 >= history.size * 3
 
     /** Miksy z historii (kolejność = ważność). Pusta lista – za mało historii. */
-    fun build(history: List<WatchProgress>, now: Long = System.currentTimeMillis()): List<Mix> {
+    fun build(history: List<WatchProgress>, now: Long = System.currentTimeMillis(), imported: Set<String> = emptySet()): List<Mix> {
         val h = history.filter { it.title.isNotBlank() }
         if (h.size < MIN_HISTORY) return emptyList()
         val channels = HashMap<String, Double>(); val words = HashMap<String, Double>()
@@ -107,6 +107,11 @@ object StubeMixes {
         // zalążki o różnych wykonawcach (propozycje po nich obejmują innych artystów)
         val seedsMixed = byWeight.distinctBy { artistKey(it.channel) }.take(CROWD_SEEDS).map { it.videoId }
         val out = mutableListOf<Mix>()
+        // (7.14) przesłane playlisty (link YouTube / Spotify): ich utwory to mocny sygnał gustu – własny miks z nich (wykonawcy rundami) + styl w uzupełnianiu
+        val importedVideos = h.filter { it.videoId in imported }.distinctBy { it.videoId }.map { it.toVideo() }
+        if (importedVideos.isNotEmpty()) out += Mix("mine", "Z Twoich playlist", "Utwory z przesłanych list i podobne", emptyList(),
+            importedVideos.first().thumb, local = importedVideos, seeds = importedVideos.distinctBy { artistKey(it.channel) }.take(CROWD_SEEDS).map { it.id },
+            fill = fill, diverse = music)
         if (topCh.isNotEmpty()) out += Mix("fav", if (music) "Muzyczny miks pod Ciebie" else "Miks pod Twoje ulubione",
             "Na podstawie: " + topCh.take(3).joinToString(", "), topCh.take(3).map { if (music) "$it music" else it }, byWeight.first().thumb,
             seeds = if (music) seedsMixed else emptyList(), fill = fill, diverse = music)
@@ -129,8 +134,9 @@ object StubeMixes {
                 fill = expand(g.queries), diverse = true)
         }
         // „Dalej po…”: co oglądano / słuchano po ostatnim filmie – u Ciebie (przejścia w historii) i u innych widzów (propozycje YouTube)
-        val latest = h.maxByOrNull { it.updatedAt }!!
-        val tr = transitions(h)
+        val own = h.filter { it.videoId !in imported }.ifEmpty { h }          // „Dalej po…” i przejścia – tylko z prawdziwego słuchania
+        val latest = own.maxByOrNull { it.updatedAt }!!
+        val tr = transitions(own)
         val after = followers(tr, latest.videoId).mapNotNull { id -> h.firstOrNull { it.videoId == id }?.toVideo() }
         out += Mix("next:" + latest.videoId, "Dalej po: " + latest.title.take(48), "Co słuchają dalej osoby o podobnym guście",
             emptyList(), latest.thumb, local = after, seeds = listOf(latest.videoId), fill = fill, diverse = music)
@@ -179,12 +185,14 @@ object StubeMixes {
      * Propozycje po utworze: bez składanek, bez bieżącego i ostatnio słuchanych, gatunek bieżącego utworu wyżej, wykonawcy przeplatani
      * (nie więcej niż [MAX_PER_ARTIST] z jednego, o ile jest z czego wybierać). Nie-muzyka – lista bez zmian. Czysta funkcja – testy.
      */
-    fun suggest(related: List<YtVideo>, currentId: String, currentTitle: String, currentChannel: String, recent: Set<String> = emptySet()): List<YtVideo> {
+    fun suggest(related: List<YtVideo>, currentId: String, currentTitle: String, currentChannel: String, recent: Set<String> = emptySet(),
+                taste: StubeTaste.Profile = StubeTaste.EMPTY): List<YtVideo> {
         if (!isMusicVideo(currentTitle, currentChannel) && related.none { isMusicVideo(it.title, it.channel) }) return related.filter { it.id != currentId }
         val g = GENRES.firstOrNull { it.pattern.containsMatchIn(currentTitle + " " + currentChannel) }
         val base = related.filter { it.id != currentId && it.id !in recent && it.duration != "P0D" && isTrack(it) }
         val ranked = if (g == null) base else base.sortedByDescending { if (g.pattern.containsMatchIn(it.title + " " + it.channel)) 1 else 0 }
-        return diversify(ranked, MAX_PER_ARTIST, SUGGEST_MIN)
+        // (7.14) gust słuchacza: historia (gatunki, wykonawcy) i odrzucone utwory – bez przypadkowych propozycji
+        return diversify(StubeTaste.rank(ranked, taste, currentTitle, currentChannel), MAX_PER_ARTIST, SUGGEST_MIN)
     }
     const val SUGGEST_MIN = 12
 
@@ -278,7 +286,7 @@ object StubeMixes {
 
     /** Miksy z bieżącej historii (pamięć [StubeHistory]); ostatnio zbudowane – do otwarcia po id. */
     @Volatile var last: List<Mix> = emptyList(); private set
-    suspend fun current(): List<Mix> = build(StubeHistory.watched(200)).also { last = it }
+    suspend fun current(): List<Mix> { StubeImport.loadCache(); return build(StubeHistory.watched(200) + StubeImport.asHistory(), imported = StubeImport.importedIds()).also { last = it } }
     fun byId(id: String) = last.firstOrNull { it.id == id }
 
     /** Filmy miksu: wyniki zapytań przeplatane, bez powtórzeń i bez filmów już obejrzanych. */

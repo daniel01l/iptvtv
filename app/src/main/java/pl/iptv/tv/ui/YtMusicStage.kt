@@ -49,6 +49,8 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
         fun toVideo()
         fun options()
         fun pick(e: Entry)
+        /** (7.14) ► na pozycji listy: utwór usunięty z kolejki / propozycji (odrzucony – gust i kolejka dopasowują się w tle). */
+        fun remove(e: Entry)
         fun entries(): List<Entry>
         fun wantLyrics()
     }
@@ -325,7 +327,21 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
 
     /** Wejście do prawej strefy z ikon nawigacji: zakładka Tekst – okno tekstu; lista – zapamiętana pozycja albo pierwsza (bieżący utwór). */
     private fun enterContent() {
-        if (tab == TAB_LYRICS) lyricsScroll.requestFocus() else focusListPos(if (listMemory >= 0) listMemory else 0)
+        if (tab == TAB_LYRICS) lyricsTab.requestFocus() else focusListPos(if (listMemory >= 0) listMemory else 0)   // (7.14) z ikon – na kafelek „Tekst”, nie w pole przewijania
+    }
+
+    /** ▼ z zakładki: do treści (okno tekstu / pierwsza pozycja listy). */
+    private fun descendIntoContent() { if (tab == TAB_LYRICS) lyricsScroll.requestFocus() else focusListPos(if (listMemory >= 0) listMemory else 0) }
+
+    /** ► na pozycji listy: usuwa ją od razu (lokalnie), kursor zostaje na tej pozycji (następny utwór), a na ostatniej – na poprzednim. */
+    private fun removeAt(pos: Int) {
+        val e = items.getOrNull(pos)?.takeIf { !it.current } ?: return
+        items = items.toMutableList().also { it.removeAt(pos) }
+        adapter.notifyItemRemoved(pos)
+        queueTab.text = "Następne w kolejce" + (items.count { !it.current }.takeIf { it > 0 }?.let { " ($it)" } ?: "")
+        val to = pos.coerceAtMost(items.size - 1); listMemory = to
+        host.remove(e)
+        post { focusListPos(to) }
     }
 
     private fun focusContentDefault() { if (tab == TAB_LYRICS) lyricsScroll.requestFocus() else focusListPos(0) }
@@ -348,7 +364,8 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
         when {
             pos >= 0 -> return when {
                 left && wide -> act { listMemory = pos; optionsBtn.requestFocus() }
-                left || right -> true
+                right -> act { removeAt(pos) }
+                left -> true
                 up && pos == 0 -> act { listMemory = 0; currentPill().requestFocus() }
                 up -> act { focusListPos(pos - 1) }
                 else -> act { if (pos < items.size - 1) focusListPos(pos + 1) }
@@ -364,7 +381,7 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
                 left -> if (wide) act { optionsBtn.requestFocus() } else true
                 right -> if (f === queueTab) act { lyricsTab.requestFocus() } else true
                 up -> if (wide) true else act { optionsBtn.requestFocus() }
-                else -> act { enterContent() }
+                else -> act { descendIntoContent() }
             }
         }
         // ikony nawigacji i pasek postępu

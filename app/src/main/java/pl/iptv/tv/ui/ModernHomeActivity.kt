@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -435,15 +436,18 @@ class ModernHomeActivity : BaseActivity() {
 
     /** (7.6) Postęp przejścia między sekcjami (0 → 1). */
     private val sectionAnim = androidx.compose.animation.core.Animatable(1f)
+    /** Sekcja, dla której działa [sectionAnim] (różna od [section] = przejście jeszcze nie ruszyło – rysunek od zera). */
+    private var animSection by mutableIntStateOf(0)     // stan – przypisanie odświeża warstwę także w trybie słabszych urządzeń (bez animacji)
     private val lowPerfNow get() = runCatching { pl.iptv.tv.data.Prefs.lowPerf }.getOrDefault(false)
 
     /** Przenikanie z przesunięciem o 18 dp wg [sectionAnim] – odczyt w warstwie rysowania (bez ponownego składania). */
     private fun Modifier.sectionFade(): Modifier = graphicsLayer {
-        val v = sectionAnim.value
+        // (7.14) nowa sekcja rysowana od razu z v = 0 (wcześniej jedna klatka z pełną widocznością, potem skok); bez przesunięcia pionowego
+        val a = sectionAnim.value                       // zawsze odczytane – warstwa śledzi animację także, gdy v = 0
+        val v = if (animSection != section) 0f else a
         alpha = 0.2f + 0.8f * v
         // (7.7) przezroczystość nakładana przy rysowaniu (bez pełnoekranowego bufora pośredniego w każdej klatce – płynniej na TV)
         compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
-        translationY = (1f - v) * 18.dp.toPx()
     }
 
     /**
@@ -641,8 +645,8 @@ class ModernHomeActivity : BaseActivity() {
         }
         // (7.6) zmiana sekcji: rzędy i opis hero wchodzą przenikaniem z lekkim przesunięciem (tylko w warstwie – bez przebudowy)
         LaunchedEffect(section) {
-            if (lowPerfNow) return@LaunchedEffect
-            sectionAnim.snapTo(0f); sectionAnim.animateTo(1f, tween(SECTION_ANIM_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+            if (lowPerfNow) { animSection = section; return@LaunchedEffect }
+            sectionAnim.snapTo(0f); animSection = section; sectionAnim.animateTo(1f, tween(SECTION_ANIM_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing))
         }
         // zapasowo: element docelowy zniknął (np. rząd po odświeżeniu) – „Odtwórz” w hero
         LaunchedEffect(pendingFocus) {
@@ -708,10 +712,15 @@ class ModernHomeActivity : BaseActivity() {
         val c = LocalModern.current
         val f = feature ?: remember(section, recent, videos, titles) { defaultFeature() }
         Column(Modifier.fillMaxWidth(if (dims.narrow) 1f else 0.56f).height(dims.heroH).sectionFade().padding(top = if (dims.compact) 4.dp else 14.dp),
-            verticalArrangement = Arrangement.Bottom) {
-            if (f.badge.isNotEmpty() && !dims.compact) BasicText(f.badge, Modifier.padding(bottom = 8.dp).clip(RoundedCornerShape(3.dp))
-                .background(if (f.badge == "NA ŻYWO") c.live else c.accent).padding(horizontal = 7.dp, vertical = 2.dp),
-                style = ModernType.small.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.6.sp))
+            verticalArrangement = Arrangement.SpaceBetween) {
+          // (7.14) treść od góry w stałych miejscach (rezerwa na plakietkę), przyciski zawsze przy dolnej krawędzi – zmiana kategorii
+          // nie przesuwa tytułu ani przycisków, zmienia się tylko to, co pod tytułem
+          Column(Modifier.weight(1f).clipToBounds()) {
+            if (!dims.compact) Box(Modifier.height(28.dp), contentAlignment = Alignment.TopStart) {
+                if (f.badge.isNotEmpty()) BasicText(f.badge, Modifier.clip(RoundedCornerShape(3.dp))
+                    .background(if (f.badge == "NA ŻYWO") c.live else c.accent).padding(horizontal = 7.dp, vertical = 2.dp),
+                    style = ModernType.small.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.6.sp))
+            }
             BasicText(f.title, style = ModernType.hero.copy(fontSize = dims.heroTitle), maxLines = if (dims.compact) 1 else 2, overflow = TextOverflow.Ellipsis)
             Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 f.meta.firstOrNull()?.let { BasicText(it, style = ModernType.meta.copy(fontWeight = FontWeight.Bold), maxLines = 1) }
@@ -731,8 +740,11 @@ class ModernHomeActivity : BaseActivity() {
             if (f.fraction >= 0f) Box(Modifier.padding(top = 8.dp).width(260.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.22f))) {
                 Box(Modifier.fillMaxWidth(f.fraction.coerceIn(0f, 1f)).fillMaxHeight().background(c.accent))
             }
-            Row(Modifier.padding(top = if (dims.compact) 8.dp else 14.dp).focusProperties { up = FocusRequester.Cancel },
-                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+          }
+            // przyciski nigdy nie są ściskane (pełny „Program TV”): wiersz może być szerszy od kolumny, a odstępy węższe na wąskim ekranie
+            Row(Modifier.padding(top = if (dims.compact) 8.dp else 14.dp).wrapContentWidth(Alignment.Start, unbounded = true)
+                .focusProperties { up = FocusRequester.Cancel },
+                horizontalArrangement = Arrangement.spacedBy(if (dims.narrow) 8.dp else 12.dp)) {
                 PillButton(HERO_PLAY, f.playLabel, primary = true, icon = "play", toRail = true) { f.play() }
                 PillButton(HERO_INFO, if (dims.narrow) "Więcej" else "Więcej informacji", primary = false, icon = ModernIcons.INFO) { f.info() }
                 f.guide?.let { g -> PillButton(HERO_GUIDE, if (dims.narrow) "Program" else "Program TV", primary = false, icon = X25Action.GUIDE) { g() } }
@@ -749,9 +761,11 @@ class ModernHomeActivity : BaseActivity() {
         Row(Modifier.height(h).item(key, h / 2, 1.06f, focused, toRail = toRail, onClick = onClick)
             .clip(RoundedCornerShape(h / 2))
             .background(if (primary) (if (focused.value) lighten(c.accent) else c.accent) else if (focused.value) Color.White.copy(alpha = 0.32f) else c.pill)
-            .padding(horizontal = if (dims.compact || dims.narrow) 14.dp else 20.dp), verticalAlignment = Alignment.CenterVertically) {
+            .padding(horizontal = if (label.isEmpty()) 12.dp else if (dims.compact || dims.narrow) 12.dp else 20.dp), verticalAlignment = Alignment.CenterVertically) {
             Canvas(Modifier.size(if (dims.compact) 12.dp else 15.dp)) { if (icon == "play") ModernIcons.play(this, Color.White) else ModernIcons.draw(this, icon, Color.White) }
-            BasicText(label.uppercase(), Modifier.padding(start = 9.dp), style = ModernType.button.copy(fontSize = if (dims.compact) 12.sp else 14.sp), maxLines = 1)
+            // pełny napis: bez zawijania i przycinania (kapsuła rośnie do tekstu)
+            if (label.isNotEmpty()) BasicText(label.uppercase(), Modifier.padding(start = 9.dp), style = ModernType.button.copy(fontSize = if (dims.compact) 12.sp else 14.sp),
+                maxLines = 1, softWrap = false, overflow = TextOverflow.Visible)
         }
     }
 
@@ -765,7 +779,8 @@ class ModernHomeActivity : BaseActivity() {
         // (7.6) postęp programów (co minutę) tylko w sekcjach z kanałami – w pozostałych bez przebudowy rzędów co minutę
         val tick = if (section == 0 || section == 1) minute else 0L
         val list = remember(section, recent, favs, all, videos, titles, tick, stMovies, stSeries) { shelves() }
-        val state = rememberLazyListState()
+        // (7.14) stan listy per sekcja: nowa sekcja od razu od góry (bez klatki ze starym przewinięciem i skoku)
+        val state = remember(section) { androidx.compose.foundation.lazy.LazyListState() }
         // nowa sekcja albo doładowane rzędy (np. „Kontynuuj” nad „Na skróty”), gdy fokus nie jest w rzędach – od pierwszego rzędu
         // (lista trzyma pozycję wg klucza: rząd dodany wyżej zostałby poza ekranem)
         val ids = list.map { it.id }

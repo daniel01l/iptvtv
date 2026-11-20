@@ -84,6 +84,8 @@ object STubeScreen {
     /** Rzędy z kwadratowymi okładkami (jak w aplikacjach muzycznych na TV). */
     val SQUARE_ROWS = setOf(ROW_MUSIC, ROW_MIXES, ROW_LIBRARY)
     /** Identyfikatory playlist specjalnych (nie są playlistami YouTube). */
+    /** (7.14) Przesłana playlista (Room): [PL_IMPORTED] + id wiersza. */
+    const val PL_IMPORTED = "imp:"
     const val PL_LATER = "local:later"; const val PL_HISTORY = "local:history"; const val PL_LIKED = "liked"; const val PL_CHANNEL = "channel:"
 
     /** Kanał jako „playlista” (jego najnowsze filmy). */
@@ -91,12 +93,12 @@ object STubeScreen {
 
     /** Ikona kafelka playlisty bez miniatury. */
     fun playlistIcon(id: String) = when {
-        id == PL_LATER -> "🕘"; id == PL_HISTORY -> "📜"; id.startsWith(PL_MIX) -> "🎵"; id == PL_LIKED -> "👍"; id.startsWith(PL_CHANNEL) -> "📺"; else -> "☰"
+        id == PL_LATER -> "🕘"; id == PL_HISTORY -> "📜"; id.startsWith(PL_MIX) -> "🎵"; id.startsWith(PL_IMPORTED) -> "🎶"; id == PL_LIKED -> "👍"; id.startsWith(PL_CHANNEL) -> "📺"; else -> "☰"
     }
 
     /** Rysowana ikona kafelka playlisty (zamiast emoji). */
     fun playlistIconKind(id: String) = when {
-        id == PL_LATER -> PlayerIcon.DELAY; id == PL_HISTORY -> PlayerIcon.QUEUE; id.startsWith(PL_MIX) -> PlayerIcon.MUSIC
+        id == PL_LATER -> PlayerIcon.DELAY; id == PL_HISTORY -> PlayerIcon.QUEUE; id.startsWith(PL_MIX) || id.startsWith(PL_IMPORTED) -> PlayerIcon.MUSIC
         id == PL_LIKED -> PlayerIcon.AUTOPLAY; id.startsWith(PL_CHANNEL) -> PlayerIcon.VIDEO; else -> PlayerIcon.QUEUE
     }
 
@@ -108,7 +110,7 @@ object STubeScreen {
         val local = if (page == null) listOf(
             YtPlaylist(PL_LATER, "Do obejrzenia później", count = StubeHistory.watchLaterCount),
             YtPlaylist(PL_HISTORY, "Historia oglądania"),
-        ) + (if (loggedIn) listOf(YtPlaylist(PL_LIKED, "Polubione filmy")) else emptyList()) else emptyList()
+        ) + importedTiles() + (if (loggedIn) listOf(YtPlaylist(PL_LIKED, "Polubione filmy")) else emptyList()) else emptyList()
         if (!loggedIn) return STubePage(local.map(STubeTile::Playlist))
         val (mine, next) = try { YouTubeRepository.myPlaylists(page) } catch (e: YtException) {
             android.util.Log.w("STube", "playlisty: ${e.message}"); emptyList<YtPlaylist>() to null
@@ -116,18 +118,27 @@ object STubeScreen {
         return STubePage((local + mine).map(STubeTile::Playlist), next)
     }
 
+    /** Przesłane playlisty (linki YouTube / Spotify) jako kafelki Biblioteki – pamięć podręczna, bez dostępu do bazy. */
+    fun importedTiles(): List<YtPlaylist> = pl.iptv.tv.data.StubeImport.cached.map {
+        val v = it.videos(); YtPlaylist(PL_IMPORTED + it.id, it.name, v.firstOrNull()?.thumb.orEmpty(), v.size)
+    }
+
     /** Rząd z filmami playlisty / kanału [p]. */
     fun playlistRow(p: YtPlaylist): STubeRow = STubeRow(ROW_PLAYLIST, playlistIcon(p.id) + "  " + p.title) { page ->
         when {
             p.id == PL_LATER -> STubePage(StubeHistory.watchLater().map { STubeTile.Video(it.toVideo()) })
             p.id == PL_HISTORY -> STubePage(StubeHistory.watched().map { STubeTile.Video(it.toVideo()) })
+            p.id.startsWith(PL_IMPORTED) -> STubePage(pl.iptv.tv.data.StubeImport.all().firstOrNull { it.id == p.id.removePrefix(PL_IMPORTED).toLongOrNull() }?.videos().orEmpty().map(STubeTile::Video))
             p.id.startsWith(PL_MIX) -> STubePage((pl.iptv.tv.data.StubeMixes.byId(p.id.removePrefix(PL_MIX))?.let { pl.iptv.tv.data.StubeMixes.videos(it) }.orEmpty()).map(STubeTile::Video))
             p.id == PL_LIKED -> YouTubeRepository.liked(page).let { STubePage(it.videos.map(STubeTile::Video), it.nextPage) }
             p.id.startsWith(PL_CHANNEL) -> YouTubeRepository.playlistVideos(YouTubeRepository.uploadsPlaylist(p.id.removePrefix(PL_CHANNEL)), page)
                 .let { STubePage(it.videos.map(STubeTile::Video), it.nextPage) }
             else -> YouTubeRepository.playlistVideos(p.id, page).let { STubePage(it.videos.map(STubeTile::Video), it.nextPage) }
         }
-    }.also { it.source = p; it.square = p.id.startsWith(PL_MIX) }
+    }.also { it.source = p; it.square = p.id.startsWith(PL_MIX) || p.id.startsWith(PL_IMPORTED) }
+
+    /** Dość danych na „Twoje miksy”: historia albo przesłane playlisty. */
+    fun hasMixHistory() = StubeHistory.historyCount >= pl.iptv.tv.data.StubeMixes.MIN_HISTORY || pl.iptv.tv.data.StubeImport.cached.isNotEmpty()
 
     fun rowIds(loggedIn: Boolean, personal: Boolean, query: String?, hasContinue: Boolean = false, hasMixes: Boolean = false): List<String> = buildList {
         if (!query.isNullOrBlank()) add(ROW_SEARCH)
@@ -159,7 +170,7 @@ object STubeScreen {
     fun rows(query: String?): List<STubeRow> {
         val logged = YouTubeTokens.loggedIn
         val personal = YouTubeRepository.source == YtSource.PERSONAL
-        return rowIds(logged, personal, query, StubeHistory.hasUnfinished, StubeHistory.historyCount >= pl.iptv.tv.data.StubeMixes.MIN_HISTORY).map { id ->
+        return rowIds(logged, personal, query, StubeHistory.hasUnfinished, hasMixHistory()).map { id ->
             when (id) {
                 // gotowe miksy z historii oglądania (Room) – filmy z YouTube po otwarciu
                 ROW_MIXES -> STubeRow(id, "Twoje miksy") { _ ->

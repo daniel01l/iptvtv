@@ -147,11 +147,12 @@ interface LyricsCacheDao {
 }
 
 // v2: lista „Do obejrzenia później”, v3: kolejka odtwarzania, v4: kafelki pulpitu X25, v5: Stremio (wtyczki, postęp) – migracje automatyczne (schematy w app/schemas), dane zachowane
+// v10: przesłane playlisty STube (ImportedPlaylist)
 // v6: dobrane ustawienia silnika kanałów TV (ChannelEngineOptimizer)
 @Database(entities = [SearchEntry::class, WatchProgress::class, WatchLater::class, QueueItem::class, DashTile::class, StremioAddonState::class, StremioProgress::class,
-    ChannelEngine::class, LyricsCacheEntry::class, StremioWatched::class], version = 9, exportSchema = true,
+    ChannelEngine::class, LyricsCacheEntry::class, StremioWatched::class, ImportedPlaylist::class], version = 10, exportSchema = true,
     autoMigrations = [androidx.room.AutoMigration(from = 1, to = 2), androidx.room.AutoMigration(from = 2, to = 3), androidx.room.AutoMigration(from = 3, to = 4), androidx.room.AutoMigration(from = 4, to = 5),
-        androidx.room.AutoMigration(from = 5, to = 6), androidx.room.AutoMigration(from = 6, to = 7), androidx.room.AutoMigration(from = 7, to = 8), androidx.room.AutoMigration(from = 8, to = 9)])
+        androidx.room.AutoMigration(from = 5, to = 6), androidx.room.AutoMigration(from = 6, to = 7), androidx.room.AutoMigration(from = 7, to = 8), androidx.room.AutoMigration(from = 8, to = 9), androidx.room.AutoMigration(from = 9, to = 10)])
 abstract class StubeDatabase : RoomDatabase() {
     abstract fun lyrics(): LyricsCacheDao
     abstract fun channelEngines(): ChannelEngineDao
@@ -159,6 +160,7 @@ abstract class StubeDatabase : RoomDatabase() {
     abstract fun progress(): ProgressDao
     abstract fun watchLater(): WatchLaterDao
     abstract fun queue(): QueueDao
+    abstract fun imported(): ImportedPlaylistDao
     abstract fun dash(): DashTileDao
     abstract fun stremio(): StremioDao
 
@@ -202,7 +204,7 @@ object StubeHistory {
     fun init(c: Context) { app = c.applicationContext }
 
     /** Testy: baza w pamięci (null = domyślna). */
-    fun useDatabase(d: StubeDatabase?) { synchronized(this) { db = d; cache.clear(); laterIds.clear(); cacheLoaded = false } }
+    fun useDatabase(d: StubeDatabase?) { synchronized(this) { db = d; cache.clear(); laterIds.clear(); cacheLoaded = false }; StubeImport.reset() }
 
     internal fun db(): StubeDatabase? = db ?: synchronized(this) {
         db ?: app?.let { runCatching { StubeDatabase.build(it) }.onFailure { e -> android.util.Log.w("StubeHistory", "baza: ${e.message}") }.getOrNull() }
@@ -271,6 +273,7 @@ object StubeHistory {
         val all = withContext(Dispatchers.IO) { runCatching { d.progress().recent(MAX_PROGRESS) }.getOrDefault(emptyList()) }
         cache.clear(); all.forEach { cache[it.videoId] = it }
         loadWatchLater()
+        StubeImport.loadCache()
         cacheLoaded = true
     }
 
@@ -280,6 +283,9 @@ object StubeHistory {
     fun cached(videoId: String): WatchProgress? = cache[videoId]
 
     /** Czy jest rozpoczęty, nieukończony film (rząd „Kontynuuj oglądanie”) – z pamięci, bez dostępu do bazy. */
+    /** Cała historia z pamięci (profil gustu [StubeTaste]). */
+    fun allCached(): List<WatchProgress> = cache.values.toList()
+
     val hasUnfinished get() = enabled && cache.values.any { it.positionMs > 0 && !it.finished }
 
     /** Liczba filmów w historii (w pamięci) – czy budować miksy. */
