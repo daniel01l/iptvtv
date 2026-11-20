@@ -282,21 +282,30 @@ object StubeMixes {
     fun byId(id: String) = last.firstOrNull { it.id == id }
 
     /** Filmy miksu: wyniki zapytań przeplatane, bez powtórzeń i bez filmów już obejrzanych. */
-    suspend fun videos(m: Mix, watchedIds: Set<String>? = null): List<YtVideo> {
+    suspend fun videos(m: Mix, watchedIds: Set<String>? = null, early: (suspend (List<YtVideo>) -> Unit)? = null): List<YtVideo> {
         val watched = watchedIds ?: StubeHistory.watched(500).map { it.videoId }.toSet()
         fun ok(v: YtVideo) = v.id !in watched && v.id !in m.seeds && v.duration != "P0D" && (!m.diverse || !isNonTrack(v))
-        val crowd = if (m.seeds.isEmpty()) emptyList() else {
-            val lists = m.seeds.map { s -> runCatching { YtKeyless.related(s) }.getOrDefault(emptyList()).filter { it.id !in m.seeds } }
-            // jeden zalążek: najpierw Twoje przejścia (z historii), potem propozycje innych widzów; kilka – ranking wspólnych
-            if (lists.size > 1) rankCrowd(lists) else lists.firstOrNull().orEmpty()
+        // propozycje po zalążkach i wyszukiwanie – równolegle (wcześniej jedno po drugim)
+        val (crowd, queried) = kotlinx.coroutines.coroutineScope {
+            val c = async {
+                if (m.seeds.isEmpty()) emptyList() else {
+                    val lists = m.seeds.map { s -> async { runCatching { YtKeyless.related(s) }.getOrDefault(emptyList()).filter { it.id !in m.seeds } } }.map { it.await() }
+                    // jeden zalążek: najpierw Twoje przejścia (z historii), potem propozycje innych widzów; kilka – ranking wspólnych
+                    if (lists.size > 1) rankCrowd(lists) else lists.firstOrNull().orEmpty()
+                }
+            }
+            val q = async { if (m.queries.isEmpty()) emptyList() else search(m.queries, PER_QUERY) }
+            c.await() to q.await()
         }
-        val queried = if (m.queries.isEmpty()) emptyList() else search(m.queries, PER_QUERY)
         val primary = when {
             m.seeds.isEmpty() && m.queries.isEmpty() -> m.local
             m.queries.isEmpty() -> m.local + crowd
             crowd.isEmpty() -> m.local + queried
             else -> m.local + interleave(listOf(crowd, queried))
         }.filter { m.local.contains(it) || ok(it) }.distinctBy { it.id }
+        // pierwsza partia od razu (odtwarzanie rusza, zanim uzupełnienie do 100+ się wczyta)
+        if (early != null && primary.isNotEmpty() && primary.size < MIN_PLAYLIST && m.fill.isNotEmpty())
+            early((if (m.diverse) diversify(primary) else primary).take(MAX_VIDEOS))
         val list = if (primary.size >= MIN_PLAYLIST || m.fill.isEmpty()) primary else {
             val seen = primary.mapTo(HashSet()) { it.id }
             val extra = search(m.fill, PER_QUERY * 2) { acc -> primary.size + acc.count { ok(it) && it.id !in seen } >= MIN_PLAYLIST * 2 }

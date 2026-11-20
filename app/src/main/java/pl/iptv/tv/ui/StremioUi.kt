@@ -33,9 +33,22 @@ object StremioUi {
         else -> many
     }
 
-    fun button(c: Context, text: String, onClick: () -> Unit) = TextView(c).apply {
+    /** Przycisk w stylu motywu; [icon] – rysowana ikona ([PlayerIcon]) zamiast emoji, zmienia kolor wraz z zaznaczeniem. */
+    fun button(c: Context, text: String, icon: String? = null, onClick: () -> Unit) = TextView(c).apply {
         this.text = text; tag = "item"; isFocusable = true; isClickable = true; textSize = 16f; gravity = Gravity.CENTER
         setPadding(Ui.dp(16), Ui.dp(10), Ui.dp(16), Ui.dp(10)); setOnClickListener { onClick() }
+        if (icon != null) {
+            setCompoundDrawables(icon(icon, 20), null, null, null)
+            compoundDrawablePadding = if (text.isEmpty()) 0 else Ui.dp(8)
+            if (text.isEmpty()) setPadding(Ui.dp(12), Ui.dp(10), Ui.dp(12), Ui.dp(10))
+        }
+    }
+
+    /** Ikona w kolorach zaznaczenia motywu (zaznaczona – kolor tekstu zaznaczenia, zwykła – kolor tekstu). */
+    fun icon(kind: String, dp: Int, accent: Boolean = false): PlayerIcon {
+        val on = Ui.focusText; val off = if (accent) Ui.accent or 0xFF000000.toInt() else Ui.text
+        val st = android.content.res.ColorStateList(arrayOf(intArrayOf(android.R.attr.state_focused), intArrayOf(android.R.attr.state_pressed), intArrayOf(android.R.attr.state_activated), intArrayOf()), intArrayOf(on, on, on, off))
+        return PlayerIcon(kind, st).apply { setBounds(0, 0, Ui.dp(dp), Ui.dp(dp)) }
     }
 
     fun text(c: Context, t: String = "", size: Float = 15f, tag2: String? = null, bold: Boolean = false, lines: Int = 0) = TextView(c).apply {

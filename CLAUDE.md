@@ -5,7 +5,7 @@
 - Kod: `IptvTv-source.tar.gz` (Gradle 8.14.3, AGP 8.7.3, Kotlin 2.0.21, Media3 1.5.0 + FFmpeg (Jellyfin), compileSdk 35, OkHttp, Coil 2.7, Robolectric 4.13).
 - Moduły: `:app` (pl.iptv.tv), `:admin` (pl.iptv.admin); wspólny kod `shared/pl/iptv/shared/` (RelayCrypto.kt, ActivationFormat.kt).
 - Flavory app: `full` (pl.iptv.tv, plik D-iptv-Player.apk, iptvtv.json, repo github daniel01l/iptvtv) i `secure` (pl.iptv.dplayer, wersja TEST, DPlayer.apk, dplayer.json, repo daniel01l/dplayer). Zmiany robimy tylko w `full`.
-- Aktualna wersja: Player 7.11 (versionCode 71, wydana na GitHubie 20.11.2026; poprzednia 7.10 / 70), Admin 2.4 (versionCode 10), TEST 1.2 (versionCode 3).
+- Aktualna wersja: Player 7.13 (versionCode 73, wydana na GitHubie 20.11.2026; poprzednia 7.11 / 71), Admin 2.4 (versionCode 10), TEST 1.2 (versionCode 3).
 - Zależności YouTube (6.2): NewPipeExtractor v0.27.1 z JitPack (repo ograniczone do grupy com.github.TeamNewPipe w `settings.gradle.kts`, licencja GPLv3; YouTube często psuje ekstrakcję – przy problemach podbić wersję), desugaring `desugar_jdk_libs_nio`, `security-crypto` 1.1.0-alpha06. Klient OAuth/klucz API: `keystore/youtube_oauth.properties` (client_id, client_secret, api_key) – opcjonalnie, poza repo.
 
 ## Podpis i aktywacja
@@ -26,6 +26,9 @@ Na Windows: `JAVA_HOME=C:\Users\dkier\.jdks\jbr-21.0.11`.
 2. Dopisać sekcję w README.md.
 3. Zbudować, sprawdzić podpis (`apksigner verify --print-certs`, SHA-256 041b543f…).
 4. Zaktualizować `iptvtv.json` (versionCode, versionName, apk, notes) i wgrać wydanie na GitHub (daniel01l/iptvtv).
+
+## Zmiany 7.12 (w wersji 7.13)
+Płynność: `focusSpring`/`focusScale` (Ps5Compose.kt) – skala fokusu sprężyną (animacja obwódki `*Frame` psuła testy fokusu Modern/X25 w pełnym przebiegu – obwódka bez animacji), `Ui.zoomAnimator` z `PathInterpolator` i min. 130 ms, rail Nowoczesnego sprężyną; `TileImage` – stały `sizePx`, `memoryCacheKey` `url@rozmiar`, `Precision.INEXACT`, `clip`.
 
 ## Zmiany 7.11 (release v7.11, versionCode 71)
 STube: kategorie na pasku (`STubeScreen.CATEGORIES`/`categoryRow`, ikony `PlayerIcon.NEWS/TRENDING/SPORT/KIDS/HEADLINES/GAMES`, `STubeActivity.openCategory`/`closeCategory`/`gridKey`, siatka `stGrid`, pasek `stRailScroll`), podpowiedzi na żywo `data/YtSuggest.kt` (+ debounce w `loadSuggestions`), `buildKeepingPosition`, skrót `stNow`/`MiniPlayerBar.open`, teksty `YtLyrics` (kaskada + Room `lyrics_cache`). Room v9: `StremioWatched` (obejrzane odcinki; `StremioStore.setWatched`/`watchedIds`/`seasonPercent`, `WATCHED_AFTER_MS` 3 min). Stremio: `StremioActivity.rowsVerticalKey`/`anchorFocusedRow`/`fillWatched` (rząd „Obejrzane”), `StremioDetailActivity` (znaczek, `episodeMenu`, ◄ ze źródeł → `backToEpisodes`, bez komunikatów błędów wtyczek), `StremioPlayerActivity` (`TIMEBAR_STEP_MS` 90 s, `playedMs`/`markCurrentWatched`, `playEpisode`, `openEpisodesPanel` = `SidePanel`, `StremioMetas.parts`/`baseTitle`). Testy: `V711Test`, V79Test (kategorie, fokus muzyczny).

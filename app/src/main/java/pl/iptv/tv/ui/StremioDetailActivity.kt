@@ -146,7 +146,7 @@ class StremioDetailActivity : BaseActivity() {
         left.addView(poster, LinearLayout.LayoutParams(Ui.dp(170), Ui.dp(252)))
         title = StremioUi.text(this, "", 22f, bold = true, lines = 2).apply { setPadding(0, Ui.dp(10), 0, 0) }
         metaLine = StremioUi.text(this, "", 13f, "accent", lines = 2)
-        resume = StremioUi.button(this, "▶ Wznów") { resumePlayback() }.apply { visibility = View.GONE }
+        resume = StremioUi.button(this, "Wznów", PlayerIcon.PLAY) { resumePlayback() }.apply { visibility = View.GONE }
         desc = StremioUi.text(this, "", 14f, "text2")
         val descScroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false; addView(desc) }
         left.addView(title); left.addView(metaLine)
@@ -185,7 +185,9 @@ class StremioDetailActivity : BaseActivity() {
             season = start?.season ?: m.seasons.first()
             seasonsBar.removeAllViews()
             m.seasons.forEach { s ->
-                seasonsBar.addView(StremioUi.button(this, if (s == 0) "Dodatki" else "Sezon $s") { selectSeason(s, null) }.apply { textSize = 14f },
+                seasonsBar.addView(StremioUi.button(this, if (s == 0) "Dodatki" else "Sezon $s") { selectSeason(s, null) }.apply {
+                    textSize = 14f; setOnLongClickListener { seasonMenu(s); true }   // (7.12) przytrzymanie – cały sezon jako obejrzany
+                },
                     LinearLayout.LayoutParams(-2, -2).apply { marginEnd = Ui.dp(6) })
             }
             Ui.style(seasonsBar)
@@ -442,6 +444,25 @@ class StremioDetailActivity : BaseActivity() {
         Dialogs.menu(this, "${e.episode}. " + e.title.ifBlank { "Odcinek ${e.episode}" }, listOf(
             (if (on) "↺ Odznacz jako obejrzany" else "✔ Oznacz jako obejrzany") to { setWatched(e, !on) },
         ))
+    }
+
+    private fun seasonMenu(s: Int) {
+        val m = meta ?: return
+        val name = if (s == 0) "Dodatki" else "Sezon $s"
+        val all = StremioStore.seasonPercent(m, s, watched) == 100
+        Dialogs.menu(this, name, listOf(
+            (if (all) "↺ Odznacz cały sezon jako obejrzany" else "✔ Oznacz cały sezon jako obejrzany") to { setSeasonWatched(s, !all) },
+        ))
+    }
+
+    /** (7.12) Cały sezon obejrzany / nieobejrzany: od razu na ekranie (ptaszki odcinków, procent), zapis w tle. */
+    fun setSeasonWatched(s: Int, on: Boolean) {
+        val m = meta ?: return
+        val ids = m.episodes(s).map { it.id }
+        watched = if (on) watched + ids else watched - ids.toSet()
+        if (::episodes.isInitialized) episodeAdapter.notifyItemRangeChanged(0, episodeAdapter.itemCount)
+        updateSeasonLabels()
+        lifecycleScope.launch { StremioStore.setSeasonWatched(m, s, m.poster.ifBlank { intent.getStringExtra(EXTRA_POSTER).orEmpty() }, on) }
     }
 
     fun setWatched(e: StremioVideo, on: Boolean) {

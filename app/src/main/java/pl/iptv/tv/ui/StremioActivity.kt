@@ -39,6 +39,9 @@ class StremioActivity : BaseActivity() {
         var LINK_TTL_MS = 5 * 60_000L
         /** Wyszukiwanie od razu po otwarciu (pole wyszukiwania na ekranie głównym PS5). */
         const val EXTRA_QUERY = "query"
+        const val IN_CINEMAS = "Obecnie w kinach"
+        /** Katalogi usługowych wtyczek, których nie pokazujemy na tablicy (AIOStreams, ElfHosted, Store RD, Store PM). */
+        val HIDDEN_CATALOGS = Regex("(?i)aiostreams|elfhosted|store[\\s_-]*(rd|pm)\\b")
     }
     override val x25Root = true
     override val miniPlayer = true
@@ -99,17 +102,17 @@ class StremioActivity : BaseActivity() {
             setOnClickListener { showKeyboard() }
         }
         searchBar.addView(query, LinearLayout.LayoutParams(0, -2, 1f))
-        searchBar.addView(StremioUi.button(this, "🔎 Szukaj") { if (query.text.isBlank()) showKeyboard() else search(query.text.toString()) },
+        searchBar.addView(StremioUi.button(this, "Szukaj", PlayerIcon.SEARCH) { if (query.text.isBlank()) showKeyboard() else search(query.text.toString()) },
             LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
-        searchBar.addView(StremioUi.button(this, "🧩 Wtyczki") { startActivity(Intent(this, StremioAddonsActivity::class.java)) },
+        searchBar.addView(StremioUi.button(this, "Wtyczki", PlayerIcon.PLUG) { startActivity(Intent(this, StremioAddonsActivity::class.java)) },
             LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
         // (7.8) odświeżenie wtyczek (zmiany na koncie) i ponowne wczytanie tablicy
-        searchBar.addView(StremioUi.button(this, "⟳") { refreshAddons() }.apply { contentDescription = "Odśwież wtyczki" },
+        searchBar.addView(StremioUi.button(this, "", PlayerIcon.REFRESH) { refreshAddons() }.apply { contentDescription = "Odśwież wtyczki" },
             LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
         header.addView(searchBar, LinearLayout.LayoutParams(0, -2, 1f))
-        account = StremioUi.button(this, "👤") { accountMenu() }
+        account = StremioUi.button(this, "", PlayerIcon.USER) { accountMenu() }
         header.addView(account, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
-        header.addView(StremioUi.button(this, "✖") { leaveScreen() }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
+        header.addView(StremioUi.button(this, "", PlayerIcon.CLOSE) { leaveScreen() }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
         root.addView(header)
         // opis zaznaczonego tytułu (jak podgląd po najechaniu w Stremio)
         infoBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(Ui.dp(4), Ui.dp(10), Ui.dp(4), Ui.dp(4)); minimumHeight = Ui.dp(96) }
@@ -126,6 +129,11 @@ class StremioActivity : BaseActivity() {
         return root
     }
 
+    private fun setAccountText(t: String) {
+        account.text = t; account.compoundDrawablePadding = if (t.isEmpty()) 0 else Ui.dp(8)
+        account.setPadding(Ui.dp(if (t.isEmpty()) 12 else 16), Ui.dp(10), Ui.dp(if (t.isEmpty()) 12 else 16), Ui.dp(10))
+    }
+
     private fun showKeyboard() {
         query.requestFocus()
         (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).showSoftInput(query, InputMethodManager.SHOW_IMPLICIT)
@@ -136,7 +144,7 @@ class StremioActivity : BaseActivity() {
     private fun showLogin() {
         loginShown = true; scroll.auto = true
         searchBar.visibility = View.GONE; infoBox.visibility = View.GONE
-        account.text = "👤"
+        setAccountText("")
         rowsBox.removeAllViews(); rowTitles.clear()
         val card = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; tag = "panel"; setPadding(Ui.dp(28), Ui.dp(22), Ui.dp(28), Ui.dp(22)) }
         card.addView(StremioUi.text(this, "Zaloguj się do Stremio", 24f, bold = true))
@@ -273,7 +281,7 @@ class StremioActivity : BaseActivity() {
     private fun showBoard() {
         loginShown = false; linkJob?.cancel(); linkJob = null; linkCode = null; scroll.auto = false
         searchBar.visibility = View.VISIBLE; infoBox.visibility = View.VISIBLE
-        account.text = if (StremioAccount.loggedIn) "👤 " + StremioAccount.email.substringBefore('@') else "👤 Zaloguj"
+        setAccountText(if (StremioAccount.loggedIn) StremioAccount.email.substringBefore('@') else "Zaloguj")
         build(searchQuery)
     }
 
@@ -324,6 +332,7 @@ class StremioActivity : BaseActivity() {
 
     private fun build(q: String?) {
         jobs.forEach { it.cancel() }; jobs.clear()
+        scrolledTo = null
         rowsBox.removeAllViews(); rows.clear(); rowTitles.clear()
         userMoved = false
         var first = true
@@ -332,9 +341,22 @@ class StremioActivity : BaseActivity() {
             fillContinue(continueRow)
             if (q == null) fillWatched(addRow("Obejrzane"))
             val addons = StremioStore.enabledAddons()
+            // (7.12) „Obecnie w kinach” – pierwszy rząd katalogów (Cinemeta, nowe premiery)
+            if (q == null) addons.firstOrNull { a -> a.catalogs.any { it.type == "movie" && it.id == "year" } }?.let { a ->
+                val r = addRow(IN_CINEMAS)
+                jobs += lifecycleScope.launch {
+                    val list = runCatching { StremioApi.inCinemas(a) }.getOrDefault(emptyList())
+                    if (list.isEmpty()) { removeRow(r); return@launch }
+                    r.adapter.items += list.map { StremioTile(it) }; r.adapter.notifyItemRangeInserted(0, list.size); r.status.visibility = View.GONE
+                    if (rowsHaveFocus()) anchorFocusedRow()
+                    if (first && !userMoved && window.decorView.findFocus().let { it == null || it === query }) { first = false; focusRow(r) }
+                }
+            }
+            // (7.12) katalogi usługowych wtyczek (AIOStreams / ElfHosted, Store RD / PM) nie są pokazywane na tablicy
+            fun hidden(a: StremioAddon, c: StremioAddon.Catalog) = HIDDEN_CATALOGS.containsMatchIn(a.name + " " + c.name)
             val catalogs: List<Pair<StremioAddon, StremioAddon.Catalog>> = if (q != null)
-                addons.flatMap { a -> a.searchCatalogs.map { a to it } }.sortedBy { (_, c) -> when (c.type) { "movie" -> 0; "series" -> 1; else -> 2 } }
-            else addons.flatMap { a -> a.boardCatalogs.map { a to it } }.take(8)
+                addons.flatMap { a -> a.searchCatalogs.filterNot { hidden(a, it) }.map { a to it } }.sortedBy { (_, c) -> when (c.type) { "movie" -> 0; "series" -> 1; else -> 2 } }
+            else addons.flatMap { a -> a.boardCatalogs.filterNot { hidden(a, it) }.map { a to it } }.take(8)
             if (catalogs.isEmpty()) {
                 rowsBox.addView(StremioUi.text(this@StremioActivity, if (addons.isEmpty()) "Brak włączonych wtyczek – włącz je w „🧩 Wtyczki”." else "Włączone wtyczki nie mają katalogów.", 16f, "text2")
                     .apply { setPadding(Ui.dp(6), Ui.dp(20), 0, 0) })
@@ -381,9 +403,26 @@ class StremioActivity : BaseActivity() {
         return if (a.transportUrl == StremioApi.CINEMETA) (if (search) t else "Popularne – " + t.lowercase()) else "${a.name} · ${c.name.ifBlank { t }}" + if (search) " ($t)" else ""
     }
 
+    private fun rowIcon(title: String): String = when {
+        title == "Kontynuuj oglądanie" -> PlayerIcon.PLAY
+        title == "Obejrzane" -> PlayerIcon.CHECK
+        title == IN_CINEMAS -> PlayerIcon.CINEMA
+        title.startsWith("Popularne") -> PlayerIcon.STAR
+        title.contains("Seriale", true) || title.contains("serial", true) -> PlayerIcon.TVSET
+        title.contains("Filmy", true) || title.contains("film", true) -> PlayerIcon.FILM
+        else -> PlayerIcon.TRENDING
+    }
+
+    /** Wiersz rzędu, na którym zakończyło się ostatnie przewinięcie (przewijanie tylko przy zmianie rzędu, nie przy każdym plakacie). */
+    private var scrolledTo: View? = null
+
     private fun addRow(title: String): Row {
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, Ui.dp(6), 0, 0) }
-        box.addView(StremioUi.text(this, title, 18f * Ui.geo.headerScale, "accent", bold = true).apply { setPadding(Ui.dp(4), 0, 0, Ui.dp(2)) })
+        // nagłówek rzędu z rysowaną ikoną w kolorze akcentu (spójną z motywem) zamiast samego tekstu
+        box.addView(StremioUi.text(this, title, 18f * Ui.geo.headerScale, "accent", bold = true).apply {
+            setPadding(Ui.dp(4), 0, 0, Ui.dp(2)); compoundDrawablePadding = Ui.dp(8); gravity = android.view.Gravity.CENTER_VERTICAL
+            setCompoundDrawables(StremioUi.icon(rowIcon(title), 20, accent = true), null, null, null)
+        })
         val status = StremioUi.text(this, "Wczytywanie…", 14f, "text2").apply { setPadding(Ui.dp(4), Ui.dp(4), 0, Ui.dp(4)) }
         box.addView(status)
         val adapter = StremioPosterAdapter()
@@ -391,11 +430,13 @@ class StremioActivity : BaseActivity() {
             layoutManager = LinearLayoutManager(this@StremioActivity, LinearLayoutManager.HORIZONTAL, false)
             this.adapter = adapter; itemAnimator = null
             setPadding(Ui.dp(6), Ui.dp(8), Ui.dp(40), Ui.dp(10)); clipToPadding = false
+            setItemViewCacheSize(10)   // płynniejsze przewijanie rzędów (mniej przebudowy widoków)
         }
         box.addView(rv, LinearLayout.LayoutParams(-1, -2))
         val r = Row(title, adapter, box, status)
         adapter.onClick = { t -> open(t) }
-        adapter.onFocus = { t -> showInfo(t); scroll.post { scroll.smoothScrollTo(0, (box.top - Ui.dp(4)).coerceAtLeast(0)) } }
+        adapter.onLongClick = { t -> titleMenu(t) }
+        adapter.onFocus = { t -> showInfo(t); if (scrolledTo !== box) { scrolledTo = box; scroll.post { scroll.smoothScrollTo(0, (box.top - Ui.dp(4)).coerceAtLeast(0)) } } }
         rowsBox.addView(box); rows += r; rowTitles += title
         Ui.style(box)
         return r
@@ -465,6 +506,25 @@ class StremioActivity : BaseActivity() {
             if (r != null) fillContinue(r)
             else if (StremioStore.progress().any { !it.finished }) build(searchQuery)
             rows.firstOrNull { it.title == "Obejrzane" }?.let { fillWatched(it) }
+        }
+    }
+
+    /** (7.12) Przytrzymanie plakatu: cały film / serial jako obejrzany albo nieobejrzany (serial – wszystkie odcinki sezonów). */
+    private fun titleMenu(t: StremioTile) {
+        val m = t.meta
+        lifecycleScope.launch {
+            val meta = if (m.type == "series") StremioMetas.get("series", m.id) else null
+            val done = StremioStore.isTitleWatched(m, meta)
+            Dialogs.menu(this@StremioActivity, m.name, listOf(
+                (if (done) "↺ Odznacz jako obejrzany" else "✔ Oznacz jako obejrzany") to {
+                    lifecycleScope.launch {
+                        StremioStore.setTitleWatched(m, meta, !done)
+                        I18n.makeToast(this@StremioActivity, if (done) "Odznaczono: ${m.name}" else "Oznaczono jako obejrzany: ${m.name}", Toast.LENGTH_SHORT).show()
+                        // rząd „Obejrzane” pojawia się dopiero po pierwszej pozycji – wtedy tablica wczytuje się od nowa
+                        if (searchQuery == null && rows.none { it.title == "Obejrzane" } && !done) build(null) else refreshContinue()
+                    }
+                },
+            ))
         }
     }
 

@@ -478,7 +478,7 @@ class PlayerActivity : BaseActivity() {
                 v.setOnFocusChangeListener { _, f ->
                     (v as? android.widget.ImageView)?.refreshDrawableState()
                     val s = if (f) 1.12f else 1f
-                    if (Ui.anim == 0) { v.scaleX = s; v.scaleY = s } else v.animate().scaleX(s).scaleY(s).setDuration(Ui.geo.zoomMs.coerceAtLeast(90)).start()
+                    if (Ui.anim == 0) { v.scaleX = s; v.scaleY = s } else v.animate().scaleX(s).scaleY(s).setDuration(Ui.geo.zoomMs.coerceAtLeast(130)).setInterpolator(android.view.animation.PathInterpolator(0.4f, 0f, 0.2f, 1f)).start()
                 }
             }
         }
@@ -1735,7 +1735,7 @@ class PlayerActivity : BaseActivity() {
         } }
     }
 
-    /** Przytrzymanie OK / ekranu: menu odtwarzania (domyślnie) albo szybkie menu ikon (Ustawienia → Odtwarzanie). */
+    /** Przytrzymanie OK / ekranu: szybkie menu ikon (domyślnie) albo menu silnika i akceleracji (Ustawienia → Odtwarzanie). */
     private val holdOkEnabled get() = Prefs.okLongAction == 0 || Prefs.miniMenuEnabled
     private fun onHoldOk() { if (Prefs.okLongAction == 0) playbackMenu() else openMini() }
 

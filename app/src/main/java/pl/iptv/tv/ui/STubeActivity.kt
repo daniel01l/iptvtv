@@ -44,6 +44,8 @@ class STubeActivity : BaseActivity() {
     companion object {
         /** Fraza do wyszukania od razu (polecenie z telefonu). */
         const val EXTRA_QUERY = "query"
+        /** Zwłoka podglądu kategorii / podkategorii przy najechaniu (ms). */
+        const val LIVE_PREVIEW_MS = 200L
         /** Zwłoka po ostatniej wpisanej literze przed zapytaniem o podpowiedzi na żywo; maksymalna liczba podpowiedzi. */
         const val SUGGEST_DEBOUNCE_MS = 220L; const val SUGGEST_MAX = 8
         /** Pulpit X25: rząd do zaznaczenia od razu (id z [STubeScreen], np. „library”, „subs”). */
@@ -375,15 +377,57 @@ class STubeActivity : BaseActivity() {
         }
         categoryIds.forEachIndexed { i, id ->
             val c = STubeScreen.CATEGORIES[i]
-            findViewById<View>(id).apply { contentDescription = c.title; setOnClickListener { openCategory(c) } }
+            findViewById<View>(id).apply {
+                contentDescription = c.title
+                // OK: kategoria już pokazana (podgląd na żywo) → kursor na pierwszy film
+                setOnClickListener { if (category?.id == c.id) focusGridWhenReady() else openCategory(c) }
+                // najechanie ikoną od razu pokazuje kategorię (po krótkiej zwłoce – szybkie przejście ▲▼ nie ładuje każdej po drodze)
+                setOnFocusChangeListener { _, f -> if (f) scheduleLive { if (category?.id != c.id) openCategory(c, focusGrid = false) } else cancelLive() }
+            }
         }
     }
 
+    private val liveHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var liveTask: Runnable? = null
+    /** Zwłoka podglądu na żywo przy najechaniu ikoną kategorii / podkategorii. */
+    private fun scheduleLive(action: () -> Unit) {
+        cancelLive()
+        val t = Runnable { liveTask = null; action() }
+        liveTask = t; liveHandler.postDelayed(t, LIVE_PREVIEW_MS)
+    }
+    private fun cancelLive() { liveTask?.let(liveHandler::removeCallbacks); liveTask = null }
+    /** Po załadowaniu siatki kursor ma przejść na pierwszy film (OK / ► na ikonie, zanim podgląd się wczytał). */
+    private var wantGridFocus = false
+    private var sub: STubeScreen.Sub? = null
+
+    /** Kursor na pierwszy film siatki – od razu albo zaraz po wczytaniu. */
+    fun focusGridWhenReady() {
+        val row = categoryRow ?: return
+        if (row.loading) wantGridFocus = true else focusFirstInGrid()
+    }
+
+    /** Pigułki podkategorii nad siatką (najechanie pokazuje podkategorię na żywo, OK / ▼ – kursor na pierwszy film). */
+    private fun buildSubChips(c: STubeScreen.Category) {
+        chips.removeAllViews()
+        subChips = c.subs.map { s -> Chip(s.title, "", { scheduleLive { if (sub?.id != s.id) showSub(c, s, focusGrid = false) } },
+            { if (sub?.id == s.id) focusGridWhenReady() else showSub(c, s, focusGrid = true) }) }
+        fillChips(subChips)
+        chipScroll.visibility = if (c.subs.size > 1) View.VISIBLE else View.GONE
+        markSubChip()
+    }
+    private var subChips: List<Chip> = emptyList()
+    private fun markSubChip() { val c = category ?: return; for (i in 0 until chips.childCount) chips.getChildAt(i).isSelected = c.subs.getOrNull(i)?.id == sub?.id }
+
+    /** Zmiana podkategorii bez przebudowy pigułek (kursor zostaje na pigułce). */
+    private fun showSub(c: STubeScreen.Category, s: STubeScreen.Sub, focusGrid: Boolean) { openCategory(c, focusGrid, s, rebuildChips = false) }
+
     /** Wejście w kategorię: poprzednie ładowanie anulowane, ekran rzędów zastąpiony siatką, fokus na pierwszym filmie po wczytaniu. */
-    fun openCategory(c: STubeScreen.Category) {
+    fun openCategory(c: STubeScreen.Category, focusGrid: Boolean = true, subcategory: STubeScreen.Sub? = null, rebuildChips: Boolean = true) {
         categoryJob?.cancel(); closePlaylist(refocus = false)
         category = c
-        val row = STubeScreen.categoryRow(c)
+        sub = subcategory ?: c.subs.firstOrNull()
+        wantGridFocus = focusGrid
+        val row = STubeScreen.categoryRow(c, sub)
         categoryRow = row
         row.square = false
         updateSpan()
@@ -392,7 +436,8 @@ class STubeActivity : BaseActivity() {
         row.adapter.onFocus = { pos -> row.lastFocus = pos; if (pos >= row.tiles.size - 6 && row.next != null && !row.loading) loadCategoryPage(row) }
         grid.adapter = row.adapter
         findViewById<TextView>(R.id.stTitle).apply { text = c.title; if (narrowHeader) visibility = View.VISIBLE }
-        chipScroll.visibility = View.GONE; scroll.visibility = View.GONE; info.visibility = View.GONE
+        if (rebuildChips) buildSubChips(c) else markSubChip()
+        scroll.visibility = View.GONE; info.visibility = View.GONE
         gridBox.visibility = View.VISIBLE
         categoryIds.forEachIndexed { i, id -> findViewById<View>(id).isSelected = STubeScreen.CATEGORIES[i].id == c.id }
         gridStatus.text = "Wczytywanie…"; gridStatus.translationY = 0f; gridStatus.visibility = View.VISIBLE
@@ -413,7 +458,8 @@ class STubeActivity : BaseActivity() {
                     gridStatus.translationY = -Ui.dp(90).toFloat()
                 } else gridStatus.visibility = View.GONE
                 row.adapter.notifyDataSetChanged()
-                focusFirstInGrid()
+                grid.scrollToPosition(0)
+                if (wantGridFocus) { wantGridFocus = false; focusFirstInGrid() }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -421,7 +467,7 @@ class STubeActivity : BaseActivity() {
                 row.error = e.message ?: e.javaClass.simpleName
                 row.tiles.clear(); row.tiles += STubeTile.Action(STubeScreen.ACT_RETRY, "⟳", "Ponów"); row.adapter.notifyDataSetChanged()
                 gridStatus.text = "⚠ ${row.error}"; gridStatus.visibility = View.VISIBLE; gridStatus.translationY = -Ui.dp(90).toFloat()
-                focusFirstInGrid()
+                if (wantGridFocus) { wantGridFocus = false; focusFirstInGrid() }
             } finally { row.loading = false }
         }
     }
@@ -450,11 +496,11 @@ class STubeActivity : BaseActivity() {
     /** Powrót z kategorii do zwykłego ekranu rzędów (Start, wyszukiwanie, biblioteka). */
     private fun closeCategory(): Boolean {
         if (categoryRow == null) return false
-        categoryJob?.cancel(); categoryRow = null; category = null
+        categoryJob?.cancel(); cancelLive(); categoryRow = null; category = null; sub = null; wantGridFocus = false
         gridBox.visibility = View.GONE; gridStatus.visibility = View.GONE; gridStatus.translationY = 0f
         grid.adapter = null
         scroll.visibility = View.VISIBLE
-        chipScroll.visibility = if (chips.childCount > 1) View.VISIBLE else View.GONE
+        buildChips()   // pigułki biblioteki w miejsce podkategorii
         findViewById<TextView>(R.id.stTitle).apply { text = "STube"; if (narrowHeader) visibility = View.GONE }
         categoryIds.forEach { findViewById<View>(it).isSelected = false }
         return true
@@ -472,7 +518,7 @@ class STubeActivity : BaseActivity() {
         return when (event.keyCode) {
             KeyEvent.KEYCODE_DPAD_LEFT -> if (pos % span == 0) act { if (!narrowHeader) categoryIcon().requestFocus() } else false
             KeyEvent.KEYCODE_DPAD_RIGHT -> pos % span == span - 1 || pos == n - 1
-            KeyEvent.KEYCODE_DPAD_UP -> if (pos < span) act { query.requestFocus() } else false
+            KeyEvent.KEYCODE_DPAD_UP -> if (pos < span) act { selectedSubChip()?.requestFocus() ?: query.requestFocus() } else false
             KeyEvent.KEYCODE_DPAD_DOWN -> if (pos / span >= (n - 1) / span) act { if (miniBar?.shown == true) miniBar?.focusBar() } else false
             else -> false
         }
@@ -505,13 +551,13 @@ class STubeActivity : BaseActivity() {
         }
     }
 
-    private class Chip(val label: String, val icon: String = PlayerIcon.MUSIC, val action: () -> Unit)
+    private class Chip(val label: String, val icon: String = PlayerIcon.MUSIC, val onFocus: (() -> Unit)? = null, val action: () -> Unit)
 
     private fun chipSpecs(): List<Chip> = buildList {
         add(Chip("Start", PlayerIcon.MUSIC) { goStart() })
         if (rows.any { it.id == STubeScreen.ROW_CONTINUE }) add(Chip("Ostatnie", PlayerIcon.DELAY) { jumpTo(STubeScreen.ROW_CONTINUE) })
         else add(Chip("Ostatnie", PlayerIcon.DELAY) { openLibraryList(pl.iptv.tv.data.YtPlaylist(STubeScreen.PL_HISTORY, "Historia oglądania")) })
-        if (rows.any { it.id == STubeScreen.ROW_MIXES }) add(Chip("Miksy 100+", PlayerIcon.AUTOPLAY) { jumpTo(STubeScreen.ROW_MIXES) })
+        if (rows.any { it.id == STubeScreen.ROW_MIXES }) add(Chip("Twoje miksy", PlayerIcon.AUTOPLAY) { jumpTo(STubeScreen.ROW_MIXES) })
         add(Chip("Playlisty", PlayerIcon.QUEUE) { jumpTo(STubeScreen.ROW_LIBRARY) })
         if (YouTubeTokens.loggedIn) add(Chip("Polubione", PlayerIcon.INFO) { openLibraryList(pl.iptv.tv.data.YtPlaylist(STubeScreen.PL_LIKED, "Polubione filmy")) })
         else add(Chip("Na później", PlayerIcon.DELAY) { openLibraryList(pl.iptv.tv.data.YtPlaylist(STubeScreen.PL_LATER, "Do obejrzenia później")) })
@@ -520,9 +566,14 @@ class STubeActivity : BaseActivity() {
 
     /** Pigułki: zaokrąglone do pełna, kolory z motywu (stan zaznaczenia jak w całej aplikacji), treść przycięta do kształtu. */
     private fun buildChips() {
+        if (categoryRow != null) return   // w kategorii pigułki to podkategorie
         chips.removeAllViews()
         val specs = chipSpecs()
-        chipScroll.visibility = if (specs.size > 1 && categoryRow == null) View.VISIBLE else View.GONE
+        chipScroll.visibility = if (specs.size > 1) View.VISIBLE else View.GONE
+        fillChips(specs)
+    }
+
+    private fun fillChips(specs: List<Chip>) {
         val sel = intArrayOf(android.R.attr.state_selected); val foc = intArrayOf(android.R.attr.state_focused); val pr = intArrayOf(android.R.attr.state_pressed)
         specs.forEach { c ->
             chips.addView(TextView(this).apply {
@@ -535,10 +586,14 @@ class STubeActivity : BaseActivity() {
                     addState(sel, on); addState(foc, on); addState(pr, on)
                     addState(intArrayOf(), pill(Ui.withAlpha(Ui.text2, 0x38)))
                 }
-                setCompoundDrawables(PlayerIcon(c.icon, android.content.res.ColorStateList(arrayOf(foc, pr, sel, intArrayOf()), intArrayOf(Ui.focusText, Ui.focusText, Ui.focusText, Ui.text))).apply { setBounds(0, 0, Ui.dp(18), Ui.dp(18)) }, null, null, null)
-                compoundDrawablePadding = Ui.dp(8)
+                if (c.icon.isNotEmpty()) {
+                    setCompoundDrawables(PlayerIcon(c.icon, android.content.res.ColorStateList(arrayOf(foc, pr, sel, intArrayOf()), intArrayOf(Ui.focusText, Ui.focusText, Ui.focusText, Ui.text))).apply { setBounds(0, 0, Ui.dp(18), Ui.dp(18)) }, null, null, null)
+                    compoundDrawablePadding = Ui.dp(8)
+                }
                 setOnClickListener { c.action() }
-                setOnFocusChangeListener { v, f -> if (f) chipScroll.post { chipScroll.smoothScrollTo((v.left - Ui.dp(24)).coerceAtLeast(0), 0) } }
+                setOnFocusChangeListener { v, f ->
+                    if (f) { chipScroll.post { chipScroll.smoothScrollTo((v.left - Ui.dp(24)).coerceAtLeast(0), 0) }; c.onFocus?.invoke() } else if (c.onFocus != null) cancelLive()
+                }
             }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = Ui.dp(10) })
         }
     }
@@ -758,13 +813,19 @@ class STubeActivity : BaseActivity() {
         val mix = pl.iptv.tv.data.StubeMixes.byId(p.id.removePrefix(STubeScreen.PL_MIX)) ?: return
         toast("Przygotowanie miksu…")
         lifecycleScope.launch {
-            val vids = pl.iptv.tv.data.StubeMixes.videos(mix)
+            var started: String? = null
+            // pierwsza partia → odtwarzanie rusza od razu; reszta dochodzi do kolejki, gdy uzupełnienie się wczyta
+            val vids = pl.iptv.tv.data.StubeMixes.videos(mix, null, if (!playNow) null else { first ->
+                started = first.first().id
+                pl.iptv.tv.data.StubeQueue.replaceAll(first.drop(1).map { pl.iptv.tv.data.QueueItem.of(it) })
+                playInApp(first.first())
+            })
             if (vids.isEmpty()) { toast("Brak filmów dla tego miksu"); return@launch }
-            val rest = if (playNow) vids.drop(1) else vids
+            val rest = if (playNow) vids.filter { it.id != (started ?: vids.first().id) } else vids
             if (playNow) {
                 // playlista zastępuje kolejkę i od razu gra w odtwarzaczu (panel „Następne w kolejce” pokazuje resztę)
                 pl.iptv.tv.data.StubeQueue.replaceAll(rest.map { pl.iptv.tv.data.QueueItem.of(it) })
-                playInApp(vids.first())
+                if (started == null) playInApp(vids.first())
             } else {
                 rest.forEach { pl.iptv.tv.data.StubeQueue.add(pl.iptv.tv.data.QueueItem.of(it)) }
                 toast("Dodano do kolejki: ${rest.size} filmów")
@@ -848,8 +909,17 @@ class STubeActivity : BaseActivity() {
             }
             if (gridKey(event)) return true
             val f = window.decorView.findFocus()
-            if (f != null && event.action == KeyEvent.ACTION_DOWN && inside(f, R.id.stRail) && !narrowHeader && event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) { focusFirstInGrid(); return true }
-            if (f != null && event.action == KeyEvent.ACTION_DOWN && inside(f, R.id.stSearchRow) && event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && !(f === query && query.isPopupShowing)) { focusFirstInGrid(); return true }
+            if (f != null && event.action == KeyEvent.ACTION_DOWN && inside(f, R.id.stRail) && !narrowHeader && event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                val i = categoryIds.indexOfFirst { it == f.id }
+                if (i >= 0 && STubeScreen.CATEGORIES[i].id != category?.id) openCategory(STubeScreen.CATEGORIES[i]) else focusGridWhenReady()
+                return true
+            }
+            if (f != null && event.action == KeyEvent.ACTION_DOWN && inside(f, R.id.stSearchRow) && event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && !(f === query && query.isPopupShowing)) { focusChipsOrGrid(); return true }
+        } else {
+            // ► na ikonie kategorii, zanim zdążył się wczytać podgląd: otwiera kategorię i przenosi kursor na pierwszy film
+            val f = window.decorView.findFocus()
+            val i = categoryIds.indexOfFirst { it == f?.id }
+            if (i >= 0 && !narrowHeader && event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) { if (event.action == KeyEvent.ACTION_DOWN) openCategory(STubeScreen.CATEGORIES[i]); return true }
         }
         // WSTECZ przy otwartej playliście / kanale – zamyka jej rząd i wraca na kafelek źródłowy (dopiero kolejne WSTECZ zamyka STube)
         if (event.keyCode == KeyEvent.KEYCODE_BACK && playlistRow != null && !query.isPopupShowing) {
@@ -882,8 +952,8 @@ class STubeActivity : BaseActivity() {
             } else if (f != null && inside(f, R.id.stChips)) {
                 when (event.keyCode) {
                     KeyEvent.KEYCODE_DPAD_UP -> { query.requestFocus(); return true }
-                    KeyEvent.KEYCODE_DPAD_DOWN -> { goStart(); return true }
-                    KeyEvent.KEYCODE_DPAD_LEFT -> if (f === chips.getChildAt(0) && !narrowHeader) { focusRail(); return true }
+                    KeyEvent.KEYCODE_DPAD_DOWN -> { if (categoryRow != null) focusGridWhenReady() else goStart(); return true }
+                    KeyEvent.KEYCODE_DPAD_LEFT -> if (f === chips.getChildAt(0) && !narrowHeader) { if (categoryRow != null) categoryIcon().requestFocus() else focusRail(); return true }
                     // krawędź pigułek: kursor nie ucieka poza pasek
                     KeyEvent.KEYCODE_DPAD_RIGHT -> if (f === chips.getChildAt(chips.childCount - 1)) return true
                 }
@@ -907,6 +977,11 @@ class STubeActivity : BaseActivity() {
 
     /** Pasek ikon po lewej (Start; z konta – pierwszy element). */
     private fun focusRail() { findViewById<View>(if (searchQuery != null) R.id.stSearch else R.id.stHome).requestFocus() }
+
+    private fun selectedSubChip(): View? =
+        if (chipScroll.visibility == View.VISIBLE) (0 until chips.childCount).map(chips::getChildAt).firstOrNull { it.isSelected } ?: chips.getChildAt(0) else null
+
+    private fun focusChipsOrGrid() { selectedSubChip()?.requestFocus() ?: focusGridWhenReady() }
 
     private fun focusChipsOrQuery() {
         if (chipScroll.visibility == View.VISIBLE && chips.childCount > 0) chips.getChildAt(0).requestFocus() else query.requestFocus()

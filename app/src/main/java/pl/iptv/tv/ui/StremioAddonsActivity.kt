@@ -29,10 +29,10 @@ class StremioAddonsActivity : BaseActivity() {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(Ui.dp(40), Ui.dp(20), Ui.dp(40), Ui.dp(12)) }
         val header = LinearLayout(this).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
         header.addView(StremioUi.text(this, "Wtyczki Stremio", 26f, "accent", bold = true), LinearLayout.LayoutParams(0, -2, 1f))
-        header.addView(StremioUi.button(this, "＋ Dodaj z adresu") { addByUrl() })
+        header.addView(StremioUi.button(this, "Dodaj z adresu", PlayerIcon.PLUS) { addByUrl() })
         // (7.8) odświeżanie zawsze: zmiany we wtyczkach na koncie (dodane / usunięte / nowe manifesty) i ręczne wtyczki
-        header.addView(StremioUi.button(this, if (StremioAccount.loggedIn) "⟳ Odśwież z konta" else "⟳ Odśwież") { refreshFromAccount() }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
-        header.addView(StremioUi.button(this, "✖") { finish() }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
+        header.addView(StremioUi.button(this, if (StremioAccount.loggedIn) "Odśwież z konta" else "Odśwież", PlayerIcon.REFRESH) { refreshFromAccount() }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
+        header.addView(StremioUi.button(this, "", PlayerIcon.CLOSE) { finish() }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
         root.addView(header)
         status = StremioUi.text(this, "OK – włącz / wyłącz wtyczkę w wyszukiwaniu i źródłach · przytrzymaj OK – usuń", 14f, "text2").apply { setPadding(Ui.dp(4), Ui.dp(8), 0, Ui.dp(10)) }
         root.addView(status)

@@ -30,7 +30,7 @@ object YtLyrics {
     }
 
     /** Czas, po którym ponawiane jest zapytanie o utwór bez tekstu. */
-    const val MISSING_TTL_MS = 6 * 3600_000L
+    const val MISSING_TTL_MS = 2 * 3600_000L
     const val FOUND_TTL_MS = 90L * 24 * 3600_000L
     const val CALL_TIMEOUT_S = 6L
     /** Zapasowe źródło zwykłego tekstu (bez znaczników czasu); pusty – wyłączone (testy). */
@@ -73,7 +73,7 @@ object YtLyrics {
                 if (saved.missing && now - saved.savedAt < MISSING_TTL_MS) return@withContext null
                 if (!saved.missing) fromEntry(saved)?.let { return@withContext it }
             }
-            val net = runCatching { fetch(artist, track, durationSec) }.getOrNull()
+            val net = runCatching { fetch(artist, track, durationSec, channel) }.getOrNull()
             runCatching {
                 dao?.put(LyricsCacheEntry(key, net?.plain.orEmpty(), net?.synced?.joinToString("\n") { stamp(it) }.orEmpty(), net == null, now))
                 dao?.prune(now - FOUND_TTL_MS)
@@ -99,7 +99,93 @@ object YtLyrics {
     }.getOrNull()
 
     /** Kaskada: LRCLIB dokładne → wyszukiwanie (tytuł oczyszczony, potem bez dopisków o remiksie) → zapytanie ogólne → zwykły tekst z zapasowego źródła. */
-    private fun fetch(artist: String, track: String, durationSec: Long): Result? {
+    private fun fetch(artist: String, track: String, durationSec: Long, channel: String = ""): Result? {
+        val pairs = candidatePairs(artist, track, channel)
+        var best: Result? = null
+        for ((i, p) in pairs.withIndex()) {
+            val r = if (i == 0) fetchLrclib(p.first, p.second, durationSec) else searchOnly(p.first, p.second)
+            if (r?.isSynced == true) return r
+            if (best == null) best = r
+        }
+        if (fallbackBase.isNotBlank()) {
+            // dodatkowe źródło z tekstem zsynchronizowanym (gdy LRCLIB ma najwyżej zwykły tekst albo nic)
+            for (p in pairs.take(2)) netease(p.first, p.second)?.let { return it }
+        }
+        if (best != null) return best
+        return plainFallback(pairs)
+    }
+
+    /**
+     * Warianty wykonawca / tytuł do wyszukania (maks. 4): z tytułu filmu, odwrócone („Tytuł – Wykonawca”), z nazwy kanału,
+     * pierwszy z kilku wykonawców („A & B”, „A, B”, „A x B”).
+     */
+    fun candidatePairs(artist: String, track: String, channel: String = ""): List<Pair<String, String>> {
+        val out = LinkedHashSet<Pair<String, String>>()
+        out += artist to track
+        val first = artist.split(Regex("(?i)\\s(&|x|i|and|feat\\.?|ft\\.?)\\s|,\\s*")).firstOrNull()?.trim().orEmpty()
+        if (first.isNotBlank() && first != artist) out += first to track
+        val ch = channel.trim().removeSuffix("- Topic").removeSuffix("VEVO").removeSuffix("Official").trim()
+        if (ch.isNotBlank() && !ch.equals(artist, true) && ch.length < 40) out += ch to track
+        if (artist.isNotBlank() && track.isNotBlank()) out += track to artist
+        return out.take(4).toList()
+    }
+
+    private fun searchOnly(artist: String, track: String): Result? {
+        val u = "$apiBase/search".toHttpUrl().newBuilder().addQueryParameter("track_name", track)
+            .apply { if (artist.isNotBlank()) addQueryParameter("artist_name", artist) }.build()
+        val found = searchList(u)
+        return found.firstOrNull { it.isSynced } ?: found.firstOrNull()
+    }
+
+    /** NetEase Music (nieoficjalne API bez klucza): wyszukanie utworu i tekst z znacznikami czasu. Wyłączone razem z [fallbackBase]. */
+    var neteaseBase = "https://music.163.com"
+    private fun netease(artist: String, track: String): Result? = runCatching {
+        if (neteaseBase.isBlank()) return null
+        val q = "$artist $track".trim()
+        val s = "$neteaseBase/api/search/get/web".toHttpUrl().newBuilder().addQueryParameter("s", q).addQueryParameter("type", "1")
+            .addQueryParameter("offset", "0").addQueryParameter("limit", "6").build()
+        val songs = JSONObject(neteaseGet(s) ?: return null).optJSONObject("result")?.optJSONArray("songs") ?: return null
+        val want = track.lowercase()
+        var id = 0L
+        for (i in 0 until songs.length()) {
+            val o = songs.optJSONObject(i) ?: continue
+            val n = o.optString("name").lowercase()
+            val artists = o.optJSONArray("artists")?.let { a -> (0 until a.length()).joinToString(" ") { a.optJSONObject(it)?.optString("name").orEmpty() } }.orEmpty().lowercase()
+            if ((n.contains(want) || want.contains(n)) && (artist.isBlank() || artists.contains(artist.lowercase().take(12)) || artist.lowercase().contains(artists.take(12)))) { id = o.optLong("id"); break }
+        }
+        if (id == 0L) return null
+        val l = "$neteaseBase/api/song/lyric".toHttpUrl().newBuilder().addQueryParameter("id", id.toString()).addQueryParameter("lv", "1").build()
+        val lrc = JSONObject(neteaseGet(l) ?: return null).optJSONObject("lrc")?.optString("lyric").orEmpty()
+        val lines = parseSynced(lrc).filter { it.text.isNotBlank() && !Regex("^\\S{1,6}\\s?[:：]").containsMatchIn(it.text) }   // bez wierszy „作词 : …”
+        if (lines.size < 4) null else Result(lines.joinToString("\n") { it.text }, lines)
+    }.getOrNull()
+
+    private fun neteaseGet(url: okhttp3.HttpUrl): String? = runCatching {
+        fast.newCall(Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").header("Referer", "https://music.163.com/").build()).execute()
+            .use { r -> if (!r.isSuccessful) null else r.body?.string() }
+    }.getOrNull()
+
+    /** Zwykły tekst: lyrics.ovh dla każdego wariantu, a potem jego wyszukiwarka (poprawna pisownia wykonawcy / tytułu). */
+    private fun plainFallback(pairs: List<Pair<String, String>>): Result? {
+        if (fallbackBase.isBlank()) return null
+        fun direct(a: String, t: String): Result? {
+            if (a.isBlank() || t.isBlank()) return null
+            val url = runCatching { "$fallbackBase/".toHttpUrl().newBuilder().addPathSegment(a).addPathSegment(t).build() }.getOrNull() ?: return null
+            val plain = get(url)?.let { runCatching { JSONObject(it).optString("lyrics").trim() }.getOrDefault("") }.orEmpty()
+            return if (plain.length > 20) Result(plain, emptyList()) else null
+        }
+        for ((a, t) in pairs.take(3)) for (tt in listOf(t, baseTitle(t)).distinct()) direct(a, tt)?.let { return it }
+        val (a0, t0) = pairs.firstOrNull() ?: return null
+        val sug = runCatching { "${fallbackBase.removeSuffix("/v1").removeSuffix("/")}/suggest/".toHttpUrl().newBuilder().addPathSegment("$a0 $t0".trim()).build() }.getOrNull() ?: return null
+        val arr = get(sug)?.let { runCatching { JSONObject(it).optJSONArray("data") }.getOrNull() } ?: return null
+        for (i in 0 until minOf(arr.length(), 3)) {
+            val o = arr.optJSONObject(i) ?: continue
+            direct(o.optJSONObject("artist")?.optString("name").orEmpty(), o.optString("title"))?.let { return it }
+        }
+        return null
+    }
+
+    private fun fetchLrclib(artist: String, track: String, durationSec: Long): Result? {
         val titles = listOf(track, baseTitle(track)).filter { it.isNotBlank() }.distinct()
         var best: Result? = null
         for (t in titles) {
@@ -120,15 +206,7 @@ object YtLyrics {
             found.firstOrNull { it.isSynced }?.let { return it }
             best = found.firstOrNull()
         }
-        if (best != null) return best
-        if (fallbackBase.isNotBlank() && artist.isNotBlank()) {
-            for (t in titles) {
-                val url = runCatching { "$fallbackBase/".toHttpUrl().newBuilder().addPathSegment(artist).addPathSegment(t).build() }.getOrNull() ?: continue
-                val plain = get(url)?.let { runCatching { JSONObject(it).optString("lyrics").trim() }.getOrDefault("") }.orEmpty()
-                if (plain.length > 20) return Result(plain, emptyList())
-            }
-        }
-        return null
+        return best
     }
 
     private fun searchList(url: okhttp3.HttpUrl): List<Result> {

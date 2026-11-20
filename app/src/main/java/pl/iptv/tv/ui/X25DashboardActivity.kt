@@ -547,7 +547,7 @@ class X25DashboardActivity : BaseActivity() {
     private fun RecentTile(r: X25Recent) {
         val c = LocalX25.current
         var focused by remember { mutableStateOf(false) }
-        val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(110), label = "rs")
+        val scale by focusScale(focused, 1.05f, "rs")
         val key = "r:" + r.key
         AutoFocus(key)
         val (title, sub) = when (r) {
@@ -635,7 +635,7 @@ class X25DashboardActivity : BaseActivity() {
         val c = LocalX25.current
         var focused by remember { mutableStateOf(false) }
         val editing = editingId == t.id
-        val scale by animateFloatAsState(if (focused || editing) 1.045f else 1f, tween(110), label = "fs")
+        val scale by focusScale(focused || editing, 1.045f, "fs")
         val key = "t:" + t.id
         AutoFocus(key)
         val title = t.action.title

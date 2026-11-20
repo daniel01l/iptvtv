@@ -82,6 +82,10 @@ interface StremioDao {
     @Query("SELECT * FROM stremio_watched WHERE metaId = :id") suspend fun watchedOf(id: String): List<StremioWatched>
     @Query("SELECT * FROM stremio_watched ORDER BY watchedAt DESC") suspend fun allWatched(): List<StremioWatched>
     @Upsert suspend fun putWatched(w: StremioWatched)
+    @Upsert suspend fun putWatchedAll(w: List<StremioWatched>)
+    @Query("DELETE FROM stremio_watched WHERE metaId = :id AND season = :season") suspend fun deleteWatchedSeason(id: String, season: Int)
+    @Query("DELETE FROM stremio_watched WHERE metaId = :id") suspend fun deleteWatchedOf(id: String)
+    @Query("DELETE FROM stremio_progress WHERE metaId = :id") suspend fun deleteProgress(id: String)
     @Query("DELETE FROM stremio_watched WHERE id = :id") suspend fun deleteWatched(id: String)
 }
 
@@ -239,6 +243,44 @@ object StremioStore {
                 else d.deleteWatched("$metaId|${v.id}")
             }
         }
+    }
+
+    /** (7.12) Cały sezon [season] jako obejrzany / nieobejrzany (przytrzymanie sezonu w oknie odcinków). */
+    suspend fun setSeasonWatched(meta: StremioMeta, season: Int, poster: String, watched: Boolean) {
+        val d = dao() ?: return
+        val now = System.currentTimeMillis()
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val eps = meta.episodes(season)
+                if (watched) d.putWatchedAll(eps.mapIndexed { i, v -> StremioWatched("${meta.id}|${v.id}", meta.id, v.id, "series", meta.name, poster, v.season, v.episode, now + i) })
+                else d.deleteWatchedSeason(meta.id, season)
+            }
+        }
+    }
+
+    /** (7.12) Cały tytuł jako obejrzany / nieobejrzany (przytrzymanie plakatu): film – ukończony postęp, serial – wszystkie odcinki sezonów (bez dodatków). */
+    suspend fun setTitleWatched(m: StremioMetaPreview, meta: StremioMeta?, watched: Boolean) {
+        val d = dao() ?: return
+        val now = System.currentTimeMillis()
+        withContext(Dispatchers.IO) {
+            runCatching {
+                if (m.type == "series") {
+                    if (watched) d.putWatchedAll((meta?.videos.orEmpty()).filter { it.season > 0 }.mapIndexed { i, v ->
+                        StremioWatched("${m.id}|${v.id}", m.id, v.id, "series", m.name, m.poster, v.season, v.episode, now + i) })
+                    else d.deleteWatchedOf(m.id)
+                } else if (watched) d.upsertProgress(listOf(StremioProgress(m.id, m.type, m.name, m.poster, m.id, "", 1_000, 1_000, now, now, synced = false)))
+                else d.deleteProgress(m.id)
+            }
+        }
+    }
+
+    /** Czy tytuł jest w całości obejrzany (film: ukończony postęp; serial: wszystkie odcinki sezonów). */
+    suspend fun isTitleWatched(m: StremioMetaPreview, meta: StremioMeta?): Boolean {
+        if (m.type != "series") return progressOf(m.id)?.finished == true
+        val eps = meta?.videos.orEmpty().filter { it.season > 0 }
+        if (eps.isEmpty()) return false
+        val w = watchedIds(m.id)
+        return eps.all { it.id in w }
     }
 
     /** Procent obejrzanego sezonu [season] (zaliczone odcinki / wszystkie odcinki sezonu). */

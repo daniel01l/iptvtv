@@ -127,9 +127,9 @@ class V75Test {
         assertFalse(ChannelEngineOptimizer.ProbeResult(false).smooth)
     }
 
-    @Test fun longOkOpensEngineSettingsByDefault() {
-        Prefs.remove("ok_long")
-        assertEquals(0, Prefs.okLongAction)
+    @Test fun longOkOpensIconMenuByDefault() {
+        Prefs.remove("ok_long2")
+        assertEquals(1, Prefs.okLongAction)
     }
 
     @Test fun engineSkeletonFallbackOnlyWithLibraryAndExhaustedMedia3() {

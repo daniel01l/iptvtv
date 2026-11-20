@@ -273,7 +273,8 @@ class V79Test {
         // kolejność i ikony
         assertEquals(listOf("Aktualności", "Na czasie", "Muzyka", "Sport", "Dla dzieci", "Wiadomości", "Gry"), STubeScreen.CATEGORIES.map { it.title })
         assertEquals(7, STubeScreen.CATEGORIES.map { it.icon }.distinct().size)
-        assertNotEquals(STubeScreen.CATEGORIES[0].query, STubeScreen.CATEGORIES[5].query)   // Aktualności ≠ Wiadomości
+        assertNotEquals(STubeScreen.CATEGORIES[0].subs.map { it.queries }, STubeScreen.CATEGORIES[5].subs.map { it.queries })   // Aktualności ≠ Wiadomości
+        assertTrue(STubeScreen.CATEGORIES.all { it.subs.size >= 5 })                    // podkategorie w każdej kategorii
         val ids = intArrayOf(R.id.stCat0, R.id.stCat1, R.id.stCat2, R.id.stCat3, R.id.stCat4, R.id.stCat5, R.id.stCat6)
         ids.forEachIndexed { i, id -> assertEquals(STubeScreen.CATEGORIES[i].title, a.findViewById<View>(id).contentDescription) }
         // OK na kategorii → siatka od razu, bez pigułek i rzędów, fokus na pierwszym filmie
@@ -282,7 +283,7 @@ class V79Test {
         idle(500)
         assertEquals(View.VISIBLE, a.findViewById<View>(R.id.stGridBox).visibility)
         assertEquals(View.GONE, a.findViewById<View>(R.id.stScroll).visibility)
-        assertEquals(View.GONE, a.findViewById<View>(R.id.stChipScroll).visibility)
+        assertEquals(View.VISIBLE, a.findViewById<View>(R.id.stChipScroll).visibility)   // pigułki = podkategorie
         assertTrue(a.findViewById<View>(R.id.stCat3).isSelected)
         // szybka zmiana kategorii: wynik tylko ostatniej
         a.findViewById<View>(R.id.stCat4).performClick(); a.findViewById<View>(R.id.stCat6).performClick()

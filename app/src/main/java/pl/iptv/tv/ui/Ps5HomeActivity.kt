@@ -376,7 +376,7 @@ class Ps5HomeActivity : BaseActivity() {
     private fun Modifier.ps5Item(key: String, radius: Dp, scaleTo: Float, onFocus: () -> Unit, onClick: () -> Unit, onLong: (() -> Unit)? = null): Modifier {
         val c = LocalPs5.current
         var focused by remember { mutableStateOf(false) }
-        val scale by animateFloatAsState(if (focused) scaleTo else 1f, tween(110), label = "ps5s")
+        val scale by focusScale(focused, scaleTo, "ps5s")
         AutoFocus(key)
         return this
             .focusRequester(requester(key))

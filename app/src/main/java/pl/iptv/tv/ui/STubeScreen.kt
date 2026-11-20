@@ -10,6 +10,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import kotlinx.coroutines.async
 import androidx.recyclerview.widget.RecyclerView
 import coil.load
 import pl.iptv.tv.data.YouTubeRepository
@@ -161,7 +162,7 @@ object STubeScreen {
         return rowIds(logged, personal, query, StubeHistory.hasUnfinished, StubeHistory.historyCount >= pl.iptv.tv.data.StubeMixes.MIN_HISTORY).map { id ->
             when (id) {
                 // gotowe miksy z historii oglądania (Room) – filmy z YouTube po otwarciu
-                ROW_MIXES -> STubeRow(id, "Twoje miksy (100+ utworów)") { _ ->
+                ROW_MIXES -> STubeRow(id, "Twoje miksy") { _ ->
                     STubePage(pl.iptv.tv.data.StubeMixes.current().map { STubeTile.Playlist(YtPlaylist(PL_MIX + it.id, it.title, it.thumb)) })
                 }
                 ROW_CONTINUE -> STubeRow(id, "Kontynuuj oglądanie") { _ -> STubePage(StubeHistory.unfinished().map { STubeTile.Video(it.toVideo()) }) }
@@ -195,21 +196,84 @@ object STubeScreen {
      * Kategoria paska bocznego: od razu pełna siatka filmów. [query] – wyszukiwanie bez klucza (każda kategoria ma własny zestaw;
      * Aktualności = komentarze i analizy bieżących wydarzeń, Wiadomości = serwisy informacyjne); [kiosk] – listy YouTube dla Na czasie / Muzyka.
      */
-    data class Category(val id: String, val title: String, val icon: String, val query: String? = null, val kiosk: String? = null, val apiCategory: String? = null, val fallbackQuery: String? = null)
+    data class Category(val id: String, val title: String, val icon: String, val query: String? = null, val kiosk: String? = null, val apiCategory: String? = null,
+                        val fallbackQuery: String? = null, val subs: List<Sub> = emptyList())
+
+    /**
+     * Podkategoria (pigułka nad siatką): zapytania i listy YouTube łączone równolegle, wyniki przeplatane i rozrzedzone po kanałach
+     * ([StubeMixes.diversify]) – jedna kategoria to wielu twórców. [minSec] – tylko filmy co najmniej tak długie (składanki 10 min+),
+     * [tracks] – tylko pojedyncze utwory (bez składanek, vlogów i długich wideo).
+     */
+    data class Sub(val id: String, val title: String, val queries: List<String> = emptyList(), val kiosks: List<String> = emptyList(),
+                   val minSec: Int = 0, val tracks: Boolean = false)
+
+    private fun cat(id: String, title: String, icon: String, kiosks: List<String> = emptyList(), vararg subs: Sub): Category {
+        // „Wszystko”: lista list kategorii + po jednym (najlepszym) zapytaniu z każdej podkategorii
+        val base = subs.filter { it.minSec == 0 }
+        val all = Sub(id + "_all", "Wszystko", base.take(8).mapNotNull { it.queries.firstOrNull() }, kiosks, tracks = base.isNotEmpty() && base.all { it.tracks })
+        return Category(id, title, icon, kiosk = kiosks.firstOrNull(), subs = listOf(all) + subs)
+    }
+
+    private fun genreSub(id: String, title: String, extra: String = "") =
+        pl.iptv.tv.data.StubeMixes.GENRES.first { it.id == id }.let { g -> Sub("g_$id", title, g.queries + listOfNotNull(extra.ifEmpty { null }) + "${g.name} teledysk 2026" , tracks = true) }
 
     /** Kolejność na pasku: Aktualności, Na czasie, Muzyka, Sport, Dla dzieci, Wiadomości, Gry. */
     val CATEGORIES = listOf(
-        Category("cat_current", "Aktualności", PlayerIcon.NEWS, query = "aktualności komentarz analiza polityka gospodarka dzisiaj"),
-        Category("cat_trending", "Na czasie", PlayerIcon.TRENDING, kiosk = YtKeyless.TRENDING, fallbackQuery = "na czasie popularne dziś polska"),
-        Category("cat_music", "Muzyka", PlayerIcon.MUSIC, kiosk = YtKeyless.MUSIC, apiCategory = YouTubeRepository.CAT_MUSIC, fallbackQuery = "najnowsze hity teledyski muzyka"),
-        Category("cat_sport", "Sport", PlayerIcon.SPORT, query = "sport skróty meczów bramki najlepsze akcje"),
-        Category("cat_kids", "Dla dzieci", PlayerIcon.KIDS, query = "bajki dla dzieci po polsku"),
-        Category("cat_news", "Wiadomości", PlayerIcon.HEADLINES, query = "wiadomości serwis informacyjny najnowsze"),
-        Category("cat_games", "Gry", PlayerIcon.GAMES, query = "gry gameplay po polsku"),
+        cat("cat_current", "Aktualności", PlayerIcon.NEWS, emptyList(),
+            Sub("pol", "Polityka", listOf("polityka komentarz tygodnia", "sejm debata analiza", "wywiad polityk polska", "publicystyka polityczna dzisiaj", "polityka polska analiza")),
+            Sub("eco", "Gospodarka", listOf("gospodarka polska analiza", "giełda inwestowanie finanse", "inflacja ekonomia wyjaśnienie", "biznes przedsiębiorczość polska")),
+            Sub("world", "Świat", listOf("geopolityka analiza", "wojna na świecie analiza", "wiadomości ze świata dziś", "polityka międzynarodowa komentarz")),
+            Sub("tech", "Technologie i nauka", listOf("technologia nowości", "nauka ciekawostki", "kosmos odkrycia", "sztuczna inteligencja nowości")),
+            Sub("doc", "Reportaże i rozmowy", listOf("reportaż dokument polska", "wywiad rozmowa polska", "podcast rozmowa polska"))),
+        cat("cat_trending", "Na czasie", PlayerIcon.TRENDING, listOf(YtKeyless.TRENDING),
+            Sub("pop", "Popularne", listOf("popularne dziś polska", "viral polska", "najpopularniejsze filmy tygodnia"), listOf(YtKeyless.TRENDING)),
+            Sub("music", "Muzyka", listOf("nowe teledyski 2026", "premiery muzyczne polska"), listOf(YtKeyless.MUSIC), tracks = true),
+            Sub("games", "Gry", listOf("gry nowości 2026", "gameplay po polsku"), listOf(YtKeyless.GAMING)),
+            Sub("movies", "Filmy i seriale", listOf("zwiastuny premiery 2026", "nowe seriale zwiastun"), listOf(YtKeyless.MOVIES)),
+            Sub("talk", "Rozmowy", listOf("podcast polski odcinek", "wywiad rozmowa"), listOf(YtKeyless.PODCASTS))),
+        cat("cat_music", "Muzyka", PlayerIcon.MUSIC, listOf(YtKeyless.MUSIC),
+            Sub("hot", "Na czasie", listOf("nowe teledyski 2026", "premiery muzyczne polska", "new music this week", "nowe piosenki"), listOf(YtKeyless.MUSIC), tracks = true),
+            Sub("top", "Popularne", listOf("najpopularniejsze piosenki polskie", "top hits teledysk", "popularne piosenki 2026", "viral hits teledysk"), tracks = true),
+            genreSub("pop", "Pop"), genreSub("rock", "Rock"), genreSub("hiphop", "Hip-hop i rap"), genreSub("electronic", "Elektronika"),
+            genreSub("discopolo", "Disco polo"), genreSub("jazz", "Jazz i blues"), genreSub("classical", "Klasyczna"), genreSub("chill", "Chill i lo-fi"),
+            genreSub("metal", "Metal"), genreSub("latin", "Latino"), genreSub("kpop", "K-pop"), genreSub("reggae", "Reggae"), genreSub("country", "Country i folk"),
+            Sub("mix", "Składanki", listOf("składanka hity 2026", "polskie hity mix godzina", "best music mix 2026", "nonstop mix", "składanka disco polo", "lofi 1 hour mix"), minSec = 10 * 60)),
+        cat("cat_sport", "Sport", PlayerIcon.SPORT, emptyList(),
+            Sub("foot", "Piłka nożna", listOf("skrót meczu ekstraklasa", "liga mistrzów skrót bramki", "reprezentacja polski piłka skrót", "bramki tygodnia piłka", "premier league skrót")),
+            Sub("bask", "Koszykówka", listOf("nba skrót najlepsze akcje", "koszykówka polska liga skrót", "koszykówka najlepsze akcje")),
+            Sub("volley", "Siatkówka", listOf("siatkówka skrót meczu plusliga", "reprezentacja polski siatkówka", "siatkówka najlepsze akcje")),
+            Sub("fight", "MMA i boks", listOf("mma gala skrót ksw", "boks skrót walki", "ufc najlepsze walki", "freak fight")),
+            Sub("tennis", "Tenis", listOf("tenis skrót meczu świątek", "tenis najlepsze akcje", "atp wta skrót")),
+            Sub("motor", "Motorsport", listOf("formuła 1 skrót wyścigu", "rajdy wrc skrót", "żużel skrót meczu", "motogp skrót")),
+            Sub("other", "Inne dyscypliny", listOf("skoki narciarskie skrót", "piłka ręczna skrót", "kolarstwo skrót etapu", "lekkoatletyka najlepsze momenty"))),
+        cat("cat_kids", "Dla dzieci", PlayerIcon.KIDS, emptyList(),
+            Sub("tales", "Bajki", listOf("bajki dla dzieci po polsku", "bajka na dobranoc", "bajki animowane polskie", "bajki edukacyjne")),
+            Sub("songs", "Piosenki", listOf("piosenki dla dzieci", "piosenki dla dzieci zabawy ruchowe", "piosenki dla dzieci po polsku")),
+            Sub("learn", "Nauka", listOf("nauka liter i cyfr dla dzieci", "eksperymenty dla dzieci", "edukacyjne dla dzieci po polsku")),
+            Sub("fun", "Zabawy i DIY", listOf("zabawy dla dzieci diy", "slime dla dzieci", "kreatywne zabawy dla dzieci")),
+            Sub("play", "Gry dla dzieci", listOf("minecraft dla dzieci po polsku", "roblox dla dzieci", "gry dla dzieci"))),
+        cat("cat_news", "Wiadomości", PlayerIcon.HEADLINES, emptyList(),
+            Sub("pl", "Polska", listOf("wiadomości polska dzisiaj", "tvn24 najnowsze wiadomości", "tvp info wiadomości", "polsat news wiadomości", "wydarzenia dzisiaj")),
+            Sub("world2", "Świat", listOf("wiadomości ze świata", "wiadomości zagranica dzisiaj", "serwis informacyjny świat")),
+            Sub("weather", "Pogoda", listOf("prognoza pogody", "pogoda na weekend", "pogoda na jutro")),
+            Sub("biz", "Biznes", listOf("wiadomości biznes gospodarka", "informacje ekonomiczne dziś")),
+            Sub("regional", "Regionalne", listOf("wiadomości lokalne", "informacje z regionu"))),
+        cat("cat_games", "Gry", PlayerIcon.GAMES, listOf(YtKeyless.GAMING),
+            Sub("mc", "Minecraft", listOf("minecraft po polsku", "minecraft poradnik", "minecraft survival odcinek")),
+            Sub("shoot", "Fortnite i strzelanki", listOf("fortnite po polsku", "counter strike 2 po polsku", "valorant po polsku")),
+            Sub("rpg", "GTA i RPG", listOf("gta 5 po polsku", "wiedźmin gameplay", "rpg gameplay po polsku")),
+            Sub("review", "Recenzje i poradniki", listOf("recenzja gry", "poradnik do gry", "nowości growe")),
+            Sub("esport", "E-sport", listOf("esport turniej skrót", "cs2 mecz najlepsze akcje", "lol esport")),
+            Sub("retro", "Indie i retro", listOf("gry indie polecane", "retro gry", "symulator gra po polsku"))),
     )
 
-    /** Rząd (jedna strona) siatki kategorii [c]; pusta lista = brak materiałów (stan pusty w ekranie). */
-    fun categoryRow(c: Category): STubeRow = STubeRow(c.id, c.title) { p ->
+    private val categoryCache = HashMap<String, Pair<Long, List<YtVideo>>>()
+    private const val CATEGORY_TTL = 5 * 60_000L
+    const val CATEGORY_MIN = 40
+
+    /** Rząd (jedna strona) siatki kategorii [c] i podkategorii [sub] (domyślnie „Wszystko”); pusta lista = brak materiałów (stan pusty w ekranie). */
+    fun categoryRow(c: Category, sub: Sub? = c.subs.firstOrNull()): STubeRow = STubeRow(c.id, c.title) { p ->
+        if (sub != null) return@STubeRow STubePage(subVideos(c, sub, p == null).map(STubeTile::Video))
         suspend fun searched(q: String) = STubePage(
             (try { YtKeyless.search(q) } catch (e: YtException) { if (YouTubeRepository.publicAvailable) YouTubeRepository.search(q) else throw e })
                 .filter { it.id.isNotBlank() }.map(STubeTile::Video))
@@ -218,9 +282,38 @@ object STubeScreen {
             c.id == "cat_trending" -> apiOr({ YouTubeRepository.cachedTrending(null, p).let { STubePage(it.videos.map(STubeTile::Video), it.nextPage) } }) { YtKeyless.kiosk(YtKeyless.TRENDING) }
             else -> apiOr({ YouTubeRepository.cachedTrending(c.apiCategory, p).let { STubePage(it.videos.map(STubeTile::Video), it.nextPage) } }) { YtKeyless.kiosk(c.kiosk!!) }
         }
-        // lista YouTube pusta albo niedostępna (np. kiosk bez wyników) – kategoria nie zostaje pusta: wyszukiwanie zapasowe
         if (page.tiles.isEmpty() && p == null && c.fallbackQuery != null) searched(c.fallbackQuery) else page
     }
+
+    /**
+     * Filmy podkategorii: listy YouTube i wyszukiwania równolegle (każde niezależnie – błąd jednego nie pusta całości), przeplatane,
+     * bez powtórzeń, filtr długości / utworów, rozrzedzone po kanałach (do 2 filmów z jednego, aż do [CATEGORY_MIN] sztuk).
+     * Wyniki w pamięci 5 min – powrót do kategorii pokazuje się od razu.
+     */
+    suspend fun subVideos(c: Category, sub: Sub, useCache: Boolean = true): List<YtVideo> {
+        val key = c.id + "/" + sub.id
+        if (useCache) synchronized(categoryCache) { categoryCache[key]?.takeIf { System.currentTimeMillis() - it.first < CATEGORY_TTL }?.let { return it.second } }
+        val lists = kotlinx.coroutines.coroutineScope {
+            val k = sub.kiosks.map { id -> async { runCatching { YtKeyless.kiosk(id) }.getOrDefault(emptyList()) } }
+            val q = sub.queries.map { qq -> async { runCatching {
+                try { YtKeyless.search(qq) } catch (e: YtException) { if (YouTubeRepository.publicAvailable) YouTubeRepository.search(qq) else throw e }
+            }.getOrDefault(emptyList()) } }
+            (k + q).map { it.await() }
+        }
+        val merged = pl.iptv.tv.data.StubeMixes.interleave(lists).filter { it.id.isNotBlank() }.distinctBy { it.id }.filter { v ->
+            val sec = pl.iptv.tv.data.StubeMixes.durationSec(v.duration)
+            when {
+                sub.minSec > 0 -> sec >= sub.minSec
+                sub.tracks -> v.duration != "P0D" && !pl.iptv.tv.data.StubeMixes.isNonTrack(v)
+                else -> true
+            }
+        }
+        val out = pl.iptv.tv.data.StubeMixes.diversify(merged, 2, CATEGORY_MIN)
+        if (out.isNotEmpty()) synchronized(categoryCache) { categoryCache[key] = System.currentTimeMillis() to out }
+        return out
+    }
+
+    fun clearCategoryCache() = synchronized(categoryCache) { categoryCache.clear() }
 
     /** Wiek filmu z daty publikacji ISO 8601 („3 godz. temu”, „2 dni temu”) – podpis kafelków subskrypcji; null przy braku daty. */
     fun ago(iso: String, now: Long = System.currentTimeMillis()): String? {
@@ -365,8 +458,7 @@ class STubeTileAdapter(private val row: STubeRow) : RecyclerView.Adapter<STubeTi
                 h.sub.text = when {
                     t.p.id.startsWith("local:") -> "Na tym urządzeniu"
                     count >= 0 && !t.p.id.startsWith(STubeScreen.PL_MIX) -> "Playlista • $count"
-                    t.p.id.startsWith(STubeScreen.PL_MIX) -> "${pl.iptv.tv.data.StubeMixes.MIN_PLAYLIST}+ utworów • " +
-                        (pl.iptv.tv.data.StubeMixes.byId(t.p.id.removePrefix(STubeScreen.PL_MIX))?.subtitle ?: "Gotowy miks")
+                    t.p.id.startsWith(STubeScreen.PL_MIX) -> pl.iptv.tv.data.StubeMixes.byId(t.p.id.removePrefix(STubeScreen.PL_MIX))?.subtitle ?: "Gotowy miks"
                     t.p.id == STubeScreen.PL_LIKED -> "Konto YouTube"
                     else -> "Playlista"
                 }

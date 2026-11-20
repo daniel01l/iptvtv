@@ -61,7 +61,7 @@ object Prefs {
     var hwAccel: Boolean get() = bool("hw_accel", true); set(v) = putBool("hw_accel", v)
     /** Przytrzymanie OK w odtwarzaczu: 0 = od razu menu odtwarzania (silnik, akceleracja), 1 = szybkie menu ikon z kafelkiem „Silnik i akceleracja” (domyślnie). */
     /** (7.5) domyślnie 0 – przytrzymanie OK od razu otwiera ustawienia silnika kanału (szybkie menu ikon – pozycja w tym menu). */
-    var okLongAction: Int get() = int("ok_long", 0); set(v) = putInt("ok_long", v)
+    var okLongAction: Int get() = int("ok_long2", 1); set(v) = putInt("ok_long2", v)
 
     /** Domyślne parametry trybu dla słabszych urządzeń. */
     fun resetLowPerfParams() = remove("low_max_h", "low_buf_min", "low_buf_max", "low_buf_mb", "low_epg_ahead", "low_desc", "low_epg_kbps", "low_zap_ms", "low_clean")

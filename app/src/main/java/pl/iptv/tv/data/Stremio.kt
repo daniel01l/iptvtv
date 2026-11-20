@@ -98,6 +98,8 @@ data class StremioAddon(
 data class StremioMetaPreview(
     val id: String, val type: String, val name: String, val poster: String = "", val description: String = "",
     val releaseInfo: String = "", val imdbRating: String = "", val genres: List<String> = emptyList(),
+    /** (7.12) Data premiery (RRRR-MM-DD), jeśli katalog ją podaje. */
+    val released: String = "",
 )
 
 /** Odcinek / wideo w metadanych. [id] np. „tt0903747:1:2”. */
@@ -483,12 +485,33 @@ object StremioApi {
         return withContext(Dispatchers.Default) { parseCatalog(c, o) }
     }
 
+    /**
+     * (7.12) „Obecnie w kinach”: filmy z katalogu „year” (Cinemeta) bieżącego roku (na początku roku także poprzedniego), z premierą
+     * w ostatnich [DAYS] dniach (do tygodnia w przód); kolejność popularności z katalogu. Brak dat – popularne z bieżącego roku.
+     * Katalog niedostępny w danej wtyczce – pusta lista (rząd się nie pokazuje).
+     */
+    const val IN_CINEMAS_DAYS = 100
+    suspend fun inCinemas(a: StremioAddon, today: java.time.LocalDate = java.time.LocalDate.now()): List<StremioMetaPreview> {
+        val cat = a.catalogs.firstOrNull { it.type == "movie" && it.id == "year" } ?: return emptyList()
+        val years = if (today.monthValue <= 3) listOf(today.year, today.year - 1) else listOf(today.year)
+        val all = kotlinx.coroutines.coroutineScope {
+            years.flatMap { y -> listOf(0, 100).map { skip -> async {
+                runCatching { val extra = "genre=$y" + if (skip > 0) "&skip=$skip" else ""
+                    withContext(Dispatchers.Default) { parseCatalog(cat, get("${a.base}/catalog/movie/year/$extra.json")) } }.getOrDefault(emptyList())
+            } } }.flatMap { it.await() }
+        }.distinctBy { it.id }
+        val from = today.minusDays(IN_CINEMAS_DAYS.toLong()); val to = today.plusDays(7)
+        val dated = all.filter { m -> runCatching { java.time.LocalDate.parse(m.released) }.getOrNull()?.let { !it.isBefore(from) && !it.isAfter(to) } == true }
+        if (dated.isNotEmpty()) return dated.take(30)
+        return if (all.none { it.released.isNotBlank() }) all.filter { it.releaseInfo.startsWith(today.year.toString()) }.take(20) else emptyList()
+    }
+
     private fun parseCatalog(c: StremioAddon.Catalog, o: JSONObject): List<StremioMetaPreview> {
         val arr = o.optJSONArray("metas") ?: return emptyList()
         return (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.map { m ->
             StremioMetaPreview(m.optString("id").ifBlank { m.optString("imdb_id") }, m.optString("type", c.type), m.optString("name"), m.optString("poster"),
                 m.optString("description"), m.optString("releaseInfo").ifBlank { m.optString("year") }, m.optString("imdbRating"),
-                m.optJSONArray("genres")?.let { g -> (0 until g.length()).map { g.optString(it) } }.orEmpty())
+                m.optJSONArray("genres")?.let { g -> (0 until g.length()).map { g.optString(it) } }.orEmpty(), m.optString("released").take(10))
         }.filter { it.id.isNotBlank() && it.name.isNotBlank() }
     }
 

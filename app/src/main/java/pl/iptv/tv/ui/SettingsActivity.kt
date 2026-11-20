@@ -916,7 +916,7 @@ class SettingsActivity : BaseActivity() {
         row("↺ Przywróć domyślne menu") { pl.iptv.tv.data.QuickMenu.reset(); build(keepFocus = true) }
 
         header("Szybkie menu ikon (przytrzymaj OK lub ekran)")
-        choice("Przytrzymanie OK / ekranu", listOf("Od razu menu silnika i akceleracji", "Szybkie menu ikon (z kafelkiem silnika)"), { Prefs.okLongAction.coerceIn(0, 1) }, look = false) { Prefs.okLongAction = it }
+        choice("Przytrzymanie OK / ekranu", listOf("Od razu menu silnika i akceleracji", "Szybkie menu ikon (z kafelkiem silnika) – domyślnie"), { Prefs.okLongAction.coerceIn(0, 1) }, look = false) { Prefs.okLongAction = it }
         toggle("Szybkie menu ikon w odtwarzaczu", { Prefs.miniMenuEnabled }) { Prefs.miniMenuEnabled = it }
         note("Ikony obok siebie na środku ekranu, podpis pod zaznaczoną; znika po 3 s. OK na pozycji: pokaż/ukryj i kolejność.")
         val mini = pl.iptv.tv.data.MiniMenu

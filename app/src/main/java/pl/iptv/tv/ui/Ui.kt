@@ -685,13 +685,16 @@ object Ui {
      * Powiększenie zaznaczonego elementu: najwyżej ok. 6 dp na stronę (szerokie wiersze rosną minimalnie,
      * małe kafelki do 3,5%), uniesione nad sąsiadów – nic nie wychodzi poza obramowanie paneli.
      */
+    private val focusInterpolator by lazy { android.view.animation.PathInterpolator(0.4f, 0f, 0.2f, 1f) }
+
     private fun zoomAnimator(v: View, w: Int, h: Int): StateListAnimator {
         val g = geo; val room = if (g.zoomMax > 0.04f) 26 else 12
         val sx = 1f + minOf(g.zoomMax, dp(room).toFloat() / maxOf(w, 1)); val sy = 1f + minOf(g.zoomMax, dp(room * 2 / 3).toFloat() / maxOf(h, 1))
         val s = minOf(sx, sy)
         fun a(sc: Float, z: Float) = ObjectAnimator.ofPropertyValuesHolder(v, PropertyValuesHolder.ofFloat(View.SCALE_X, sc),
-            PropertyValuesHolder.ofFloat(View.SCALE_Y, sc), PropertyValuesHolder.ofFloat(View.TRANSLATION_Z, z)).setDuration(g.zoomMs)
-            .apply { if (g.overshoot > 0f && sc > 1f) interpolator = android.view.animation.OvershootInterpolator(g.overshoot) }
+            PropertyValuesHolder.ofFloat(View.SCALE_Y, sc), PropertyValuesHolder.ofFloat(View.TRANSLATION_Z, z)).setDuration(g.zoomMs.coerceAtLeast(130))
+            // (7.12) miękka krzywa zamiast liniowej – start i koniec zaznaczenia bez „kanciastości” (wszystkie motywy)
+            .apply { interpolator = if (g.overshoot > 0f && sc > 1f) android.view.animation.OvershootInterpolator(g.overshoot) else focusInterpolator }
         // PS5: bez unoszenia – cień elewacji prześwitywał przez półprzezroczyste wypełnienie (ciemne obrzeże, jaśniejszy prostokąt w środku)
         val lift = if (surface == S_PS5) 0f else dp(4).toFloat()
         return StateListAnimator().apply {

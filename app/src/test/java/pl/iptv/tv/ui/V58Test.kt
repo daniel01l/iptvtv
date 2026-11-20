@@ -43,7 +43,7 @@ class V58Test {
         Playback.stop()
         Prefs.permissionsAsked = true; Prefs.setupDone = true; Prefs.startAction = 0; Prefs.playlistsJson = "[]"; Prefs.mainPreview = false
         Prefs.groupOrder = emptyList(); Prefs.groupHidden = emptyList(); Prefs.keyMapJson = ""; Prefs.orientation = 0; Prefs.mainLayout = 0
-        Prefs.remove("ok_long"); Prefs.miniMenuEnabled = true; MiniMenu.reset(); Prefs.miniApps = emptyList()
+        Prefs.remove("ok_long2"); Prefs.miniMenuEnabled = true; MiniMenu.reset(); Prefs.miniApps = emptyList()
         Prefs.playerEngine = 0; Prefs.hwAccel = true; Prefs.piconUrl = ""
         Ui.applyPreset("modern"); Ui.changed()
         val f = File(ctx.filesDir, "v58.m3u").apply { writeText((1..8).joinToString("", "#EXTM3U\n") { "#EXTINF:-1 tvg-id=\"c$it\" group-title=\"G${it % 2}\",Kanał $it HD\nhttp://v58/$it\n" }) }

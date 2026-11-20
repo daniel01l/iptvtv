@@ -1,6 +1,6 @@
 {
-  "versionCode": 71,
-  "versionName": "7.11",
+  "versionCode": 73,
+  "versionName": "7.13",
   "apk": "D-iptv-Player.apk",
-  "notes": "STube: 7 categories on the side bar (full video grid, focus on first video), live search suggestions, position kept after returning from the player. Stremio: stable cursor on the home screen, plugin errors hidden, back to the right episode from sources, Watched badge and rules (next-episode pop-up / 3 min), long OK menu, Watched row with season percent, 10 s seek and 1.5 min on the progress bar, episodes / other parts panel in the player. / STube: 7 kategorii na pasku bocznym (pelna siatka, kursor na pierwszym filmie), podpowiedzi na zywo, pozycja po powrocie z odtwarzacza. Stremio: stabilny kursor na ekranie glownym, brak komunikatow o bledach wtyczek, powrot na wlasciwy odcinek ze zrodel, znaczek Obejrzany i zasady (okienko Nastepny odcinek / 3 min), menu pod dlugim OK, rzad Obejrzane z procentem sezonu, przewijanie 10 s i 1,5 min na pasku, panel odcinkow / innych czesci w odtwarzaczu."
+  "notes": "Smoother focus on all themes and home screens (spring scale, soft easing), stable tile images (fixed decode size, no flicker, clipped to the tile). STube: live category previews, sub-category pills, more lyrics sources. Stremio: long-press marks season / title as watched, new 'In cinemas' row, smoother rows. / Plynniejszy fokus we wszystkich motywach i pulpitach (sprezyna, miekka krzywa), stabilne obrazy kafelkow (staly rozmiar, bez migotania, przyciete do kafelka). STube: podglad kategorii na zywo, pigulki podkategorii, wiecej zrodel tekstow. Stremio: przytrzymanie oznacza sezon / tytul jako obejrzany, nowy rzad Obecnie w kinach, plynniejsze rzedy."
 }

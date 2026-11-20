@@ -160,7 +160,7 @@ class AppLibraryActivity : BaseActivity() {
     private fun AppItem(e: Entry, req: FocusRequester?, compact: Boolean) {
         val c = LocalPs5.current
         var on by remember { mutableStateOf(false) }
-        val scale by animateFloatAsState(if (on) 1.1f else 1f, tween(110), label = "lib")
+        val scale by focusScale(on, 1.1f, "lib")
         val box = if (compact) 72.dp else 104.dp
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Box(Modifier.size(box)

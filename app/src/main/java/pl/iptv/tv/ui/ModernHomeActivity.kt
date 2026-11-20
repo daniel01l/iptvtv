@@ -579,7 +579,7 @@ class ModernHomeActivity : BaseActivity() {
     private fun Modifier.item(key: String, radius: Dp, scaleTo: Float, focused: MutableState<Boolean>, frame: Boolean = true,
                               onFocus: () -> Unit = {}, toRail: Boolean = false, onClick: () -> Unit, onLong: (() -> Unit)? = null): Modifier {
         val c = LocalModern.current
-        val scale by animateFloatAsState(if (focused.value) scaleTo else 1f, tween(170, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "ms")
+        val scale by focusScale(focused.value, scaleTo, "ms")
         AutoFocus(key)
         return this
             .focusRequester(requester(key))
@@ -683,8 +683,9 @@ class ModernHomeActivity : BaseActivity() {
                 else {
                     // dekodowanie w ok. połowie rozdzielczości ekranu – obraz jest pod wygaszeniem, a zmiana materiału nie obciąża słabszych TV
                     val w = (resources.displayMetrics.widthPixels * 0.42f).toInt().coerceAtLeast(1)
-                    val req = remember(url) { coil.request.ImageRequest.Builder(ctx).data(url).crossfade(false).size(w, (w * 9 / 16).coerceAtLeast(1)).build() }
-                    coil.compose.AsyncImage(req, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter,
+                    val req = remember(url) { coil.request.ImageRequest.Builder(ctx).data(url).crossfade(false).precision(coil.size.Precision.INEXACT)
+                        .memoryCacheKey("$url@hero").size(w, (w * 9 / 16).coerceAtLeast(1)).build() }
+                    coil.compose.AsyncImage(req, null, Modifier.fillMaxSize().clipToBounds(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter,
                         onError = { idx++ })
                 }
             }
@@ -843,7 +844,7 @@ class ModernHomeActivity : BaseActivity() {
 
     @Composable
     private fun Rail() {
-        val w by animateDpAsState(if (railOpen) dims.railOpen else dims.rail, tween(if (LocalModern.current.lowPerf) 0 else 170), label = "rail")
+        val w by animateDpAsState(if (railOpen) dims.railOpen else dims.rail, if (LocalModern.current.lowPerf) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(1f, 700f), label = "rail")
         val open = railOpen
         Column(Modifier.fillMaxHeight().width(w)
             .drawBehind {

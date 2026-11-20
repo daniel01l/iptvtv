@@ -151,7 +151,12 @@ class YtPlayerActivity : AppCompatActivity() {
     /** Kafelki półki (testy). */
     val shelfTiles: List<View> get() = if (::shelfRow.isInitialized) (0 until shelfRow.childCount).map(shelfRow::getChildAt) else emptyList()
     /** Bieżący film to muzyka (oznaczenia w tytule, kanał wykonawcy). */
-    val isMusic: Boolean get() = pl.iptv.tv.data.StubeMixes.isMusicVideo(titleView.text.toString(), current?.channel?.ifBlank { null } ?: video.channel)
+    val isMusic: Boolean get() {
+        val title = titleView.text.toString(); val ch = current?.channel?.ifBlank { null } ?: video.channel
+        // znaczniki muzyki w tytule / kanale albo „Wykonawca – Tytuł” krótkiego filmu (utwory z miksów często nie mają „official video”)
+        return pl.iptv.tv.data.StubeMixes.isMusicVideo(title, ch) ||
+            pl.iptv.tv.data.StubeMixes.isTrack(YtVideo(videoId, title, ch, duration = YtKeyless.isoDuration(current?.durationS ?: 0)))
+    }
 
     override fun onResume() { super.onResume(); StubeTheme.enter() }
     override fun onPause() { super.onPause(); StubeTheme.exit() }
@@ -235,6 +240,24 @@ class YtPlayerActivity : AppCompatActivity() {
             setOnClickListener { openShelf() }
         }
         root.addView(shelfHandle, FrameLayout.LayoutParams(-2, Ui.dp(30), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = Ui.dp(6) })
+        // przewijanie ◄► przy ukrytym pasku: tylko cienki pasek postępu z przesunięciem (pełne menu – po OK)
+        seekBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; visibility = View.GONE
+            setPadding(Ui.dp(40), Ui.dp(24), Ui.dp(40), Ui.dp(28))
+            background = GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, intArrayOf(0xCC000000.toInt(), 0x00000000))
+        }
+        seekBadge = TextView(this).apply {
+            setTextColor(Color.WHITE); textSize = 20f; setTypeface(typeface, android.graphics.Typeface.BOLD); setShadowLayer(6f, 0f, 2f, Color.BLACK)
+            setPadding(Ui.dp(16), Ui.dp(6), Ui.dp(16), Ui.dp(6))
+            background = GradientDrawable().apply { setColor(0xC0101010.toInt()); cornerRadius = Ui.dp(18).toFloat() }
+        }
+        seekProgress = android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 1000; progressTintList = android.content.res.ColorStateList.valueOf(Ui.accent or 0xFF000000.toInt())
+            progressBackgroundTintList = android.content.res.ColorStateList.valueOf(0x66FFFFFF)
+        }
+        seekBox.addView(seekBadge, LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = Ui.dp(10) })
+        seekBox.addView(seekProgress, LinearLayout.LayoutParams(-1, Ui.dp(6)))
+        root.addView(seekBox, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
         playerView.setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { v -> onControllerVisibility(v) })
         setContentView(root)
         // pasek postępu jak w YouTube: czerwony, ◄► na pasku przewija o 10 s
@@ -670,13 +693,15 @@ class YtPlayerActivity : AppCompatActivity() {
         }
         // widok muzyczny zasłania obraz – dekoder obrazu niepotrzebny (oszczędność); teledysk / zwykły widok włącza go z powrotem
         client?.let { if (stageBackground != want) { stageBackground = want; it.setBackground(want || YtEngine.audioOnly) } }
-        musicBtn.visibility = if (!want && !Prefs.ytMusicView && isMusic && !live && !isInPip) View.VISIBLE else View.GONE
+        // przełącznik widoku muzycznego zawsze pod ręką (nie tylko przy tytułach z oznaczeniami muzyki)
+        musicBtn.visibility = if (!want && !live && !isInPip) View.VISIBLE else View.GONE
         if (want && was && stage.findFocus() == null && panel?.isOpen != true && fallbackDialog?.isShowing != true) stage.focusDefault()
     }
 
     /** Przełącznik widoku: muzyka (okładka, kolejka, tekst) ↔ teledysk (zwykły odtwarzacz wideo z paskiem). */
     fun setMusicView(on: Boolean) {
         Prefs.ytMusicView = on
+        if (on) stageSticky = true
         updateStage()
         if (on) playerView.hideController() else playerView.showController()
     }
@@ -904,7 +929,7 @@ class YtPlayerActivity : AppCompatActivity() {
             if (groups(C.TRACK_TYPE_TEXT).isNotEmpty()) add("💬 Napisy" to { subtitlesMenu() })
             add("🎚 Dźwięk: " + YtEq.PRESETS.getOrElse(Prefs.ytEqPreset) { "Płaski" } to { eqPanel(); Unit })
             if (chapters.isNotEmpty()) add("☰ Rozdziały (${chapters.size})" to { chaptersMenu() })
-            if (isMusic && !live) add(if (Prefs.ytMusicView) "🎬 Teledysk (wideo)" to { setMusicView(false) } else "🎵 Widok muzyczny" to { setMusicView(true) })
+            if (!live) add(if (stageShown) "🎬 Teledysk (wideo)" to { setMusicView(false) } else "🎵 Widok muzyczny" to { setMusicView(true) })
             add("📋 Propozycje i kolejka" to { openPanel(TAB_RELATED) })
             add("🔁 " + autoplayLabel() to { toggleAutoplay() })
             if (pipSupported) add("⧉ Obraz w obrazie (PiP)" to { enterPip(); Unit })
@@ -1146,8 +1171,8 @@ class YtPlayerActivity : AppCompatActivity() {
         if (event.action == KeyEvent.ACTION_DOWN && p != null && hidden) {
             when (event.keyCode) {
                 // pasek ukryty: ◄► przewija o 10 s (jak w aplikacjach YouTube na TV)
-                KeyEvent.KEYCODE_DPAD_LEFT -> { p.seekTo((p.currentPosition - SEEK_STEP_MS).coerceAtLeast(0)); playerView.showController(); return true }
-                KeyEvent.KEYCODE_DPAD_RIGHT -> { if (!p.isCurrentMediaItemLive) p.seekTo(p.currentPosition + SEEK_STEP_MS); playerView.showController(); return true }
+                KeyEvent.KEYCODE_DPAD_LEFT -> { seekHidden(p, -1, event.repeatCount); return true }
+                KeyEvent.KEYCODE_DPAD_RIGHT -> { if (!p.isCurrentMediaItemLive) seekHidden(p, 1, event.repeatCount); return true }
                 // ▲▼ przy ukrytym pasku: poprzedni / następny rozdział (bez rozdziałów – pokazanie paska)
                 KeyEvent.KEYCODE_DPAD_UP -> if (chapters.isNotEmpty()) { jumpChapter(next = false); return true }
                 KeyEvent.KEYCODE_DPAD_DOWN -> if (chapters.isNotEmpty()) { if (!jumpChapter(next = true)) playerView.showController(); return true }
@@ -1209,6 +1234,29 @@ class YtPlayerActivity : AppCompatActivity() {
 
     /** OK wciśnięte przy ukrytym pasku – pokazanie paska po puszczeniu. */
     private var showControllerOk = false
+
+    private lateinit var seekBox: LinearLayout
+    private lateinit var seekBadge: TextView
+    private lateinit var seekProgress: android.widget.ProgressBar
+    private var seekAccum = 0L
+    private val hideSeek = Runnable { seekAccum = 0; if (::seekBox.isInitialized) seekBox.visibility = View.GONE }
+    /** Widoczny pasek przewijania ◄► (testy). */
+    val seekBarShown get() = ::seekBox.isInitialized && seekBox.visibility == View.VISIBLE
+
+    /** ◄► przy ukrytym pasku: przewinięcie ([SEEK_STEP_MS], przy przytrzymaniu większe) i cienki pasek z przesunięciem – bez pełnego menu. */
+    private fun seekHidden(p: Player, dir: Int, repeat: Int) {
+        val step = if (repeat >= 6) SEEK_STEP_MS * 6 else if (repeat >= 2) SEEK_STEP_MS * 3 else SEEK_STEP_MS
+        val dur = p.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
+        val target = (p.currentPosition + dir * step).coerceIn(0, dur)
+        seekAccum += target - p.currentPosition
+        p.seekTo(target)
+        fun fmt(ms: Long) = (ms / 1000).let { s -> if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s % 3600 / 60, s % 60) else "%d:%02d".format(s / 60, s % 60) }
+        val sign = if (seekAccum >= 0) "+" else "−"
+        seekBadge.text = "$sign${Math.abs(seekAccum) / 1000} s   ${fmt(target)}" + if (p.duration > 0) " / ${fmt(p.duration)}" else ""
+        seekProgress.progress = if (p.duration > 0) (target * 1000 / p.duration).toInt() else 0
+        seekBox.visibility = View.VISIBLE
+        handler.removeCallbacks(hideSeek); handler.postDelayed(hideSeek, 1500)
+    }
 
     override fun onDestroy() {
         super.onDestroy(); handler.removeCallbacksAndMessages(null)

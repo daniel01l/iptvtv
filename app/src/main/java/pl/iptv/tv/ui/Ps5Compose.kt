@@ -9,6 +9,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -102,12 +103,16 @@ fun TileImage(url: String, fallback: String, modifier: Modifier, contentScale: a
               fallbackStyle: TextStyle, sizePx: Int = 0) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var failed by androidx.compose.runtime.remember(url) { androidx.compose.runtime.mutableStateOf(url.isBlank()) }
-    androidx.compose.foundation.layout.Box(modifier, contentAlignment = androidx.compose.ui.Alignment.Center) {
+    // (7.12) tekstura nigdy nie wychodzi poza kafelek (clip w warstwie – także przy skali fokusu i przejściach)
+    androidx.compose.foundation.layout.Box(modifier.clip(androidx.compose.ui.graphics.RectangleShape), contentAlignment = androidx.compose.ui.Alignment.Center) {
         if (failed) androidx.compose.foundation.text.BasicText(fallback, style = fallbackStyle, maxLines = 2,
             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         else {
             val req = androidx.compose.runtime.remember(url, sizePx) {
-                coil.request.ImageRequest.Builder(ctx).data(url).crossfade(false).apply { if (sizePx > 0) size(sizePx) }.build()
+                coil.request.ImageRequest.Builder(ctx).data(url).crossfade(false)
+                    // (7.12) stały rozmiar docelowy + stały klucz w pamięci: bez ponownego dekodowania i migotania przy animacjach
+                    .precision(coil.size.Precision.INEXACT).memoryCacheKey("$url@$sizePx")
+                    .apply { if (sizePx > 0) size(sizePx) }.build()
             }
             coil.compose.AsyncImage(req, null, androidx.compose.ui.Modifier.matchParentSize(), contentScale = contentScale, onError = { failed = true })
         }
@@ -150,6 +155,17 @@ class Ps5Option(val label: String, val sub: String = "", val switch: Boolean? = 
 
 /** (7.3) Sztywność sprężyny przewijania list na pulpitach (ok. 250–300 ms do zatrzymania, bez odbicia). */
 const val SCROLL_STIFFNESS = 450f
+
+/**
+ * (7.12) Wspólna sprężyna fokusu (skala, obwódka) na wszystkich pulpitach: przejmuje prędkość przerwanej animacji, więc przy
+ * szybkim wciskaniu strzałek kursor płynie od elementu do elementu zamiast zaczynać każdą animację od zera (tween).
+ */
+fun <T> focusSpring() = androidx.compose.animation.core.spring<T>(dampingRatio = 0.86f, stiffness = 650f)
+
+/** Animowana skala elementu z fokusem (odczyt tylko w warstwie rysowania, np. `graphicsLayer { scaleX = scale }`). */
+@Composable
+fun focusScale(focused: Boolean, to: Float, label: String = "fs"): androidx.compose.runtime.State<Float> =
+    androidx.compose.animation.core.animateFloatAsState(if (focused) to else 1f, focusSpring(), label = label)
 
 /**
  * (7.6) Wejście pulpitu (X25, PS5): treść przenika z lekkim uniesieniem (260 ms) – tylko w warstwie rysowania, bez ponownego

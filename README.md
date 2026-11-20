@@ -103,7 +103,11 @@
 
 Kanał trafia do „ostatnio oglądanych” po co najmniej 1 minucie odtwarzania.
 
-**v7.11** (20.11.2026):
+**v7.13** (20.11.2026) – zawiera 7.12:
+- **Płynność i tekstury (wszystkie motywy i pulpity)**: skala zaznaczenia sprężyną (przejmuje prędkość przy szybkim klikaniu), miękka krzywa zaznaczenia na widokach (min. 130 ms), obrazy kafelków i hero w stałym rozmiarze z stałym kluczem pamięci (bez ponownego dekodowania i migotania) i przycięte do kafelka.
+
+- **Stremio 7.13**: przytrzymanie sezonu w oknie odcinków i przytrzymanie plakatu (film / serial) oznacza całość jako obejrzaną (albo odznacza); nowy rząd „Obecnie w kinach” (świeże premiery z katalogu rocznego Cinemeta); katalogi AIOStreams / ElfHosted / Store RD / Store PM nie są pokazywane na tablicy; rysowane ikony zamiast emoji w nagłówku i rzędach, płynniejsze przewijanie rzędów.
+- **STube 7.12**: kategorie pokazują się na żywo po najechaniu ikoną (OK lub ► → pierwszy film); nad siatką pigułki podkategorii (Muzyka: Na czasie, Popularne, gatunki, Składanki 10 min+; Sport: dyscypliny; Gry, Dla dzieci, Wiadomości, Aktualności – własne podziały), wyniki z wielu zapytań rozrzedzone po kanałach, „Na czasie” działa także bez listy YouTube. Odtwarzacz: ◄► przy ukrytym pasku = przewijanie z cienkim paskiem postępu (OK – pełne menu), przełącznik widoku muzycznego zawsze dostępny. Twoje miksy ruszają od pierwszej partii utworów, bez napisu „100+”. Teksty piosenek: dodatkowe źródła (warianty wykonawca/tytuł, NetEase, wyszukiwarka lyrics.ovh).
 - **STube – kategorie na pasku bocznym**: Aktualności, Na czasie, Muzyka, Sport, Dla dzieci, Wiadomości, Gry (własne ikony i zestawy filmów; Aktualności = komentarze i analizy, Wiadomości = serwisy informacyjne). OK / dotknięcie od razu otwiera pełną siatkę, kursor na pierwszym filmie, WSTECZ wraca; szybka zmiana kategorii anuluje poprzednie ładowanie; stan ładowania / pusty / błąd z „Ponów”.
 - **STube – wyszukiwanie**: podpowiedzi na żywo (z krótką zwłoką, w tle) obok historii, lista pod polem; po powrocie z odtwarzacza zostaje rząd i kafelek; skrót „Teraz odtwarzane” (ikona na pasku, klawisz INFO, dotknięcie paska); teksty piosenek z kilku źródeł i pamięcią w Room.
 - **Stremio – stabilny kursor** na ekranie głównym (▲▼ pomijają rzędy jeszcze się wczytujące, ta sama kolumna, blokada krawędzi); wtyczki, które zawiodą, są pomijane po cichu (bez komunikatów o błędach).
