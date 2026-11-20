@@ -122,7 +122,7 @@ object StubeImportUi {
             job?.cancel(); job = null
             if (current === d) current = null
             StubeImport.onPending = null
-            if (!serverWasOn && !pl.iptv.tv.data.Prefs.remoteOn && !pl.iptv.tv.data.Prefs.stubeRemote) RemoteServer.stop()   // czyszczenie: serwer tylko na czas okna
+            if (!serverWasOn && !RemoteServer.wanted) RemoteServer.stop()   // czyszczenie: serwer tylko na czas okna
         }
         d.show(); current = d
         btn(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {

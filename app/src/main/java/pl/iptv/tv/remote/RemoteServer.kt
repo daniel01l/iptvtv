@@ -82,8 +82,22 @@ object RemoteServer {
         nsd?.let { l -> runCatching { (app.getSystemService(Context.NSD_SERVICE) as NsdManager).unregisterService(l) } }; nsd = null
     }
 
+    /** Ponowna rejestracja usługi NSD (zmiana atrybutów, np. włączenie odbioru linków). */
+    @Synchronized fun refreshService() {
+        if (!running) return
+        nsd?.let { l -> runCatching { (app.getSystemService(Context.NSD_SERVICE) as NsdManager).unregisterService(l) } }; nsd = null
+        register()
+    }
+
     private fun register() {
-        val info = NsdServiceInfo().apply { serviceName = "IptvTv-$deviceName"; serviceType = SERVICE_TYPE; port = PORT }
+        // atrybuty TXT: telefon widzi z listy usług nazwę, wersję protokołu i to, że odbiór linków jest włączony (PIN nie jest publikowany)
+        val info = NsdServiceInfo().apply {
+            serviceName = "IptvTv-$deviceName"; serviceType = SERVICE_TYPE; port = PORT
+            runCatching {
+                setAttribute("v", "2"); setAttribute("name", deviceName.take(60))
+                setAttribute("cast", if (Prefs.castReceiver) "1" else "0"); setAttribute("api", "/api/cast"); setAttribute("pin", "1")
+            }
+        }
         val l = object : NsdManager.RegistrationListener {
             override fun onServiceRegistered(i: NsdServiceInfo) {}
             override fun onRegistrationFailed(i: NsdServiceInfo, e: Int) {}
@@ -133,7 +147,12 @@ object RemoteServer {
         StubeRemote.handle(r.method, r.path, r.headers, r.body)?.let { (code, type, body) -> return respond(sock, code, type, body) }
         when {
             r.method == "GET" && r.path.startsWith("/api/info") ->
-                respond(sock, 200, "application/json", JSONObject().put("name", deviceName).put("app", "IptvTv").toString())
+                respond(sock, 200, "application/json", JSONObject().put("name", deviceName).put("app", "IptvTv").put("cast", Prefs.castReceiver).toString())
+            // (7.15) „wyślij na telewizor”: link (playlista YouTube / Spotify, film YouTube) → kolejka i odtwarzanie ([CastReceiver])
+            r.method == "POST" && r.path.startsWith("/api/cast") -> {
+                val res = receiveCast(r.headers["x-pin"].orEmpty(), dec(r.headers["x-url"]).ifBlank { String(r.body, Charsets.UTF_8) })
+                respond(sock, if (res.first) 200 else 403, "application/json", JSONObject().put("ok", res.first).put("message", res.second).toString())
+            }
             r.method == "GET" -> respond(sock, 200, "text/html", page())
             r.method == "POST" && r.path.startsWith("/api/playlist") -> {
                 val h = r.headers
@@ -199,6 +218,16 @@ object RemoteServer {
         main.post { pl.iptv.tv.ui.I18n.makeToast(app, "🎵 Otrzymano playlistę dla STube – otwórz STube i wybierz ＋", Toast.LENGTH_LONG).show() }
         return true to "Playlista przekazana do STube na urządzeniu $deviceName"
     }
+
+    /** (7.15) Link z telefonu do odtworzenia (PIN jak przy listach); (przyjęto, komunikat). */
+    fun receiveCast(pin: String, text: String): Pair<Boolean, String> {
+        if (!Prefs.castReceiver) return false to "Odbiór linków do odtwarzania jest wyłączony na tym urządzeniu"
+        if (pin != Prefs.remotePin) return false to "Błędny kod PIN"
+        return CastReceiver.handle(app, text)
+    }
+
+    /** Serwer ma działać: odbiór list, sterowanie STube albo odbiór linków do odtwarzania. */
+    val wanted: Boolean get() = Prefs.remoteOn || Prefs.stubeRemote || Prefs.castReceiver
 
     /** Zapisuje odebraną listę; zwraca (sukces, komunikat). */
     fun receive(pin: String, name: String, url: String, bytes: ByteArray, epg: String, expiry: String, activate: Boolean): Pair<Boolean, String> {

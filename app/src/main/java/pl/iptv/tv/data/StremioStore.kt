@@ -47,6 +47,8 @@ data class StremioProgress(
 ) {
     val fraction: Float get() = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
     val finished: Boolean get() = durationMs > 0 && positionMs >= durationMs * 0.92
+    /** (7.15) Odcinek doszedł do progu „Następny odcinek” – zapisany znacznik albo ≥ [StremioResume.NEXT_FRACTION] (np. wpis z innego urządzenia). */
+    val pastNextThreshold: Boolean get() = nextShown || finished || (durationMs > 0 && positionMs >= durationMs * StremioResume.NEXT_FRACTION)
 }
 
 
@@ -93,8 +95,26 @@ interface StremioDao {
 object StremioResume {
     data class Target(val videoId: String, val label: String, val next: Boolean)
 
+    /** (7.15) Próg procentowy okienka „Następny odcinek” (zamiast stałych minut przed końcem). */
+    const val NEXT_FRACTION = 0.85
+
+    private val CREDITS = Regex("(?i)\\b(credits?|end credits|ending|outro|napisy( końcowe)?|zako[ńn]czenie)\\b")
+
+    /** (7.15) Czy tytuł rozdziału oznacza początek napisów końcowych. */
+    fun isCreditsTitle(title: String): Boolean = title.isNotBlank() && CREDITS.containsMatchIn(title)
+
+    /**
+     * (7.15) Czy pokazać „Następny odcinek”: znacznik napisów końcowych ([creditsStartMs] z rozdziałów, ma pierwszeństwo) albo
+     * ≥ [NEXT_FRACTION] długości. Nieznana długość / koniec materiału – nie.
+     */
+    fun nextDue(durationMs: Long, positionMs: Long, creditsStartMs: Long = -1): Boolean {
+        if (durationMs <= 0 || positionMs >= durationMs) return false
+        if (creditsStartMs in 1 until durationMs) return positionMs >= creditsStartMs
+        return positionMs >= durationMs * NEXT_FRACTION
+    }
+
     fun target(p: StremioProgress, meta: StremioMeta?): Target {
-        if (p.type == "series" && (p.nextShown || p.finished)) meta?.next(p.videoId)?.let { return Target(it.id, it.label, true) }
+        if (p.type == "series" && p.pastNextThreshold) meta?.next(p.videoId)?.let { return Target(it.id, it.label, true) }
         return Target(p.videoId.ifBlank { p.metaId }, p.videoLabel, false)
     }
 }

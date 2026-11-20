@@ -143,12 +143,21 @@ class V75Test {
         assertNull(PlaybackEngines.fallbackFor(PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS, true, engines))
     }
 
-    @Test fun nextEpisodeOnlyInLastFourMinutes() {
+    @Test fun nextEpisodeFromEightyFivePercent() {
         val d = 45 * 60_000L
         assertFalse(StremioPlayerActivity.nextDue(d, 10 * 60_000L))
-        assertFalse(StremioPlayerActivity.nextDue(d, d - 5 * 60_000L))
-        assertTrue(StremioPlayerActivity.nextDue(d, d - 240_000L))
+        assertFalse(StremioPlayerActivity.nextDue(d, (d * 0.84).toLong()))
+        assertTrue(StremioPlayerActivity.nextDue(d, (d * 0.85).toLong()))
         assertTrue(StremioPlayerActivity.nextDue(d, d - 30_000L))
+        // znacznik napisów końcowych ma pierwszeństwo przed progiem
+        assertTrue(StremioPlayerActivity.nextDue(d, 30 * 60_000L, creditsStartMs = 30 * 60_000L))
+        assertFalse(StremioPlayerActivity.nextDue(d, 30 * 60_000L - 1, creditsStartMs = 30 * 60_000L))
+        assertTrue(pl.iptv.tv.data.StremioResume.isCreditsTitle("End Credits"))
+        assertTrue(pl.iptv.tv.data.StremioResume.isCreditsTitle("Napisy końcowe"))
+        assertFalse(pl.iptv.tv.data.StremioResume.isCreditsTitle("Chapter 3"))
+        val late = pl.iptv.tv.data.StremioProgress("tt", "series", "S", videoId = "tt:1:1", positionMs = (d * 0.86).toLong(), durationMs = d)
+        assertTrue("wpis z innego urządzenia bez znacznika też przechodzi dalej", late.pastNextThreshold)
+        assertFalse(pl.iptv.tv.data.StremioProgress("tt", "series", "S", videoId = "tt:1:1", positionMs = d / 2, durationMs = d).pastNextThreshold)
         assertFalse("koniec", StremioPlayerActivity.nextDue(d, d))
         assertFalse("nieznana długość", StremioPlayerActivity.nextDue(androidx.media3.common.C.TIME_UNSET, 0))
         assertFalse(StremioPlayerActivity.nextDue(0, 0))

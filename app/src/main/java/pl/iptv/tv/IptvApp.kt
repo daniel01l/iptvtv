@@ -96,7 +96,7 @@ class IptvApp : Application(), coil.ImageLoaderFactory {
         }
         pl.iptv.tv.ui.X25Theme.refreshLauncher(this)
         ReminderScheduler.schedule(this)
-        if (pl.iptv.tv.data.Prefs.remoteOn || pl.iptv.tv.data.Prefs.stubeRemote) pl.iptv.tv.remote.RemoteServer.start(this)
+        if (pl.iptv.tv.remote.RemoteServer.wanted) pl.iptv.tv.remote.RemoteServer.start(this)
         if (pl.iptv.tv.data.Prefs.relayOn) pl.iptv.tv.remote.RemoteRelay.start(this)
         if (pl.iptv.tv.BuildConfig.SECURE) pl.iptv.tv.data.Prefs.adminCode = ""          // bez raportów do administratora
         pl.iptv.tv.update.Updater.autoCheck(this)

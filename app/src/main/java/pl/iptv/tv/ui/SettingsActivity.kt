@@ -472,8 +472,14 @@ class SettingsActivity : BaseActivity() {
         header("Odbieranie list z telefonu lub komputera")
         toggle("Odbieraj listy z innych urządzeń", { Prefs.remoteOn }) { on ->
             Prefs.remoteOn = on
-            if (on) pl.iptv.tv.remote.RemoteServer.start(this) else pl.iptv.tv.remote.RemoteServer.stop()
+            if (on) pl.iptv.tv.remote.RemoteServer.start(this) else if (!pl.iptv.tv.remote.RemoteServer.wanted) pl.iptv.tv.remote.RemoteServer.stop()
         }
+        toggle("Odbieraj linki do odtwarzania (wyślij na telewizor)", { Prefs.castReceiver }) { on ->
+            Prefs.castReceiver = on
+            if (on) { pl.iptv.tv.remote.RemoteServer.start(this); pl.iptv.tv.remote.RemoteServer.refreshService() }
+            else if (!pl.iptv.tv.remote.RemoteServer.wanted) pl.iptv.tv.remote.RemoteServer.stop() else pl.iptv.tv.remote.RemoteServer.refreshService()
+        }
+        if (Prefs.castReceiver) note("Telewizor jest widoczny w sieci Wi-Fi (usługa ${pl.iptv.tv.remote.RemoteServer.SERVICE_TYPE}). Telefon wysyła link do playlisty YouTube / Spotify lub filmu YouTube na /api/cast z kodem PIN: ${pl.iptv.tv.remote.RemoteServer.ensurePin()} – odtwarzanie rusza jako aktywna kolejka.")
         if (Prefs.remoteOn) {
             if (!pl.iptv.tv.remote.RemoteServer.running) pl.iptv.tv.remote.RemoteServer.start(this)
             val ips = pl.iptv.tv.remote.RemoteServer.localIps()

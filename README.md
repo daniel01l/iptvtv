@@ -103,6 +103,10 @@
 
 Kanał trafia do „ostatnio oglądanych” po co najmniej 1 minucie odtwarzania.
 
+**v7.15** (20.11.2026):
+- **Stremio – „Następny odcinek”**: okienko pojawia się od 85% długości odcinka (zamiast ostatnich 4 minut) albo od rozdziału napisów końcowych, gdy źródło go podaje; osiągnięcie progu zapisuje się w historii (Room), więc „Wznów” i „Oglądaj dalej” trafiają we właściwy odcinek – także dla wpisów z innych urządzeń.
+- **Wyślij na telewizor**: telewizor jest widoczny w sieci (NSD, `_iptvtv._tcp.`), a telefon wysyła link żądaniem `POST /api/cast` z PIN-em – playlista YouTube / Spotify, film YouTube albo lista „Wykonawca – Tytuł”. Playlista jest pobierana w tle, zapisywana w Room i startuje jako aktywna kolejka; gdy aplikacja jest w tle, link czeka w oknie „＋” w STube. Włączane w Ustawieniach („Odbieraj linki do odtwarzania”).
+
 **v7.14** (20.11.2026):
 - **STube – gust słuchacza**: pominięcie utworu przed połową (albo ► na pozycji listy „Następne w kolejce”) dopasowuje kolejkę w tle – utwory tego samego wykonawcy znikają, o podobnym gatunku / klimacie co drugi, reszta zostaje; propozycje oceniane wg historii (gatunki, wykonawcy) i odrzuceń, bez „propozycji od czapy”. Z ikon nawigacji widoku muzycznego fokus wraca na kafelek „Tekst”.
 - **STube – ＋ Dodaj playlistę**: link do playlisty YouTube / Spotify (albo lista „Wykonawca – Tytuł”) wklejony w oknie lub wysłany z telefonu tym samym kanałem co lista M3U (strona wysyłania + PIN); podgląd dopasowań, start jako aktywna kolejka i zapis na stałe w Bibliotece; przesłane utwory wzmacniają „Twoje miksy” (miks „Z Twoich playlist”).

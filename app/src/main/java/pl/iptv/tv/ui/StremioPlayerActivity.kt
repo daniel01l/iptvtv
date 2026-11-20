@@ -72,14 +72,10 @@ class StremioPlayerActivity : AppCompatActivity() {
             AspectRatioFrameLayout.RESIZE_MODE_ZOOM to "Powiększ (przytnij krawędzie)", AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH to "Dopasuj do szerokości")
         /** Krok opóźnienia napisów. */
         const val DELAY_STEP = 250
-        /** (7.5) Okno przed końcem odcinka, w którym pojawia się „Następny odcinek”. */
-        const val NEXT_EPISODE_WINDOW_MS = 240_000L
-
-        /** Znana długość, pozycja przed końcem i do końca ≤ [NEXT_EPISODE_WINDOW_MS]. */
-        fun nextDue(durationMs: Long, positionMs: Long): Boolean {
-            if (durationMs <= 0 || durationMs == C.TIME_UNSET) return false
-            val left = durationMs - positionMs
-            return left in 1..NEXT_EPISODE_WINDOW_MS
+        /** (7.15) Próg procentowy (było: 4 min przed końcem) albo początek napisów końcowych z rozdziałów – [StremioResume.nextDue]. */
+        fun nextDue(durationMs: Long, positionMs: Long, creditsStartMs: Long = -1): Boolean {
+            if (durationMs == C.TIME_UNSET) return false
+            return StremioResume.nextDue(durationMs, positionMs, creditsStartMs)
         }
 
         /** (7.8) Limit czasu wczytywania źródeł przy wznawianiu / „Oglądaj dalej”. */
@@ -482,13 +478,14 @@ class StremioPlayerActivity : AppCompatActivity() {
                 val pos = p.currentPosition
                 handler.post { if (player === p) onError(error, pos) }
             }
+            override fun onMetadata(metadata: androidx.media3.common.Metadata) = onChapterMetadata(metadata)
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) { if (checkVideo(tracks)) return; warnUnsupportedAudio(tracks); autoLanguage(p, tracks) }
         })
         if (atMs > 0) p.seekTo(atMs)
         p.prepare(); p.playWhenReady = true
         lifecycleScope.launch {
             val saved = StremioStore.progressOf(metaId)?.takeIf { it.videoId == videoId }
-            if (saved?.nextShown == true) nextReached = true          // (7.8) okienko dla tego odcinka już się pojawiło (trwale w Room)
+            if (saved?.pastNextThreshold == true) nextReached = true         // (7.8) okienko dla tego odcinka już się pojawiło (trwale w Room)
             if (resume && atMs < 0) saved?.takeIf { it.positionMs > 10_000 && !it.finished }?.let {
                 resumeMs = it.positionMs; p.seekTo(it.positionMs)
                 I18n.makeToast(this@StremioPlayerActivity, "Wznowiono od ${StremioUi.fmt(it.positionMs)}", Toast.LENGTH_SHORT).show()
@@ -803,7 +800,19 @@ class StremioPlayerActivity : AppCompatActivity() {
     /** (7.5) „Następny odcinek” dopiero pod koniec: znana długość, kolejny odcinek i ≤ [NEXT_EPISODE_WINDOW_MS] do końca. */
     val nextEpisodeDue: Boolean get() {
         val p = player ?: return false
-        return nextVideo != null && nextDue(p.duration, p.currentPosition)
+        return nextVideo != null && nextDue(p.duration, p.currentPosition, creditsStartMs)
+    }
+
+    /** (7.15) Początek napisów końcowych z rozdziałów / metadanych (−1 – nieznany → próg procentowy). Zerowany z nowym odcinkiem. */
+    var creditsStartMs = -1L; private set
+
+    /** Rozdział o tytule napisów końcowych (ID3 CHAP i podobne metadane) ustawia [creditsStartMs]; uruchamiane na wątku odtwarzacza. */
+    internal fun onChapterMetadata(m: androidx.media3.common.Metadata) {
+        for (i in 0 until m.length()) {
+            val e = m[i] as? androidx.media3.extractor.metadata.id3.ChapterFrame ?: continue
+            val title = e.chapterId + " " + (0 until e.subFrameCount).joinToString(" ") { e.getSubFrame(it).toString() }
+            if (StremioResume.isCreditsTitle(title) && e.startTimeMs > 0) creditsStartMs = e.startTimeMs.toLong()
+        }
     }
 
     private fun updateNextButtonVisibility() {
@@ -866,7 +875,7 @@ class StremioPlayerActivity : AppCompatActivity() {
                 finish(); return@launch
             }
             stream = pick; videoId = n.id; label = n.label; nextCard.visibility = View.GONE
-            nextReached = false; nextDismissed = false      // nowy odcinek – próg okienka liczony od nowa
+            nextReached = false; nextDismissed = false; creditsStartMs = -1      // nowy odcinek – próg okienka liczony od nowa
             playedMs = 0; watchedMarked = false; sidePanel?.close()
             decoderStage = StremioDecoders.Stage.NORMAL; failure = null; forceVideo = false   // nowe źródło – znowu od dekoderów sprzętowych
             intent.putExtra(EXTRA_STREAM, pick.toJson().toString()).putExtra(EXTRA_VIDEO, n.id).putExtra(EXTRA_LABEL, n.label)

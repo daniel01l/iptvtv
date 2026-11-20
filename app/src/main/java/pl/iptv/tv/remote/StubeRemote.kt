@@ -49,7 +49,7 @@ object StubeRemote {
     /** Włączenie sterowania: serwer HTTP działa, dopóki sterowanie jest włączone. */
     fun setEnabled(c: Context, on: Boolean) {
         Prefs.stubeRemote = on
-        if (on) { ensurePin(); RemoteServer.start(c) } else if (!Prefs.remoteOn) RemoteServer.stop()
+        if (on) { ensurePin(); RemoteServer.start(c) } else if (!Prefs.remoteOn && !Prefs.castReceiver) RemoteServer.stop()
     }
 
     /** Sprawdzenie kodu z blokadą po serii błędów. Null – poprawny, inaczej komunikat. */

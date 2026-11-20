@@ -1,6 +1,6 @@
 {
-  "versionCode": 74,
-  "versionName": "7.14",
+  "versionCode": 75,
+  "versionName": "7.15",
   "apk": "D-iptv-Player.apk",
-  "notes": "STube: skips and removals (right arrow) tune the up-next queue to your taste, better matched suggestions, + button to add a YouTube / Spotify playlist (paste or send from phone), saved in the library and used for your mixes. Modern theme: no layout jumping when changing category, full 'TV guide' label. / STube: pominiecia i usuwanie (strzalka w prawo) dopasowuja kolejke do gustu, trafniejsze propozycje, przycisk + do dodawania playlist YouTube / Spotify (wklejenie lub wyslanie z telefonu), zapis w bibliotece i wplyw na miksy. Motyw Nowoczesny: bez skakania ukladu przy zmianie kategorii, pelny napis Program TV."
+  "notes": "Stremio: the Next episode card now appears from 85% of the episode (or at the end-credits chapter when available) and is saved in history, so Resume / Continue watching pick the right episode. Send to TV: the TV is discoverable on the local network and receives YouTube / Spotify playlist links or YouTube videos from a phone (PIN required) - saved in the library and started as the active queue. Enable in Settings. / Stremio: okienko Nastepny odcinek pojawia sie od 85% odcinka (lub od rozdzialu napisow koncowych) i zapisuje sie w historii, wiec Wznow i Ogladaj dalej trafiaja we wlasciwy odcinek. Wyslij na telewizor: telewizor jest widoczny w sieci i odbiera z telefonu (PIN) linki do playlist YouTube / Spotify lub filmow YouTube - zapis w bibliotece i start jako aktywna kolejka. Wlaczane w Ustawieniach."
 }
