@@ -283,14 +283,40 @@ class StremioActivity : BaseActivity() {
         build(searchQuery)
     }
 
-    private class Row(val title: String, val adapter: StremioPosterAdapter, val view: View, val status: TextView)
+    private class Row(val title: String, val adapter: StremioPosterAdapter, val view: View, val status: TextView) { var lastPos = 0 }
     private val rows = mutableListOf<Row>()
 
     /** Użytkownik poruszył się pilotem od ostatniej przebudowy tablicy – bez automatycznego przenoszenia fokusu. */
     private var userMoved = false
 
+    private fun rowRv(r: Row) = (r.view as LinearLayout).getChildAt(2) as RecyclerView
+
+    /**
+     * (7.11) Stabilny kursor przy przewijaniu rzędów: ▲▼ prowadzi aplikacja – następny / poprzedni rząd, który już ma plakaty
+     * (rzędy jeszcze się wczytujące i puste są pomijane, więc kursor nie przeskakuje o kilka rzędów ani nie ginie), z tą samą
+     * kolumną. Ostatni rząd: kursor zostaje (blokada krawędzi). ▲ z pierwszego rzędu – do paska wyszukiwania.
+     */
+    private fun rowsVerticalKey(event: KeyEvent): Boolean {
+        if (event.keyCode != KeyEvent.KEYCODE_DPAD_DOWN && event.keyCode != KeyEvent.KEYCODE_DPAD_UP) return false
+        val f = window.decorView.findFocus() ?: return false
+        val ri = rows.indexOfFirst { rowRv(it).findContainingItemView(f) != null }
+        if (ri < 0) return false
+        val pos = rowRv(rows[ri]).findContainingViewHolder(f)?.bindingAdapterPosition?.takeIf { it >= 0 } ?: rows[ri].lastPos
+        rows[ri].lastPos = pos
+        val step = if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN) 1 else -1
+        var j = ri + step
+        while (j in rows.indices && rows[j].adapter.items.isEmpty()) j += step
+        if (j !in rows.indices) return step > 0            // ▼ na końcu – zostaje; ▲ z pierwszego rzędu – zwykła nawigacja do paska
+        if (event.action == KeyEvent.ACTION_DOWN) rowRv(rows[j]).focusPosition(pos.coerceAtMost(rows[j].adapter.items.size - 1))
+        return true
+    }
+
+    /** Po wczytaniu / usunięciu rzędu nad kursorem zaznaczony rząd zostaje u góry widoku (nic nie „ucieka” spod kursora). */
+    private fun anchorFocusedRow() { focusedRow()?.let { box -> scroll.post { scroll.scrollTo(0, (box.top - Ui.dp(4)).coerceAtLeast(0)) } } }
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.action == KeyEvent.ACTION_DOWN && event.keyCode in DPAD_KEYS) userMoved = true
+        if (!loginShown && rowsVerticalKey(event)) return true
         return super.dispatchKeyEvent(event)
     }
     private val DPAD_KEYS = setOf(KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
@@ -304,6 +330,7 @@ class StremioActivity : BaseActivity() {
         jobs += lifecycleScope.launch {
             val continueRow = addRow("Kontynuuj oglądanie")
             fillContinue(continueRow)
+            if (q == null) fillWatched(addRow("Obejrzane"))
             val addons = StremioStore.enabledAddons()
             val catalogs: List<Pair<StremioAddon, StremioAddon.Catalog>> = if (q != null)
                 addons.flatMap { a -> a.searchCatalogs.map { a to it } }.sortedBy { (_, c) -> when (c.type) { "movie" -> 0; "series" -> 1; else -> 2 } }
@@ -322,10 +349,11 @@ class StremioActivity : BaseActivity() {
                         if (list.isEmpty()) { removeRow(r); return@onSuccess }
                         val start = r.adapter.items.size
                         r.adapter.items += list.map { StremioTile(it) }; r.adapter.notifyItemRangeInserted(start, list.size); r.status.visibility = View.GONE
+                        if (rowsHaveFocus()) anchorFocusedRow()
                         // fokus na pierwszym rzędzie tylko, dopóki użytkownik niczego nie zaznaczył pilotem – wcześniej każdy
                         // doładowany katalog mógł przenieść kursor (np. gdy fokus był na przycisku u góry albo chwilowo zniknął)
                         if (first && !userMoved && window.decorView.findFocus().let { it == null || it === query }) { first = false; focusRow(r) }
-                    }.onFailure { if (q != null) removeRow(r) else r.status.text = "Błąd: ${it.message}" }
+                    }.onFailure { removeRow(r) }   // (7.11) wtyczka, która zawiodła, jest pomijana po cichu (bez komunikatów o błędach)
                 }
             }
         }
@@ -400,11 +428,43 @@ class StremioActivity : BaseActivity() {
         if (had != null && had >= 0) rv.focusPosition(had.coerceAtMost(tiles.size - 1))
     }
 
+    /**
+     * (7.11) „Obejrzane”: filmy (obejrzane do końca) i seriale z zaliczonymi odcinkami, najnowsze pierwsze. Przy serialu podpis
+     * i pasek na plakacie pokazują procent obejrzanego sezonu (zaliczone odcinki / odcinki sezonu) – liczony po wczytaniu opisu serialu.
+     */
+    private suspend fun fillWatched(r: Row) {
+        val movies = StremioStore.progress(200).filter { it.type == "movie" && it.finished }
+            .map { it.updatedAt to StremioTile(StremioMetaPreview(it.metaId, "movie", it.name, it.poster), note = "Film · obejrzany", fraction = 1f) }
+        val byMeta = StremioStore.allWatched().groupBy { it.metaId }
+        val series = byMeta.map { (id, list) ->
+            val last = list.maxByOrNull { it.watchedAt }!!
+            last.watchedAt to StremioTile(StremioMetaPreview(id, "series", last.name, last.poster), note = "${list.size} " + StremioUi.plural(list.size, "odcinek", "odcinki", "odcinków"))
+        }
+        val tiles = (movies + series).sortedByDescending { it.first }.map { it.second }
+        if (tiles.isEmpty()) { removeRow(r); return }
+        if (tiles == r.adapter.items) return
+        val rv = rowRv(r)
+        val had = rv.findFocus()?.let { f -> rv.findContainingViewHolder(f)?.bindingAdapterPosition }
+        r.adapter.items.clear(); r.adapter.items += tiles; r.adapter.notifyDataSetChanged(); r.status.visibility = View.GONE
+        if (had != null && had >= 0) rv.focusPosition(had.coerceAtMost(tiles.size - 1))
+        byMeta.forEach { (id, list) ->
+            jobs += lifecycleScope.launch {
+                val m = StremioMetas.get("series", id) ?: return@launch
+                val season = list.maxByOrNull { it.watchedAt }!!.season
+                val pct = StremioStore.seasonPercent(m, season, list.mapTo(HashSet()) { it.videoId })
+                val i = r.adapter.items.indexOfFirst { it.meta.id == id }.takeIf { it >= 0 } ?: return@launch
+                r.adapter.items[i] = r.adapter.items[i].copy(note = (if (season > 0) "Sezon $season" else "Dodatki") + " · $pct%", fraction = pct / 100f)
+                r.adapter.notifyItemChanged(i)
+            }
+        }
+    }
+
     private fun refreshContinue() {
         val r = rows.firstOrNull { it.title == "Kontynuuj oglądanie" }
         lifecycleScope.launch {
             if (r != null) fillContinue(r)
             else if (StremioStore.progress().any { !it.finished }) build(searchQuery)
+            rows.firstOrNull { it.title == "Obejrzane" }?.let { fillWatched(it) }
         }
     }
 

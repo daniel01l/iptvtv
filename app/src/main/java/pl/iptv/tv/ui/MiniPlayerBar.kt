@@ -50,13 +50,20 @@ class MiniPlayerBar(private val a: Activity) : FrameLayout(a) {
             setPadding(Ui.dp(14), Ui.dp(8), Ui.dp(14), Ui.dp(8)); setOnClickListener { click() }
         }.also { row.addView(it, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(6) }) }
         playBtn = btn("⏸", "Pauza / wznowienie") { toggle() }
-        openBtn = btn("⛶ Pełny ekran", "Pełny ekran") { a.startActivity(YtPlayerActivity.resumeIntent(a)) }
+        val narrow = a.resources.displayMetrics.widthPixels < Ui.dp(560)
+        openBtn = btn(if (narrow) "⛶" else "⛶ Odtwarzacz", "Otwórz odtwarzacz") { open() }
         stopBtn = btn("✖", "Zatrzymaj odtwarzanie") { (client?.stop() ?: YtEngine.stop()); refresh() }
         addView(row, LayoutParams(-1, -2))
         bar.fraction = 0f
         addView(bar, LayoutParams(-1, Ui.dp(3), Gravity.BOTTOM))
         Ui.style(this)
+        // równe granice w każdym motywie (pasek postępu i miniatura nie wychodzą poza zaokrąglenie), cień; dotknięcie paska = pełny odtwarzacz
+        Ui.roundClip(this, Ui.dp(16).toFloat()); elevation = Ui.dp(8).toFloat(); clipChildren = true
+        setOnClickListener { open() }
     }
+
+    /** Pełny widok odtwarzacza (muzyczny / wideo) bez przewijania ekranu – też skrót „Teraz odtwarzane” z paska ikon STube. */
+    fun open() { a.startActivity(YtPlayerActivity.resumeIntent(a)) }
 
     /** Dodanie na dół ekranu [root] (nad treścią, przy prawej krawędzi). */
     fun attachTo(root: FrameLayout) {

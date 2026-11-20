@@ -257,7 +257,7 @@ class StremioPlayerActivity : AppCompatActivity() {
         posText = timeText(); durText = timeText()
         timeBar = androidx.media3.ui.DefaultTimeBar(this).apply {
             setPlayedColor(PlayerChrome.STREMIO); setScrubberColor(PlayerChrome.STREMIO); setBufferedColor(0x66FFFFFF); setUnplayedColor(0x33FFFFFF)
-            setKeyTimeIncrement(10_000); isFocusable = true
+            setKeyTimeIncrement(TIMEBAR_STEP_MS); isFocusable = true   // (7.11) ◄► na samym pasku postępu: 1,5 min
             addListener(object : androidx.media3.ui.TimeBar.OnScrubListener {
                 override fun onScrubStart(t: androidx.media3.ui.TimeBar, position: Long) { handler.removeCallbacks(hideBar) }
                 override fun onScrubMove(t: androidx.media3.ui.TimeBar, position: Long) { posText.text = StremioUi.fmt(position) }
@@ -282,6 +282,7 @@ class StremioPlayerActivity : AppCompatActivity() {
         // ikony funkcji (7.4): zaznaczona wysuwa swój podpis
         fun btn(icon: String, t: String, a: () -> Unit) = iconButton(icon, t) { a(); scheduleHide() }
             .also { topBar.addView(it, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(10) }) }
+        btn(PlayerIcon.QUEUE, if (type == "series") "Odcinki serialu" else "Inne części filmu") { openEpisodesPanel() }
         btn(PlayerIcon.CC, "Napisy") { subtitlesMenu() }
         btn(PlayerIcon.DELAY, "Opóźnienie napisów") { delayMenu() }
         btn(PlayerIcon.STYLE, "Styl napisów") { styleMenu() }
@@ -345,6 +346,8 @@ class StremioPlayerActivity : AppCompatActivity() {
 
     /** Krok przewijania ◄► i ⏪ ⏩. */
     val SEEK_STEP_MS = 10_000L
+    /** (7.11) Krok ◄► po zaznaczeniu paska postępu filmu (przyciski i ◄► bez paska – [SEEK_STEP_MS]). */
+    val TIMEBAR_STEP_MS = 90_000L
 
     fun setBar(m: Bar) {
         handler.removeCallbacks(hideBar)
@@ -502,6 +505,7 @@ class StremioPlayerActivity : AppCompatActivity() {
             val p = player ?: return
             if (externalSub != null && !subsOff) subView.setCues(StremioSubs.at(lines, p.currentPosition, subDelayMs.toLong())?.let { listOf(Cue.Builder().setText(it).build()) } ?: emptyList())
             if (++saveCounter % 100 == 0) saveProgress()        // co 10 s
+            if (p.isPlaying) { playedMs += 100; if (playedMs >= StremioStore.WATCHED_AFTER_MS) markCurrentWatched() }   // (7.11) 3 min oglądania = obejrzany
             if (bar != Bar.HIDDEN) updateControls()
             updateNextCard()
             handler.postDelayed(this, 100)
@@ -834,6 +838,12 @@ class StremioPlayerActivity : AppCompatActivity() {
 
     fun playNext() {
         val n = nextVideo ?: return
+        markCurrentWatched()                          // (7.11) przejście do następnego odcinka zalicza bieżący
+        playEpisode(n)
+    }
+
+    /** Odcinek [n] (następny z okienka / wybrany z panelu odcinków): źródło z tej samej wtyczki, brak – ekran źródeł. */
+    fun playEpisode(n: pl.iptv.tv.data.StremioVideo) {
         if (nextLoading) return                      // (7.8) wielokrotne OK nie uruchamia kilku zapytań
         nextLoading = true
         saveProgress(push = true)
@@ -857,6 +867,7 @@ class StremioPlayerActivity : AppCompatActivity() {
             }
             stream = pick; videoId = n.id; label = n.label; nextCard.visibility = View.GONE
             nextReached = false; nextDismissed = false      // nowy odcinek – próg okienka liczony od nowa
+            playedMs = 0; watchedMarked = false; sidePanel?.close()
             decoderStage = StremioDecoders.Stage.NORMAL; failure = null; forceVideo = false   // nowe źródło – znowu od dekoderów sprzętowych
             intent.putExtra(EXTRA_STREAM, pick.toJson().toString()).putExtra(EXTRA_VIDEO, n.id).putExtra(EXTRA_LABEL, n.label)
             I18n.makeToast(this@StremioPlayerActivity, "Następny odcinek: ${n.label}", Toast.LENGTH_SHORT).show()
@@ -864,6 +875,49 @@ class StremioPlayerActivity : AppCompatActivity() {
         }
     }
 
+
+    // ---------------- (7.11) obejrzane i panel „Odcinki” / „Inne części” ----------------
+
+    /** Czas faktycznego oglądania bieżącego odcinka (po [StremioStore.WATCHED_AFTER_MS] odcinek zalicza się jako obejrzany). */
+    var playedMs = 0L; private set
+    var watchedMarked = false; private set
+
+    fun markCurrentWatched() {
+        if (type != "series" || watchedMarked) return
+        val v = StremioMetas.cached(type, metaId)?.videos?.firstOrNull { it.id == videoId } ?: return
+        watchedMarked = true
+        val name = intent.getStringExtra(EXTRA_NAME).orEmpty(); val poster = intent.getStringExtra(EXTRA_POSTER).orEmpty()
+        StubeHistory.scope.launch { runCatching { StremioStore.setWatched(metaId, v, type, name, poster, true) } }
+    }
+
+    var sidePanel: SidePanel? = null; private set
+
+    /**
+     * Panel boczny (jak kolejka w STube): serial – odcinki bieżącego sezonu ze znaczkiem „Obejrzany”, film – inne części serii
+     * (sequele / prequele), jeśli istnieją. Wybór odcinka od razu go uruchamia, wybór części otwiera jej szczegóły.
+     */
+    fun openEpisodesPanel() {
+        val series = type == "series"
+        val tab = SidePanel.Tab(if (series) "☰ Odcinki" else "☰ Inne części", if (series) "Brak listy odcinków" else "Brak innych części tego filmu") {
+            if (series) {
+                val m = StremioMetas.get(type, metaId) ?: return@Tab emptyList()
+                val cur = m.videos.firstOrNull { it.id == videoId }
+                val done = StremioStore.watchedIds(metaId)
+                m.episodes(cur?.season ?: m.seasons.firstOrNull() ?: 1).map { e ->
+                    SidePanel.Entry(e.id, "${e.episode}. " + e.title.ifBlank { "Odcinek ${e.episode}" }, listOfNotNull(e.released.ifBlank { null }, if (e.id == videoId) "▶ teraz" else null).joinToString(" · "),
+                        e.thumbnail, badge = if (e.id in done) "✓ Obejrzany" else "") { if (e.id != videoId) playEpisode(e) else sidePanel?.close() }
+                }
+            } else {
+                val name = intent.getStringExtra(EXTRA_NAME).orEmpty()
+                StremioMetas.parts(name, metaId).map { p ->
+                    SidePanel.Entry(p.id, p.name, p.releaseInfo, p.poster) { startActivity(StremioDetailActivity.intent(this@StremioPlayerActivity, p, null)); finish() }
+                }
+            }
+        }
+        val p = sidePanel ?: SidePanel(this, listOf(tab)).also { sidePanel = it }
+        setBar(Bar.HIDDEN)
+        p.open(0)
+    }
     // ---------------- pilot ----------------
 
     private fun optionsMenu() = Dialogs.menu(this, "Opcje", buildList {
@@ -883,6 +937,8 @@ class StremioPlayerActivity : AppCompatActivity() {
      * - „następny” pilota – od razu następny odcinek; przyciski odtwarzania / przewijania pilota działają zawsze.
      */
     override fun dispatchKeyEvent(e: KeyEvent): Boolean {
+        if (sidePanel?.onKey(e) == true) return true
+        if (sidePanel?.isOpen == true) return super.dispatchKeyEvent(e)
         val full = bar == Bar.FULL
         if (e.action == KeyEvent.ACTION_DOWN) {
             if (e.keyCode == KeyEvent.KEYCODE_MEDIA_NEXT && e.repeatCount == 0 && nextVideo != null) { playNext(); return true }

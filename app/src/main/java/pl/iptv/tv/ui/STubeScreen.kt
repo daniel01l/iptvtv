@@ -191,6 +191,37 @@ object STubeScreen {
         }.onEach { it.square = it.id in SQUARE_ROWS }
     }
 
+    /**
+     * Kategoria paska bocznego: od razu pełna siatka filmów. [query] – wyszukiwanie bez klucza (każda kategoria ma własny zestaw;
+     * Aktualności = komentarze i analizy bieżących wydarzeń, Wiadomości = serwisy informacyjne); [kiosk] – listy YouTube dla Na czasie / Muzyka.
+     */
+    data class Category(val id: String, val title: String, val icon: String, val query: String? = null, val kiosk: String? = null, val apiCategory: String? = null, val fallbackQuery: String? = null)
+
+    /** Kolejność na pasku: Aktualności, Na czasie, Muzyka, Sport, Dla dzieci, Wiadomości, Gry. */
+    val CATEGORIES = listOf(
+        Category("cat_current", "Aktualności", PlayerIcon.NEWS, query = "aktualności komentarz analiza polityka gospodarka dzisiaj"),
+        Category("cat_trending", "Na czasie", PlayerIcon.TRENDING, kiosk = YtKeyless.TRENDING, fallbackQuery = "na czasie popularne dziś polska"),
+        Category("cat_music", "Muzyka", PlayerIcon.MUSIC, kiosk = YtKeyless.MUSIC, apiCategory = YouTubeRepository.CAT_MUSIC, fallbackQuery = "najnowsze hity teledyski muzyka"),
+        Category("cat_sport", "Sport", PlayerIcon.SPORT, query = "sport skróty meczów bramki najlepsze akcje"),
+        Category("cat_kids", "Dla dzieci", PlayerIcon.KIDS, query = "bajki dla dzieci po polsku"),
+        Category("cat_news", "Wiadomości", PlayerIcon.HEADLINES, query = "wiadomości serwis informacyjny najnowsze"),
+        Category("cat_games", "Gry", PlayerIcon.GAMES, query = "gry gameplay po polsku"),
+    )
+
+    /** Rząd (jedna strona) siatki kategorii [c]; pusta lista = brak materiałów (stan pusty w ekranie). */
+    fun categoryRow(c: Category): STubeRow = STubeRow(c.id, c.title) { p ->
+        suspend fun searched(q: String) = STubePage(
+            (try { YtKeyless.search(q) } catch (e: YtException) { if (YouTubeRepository.publicAvailable) YouTubeRepository.search(q) else throw e })
+                .filter { it.id.isNotBlank() }.map(STubeTile::Video))
+        val page = when {
+            c.query != null -> searched(c.query)
+            c.id == "cat_trending" -> apiOr({ YouTubeRepository.cachedTrending(null, p).let { STubePage(it.videos.map(STubeTile::Video), it.nextPage) } }) { YtKeyless.kiosk(YtKeyless.TRENDING) }
+            else -> apiOr({ YouTubeRepository.cachedTrending(c.apiCategory, p).let { STubePage(it.videos.map(STubeTile::Video), it.nextPage) } }) { YtKeyless.kiosk(c.kiosk!!) }
+        }
+        // lista YouTube pusta albo niedostępna (np. kiosk bez wyników) – kategoria nie zostaje pusta: wyszukiwanie zapasowe
+        if (page.tiles.isEmpty() && p == null && c.fallbackQuery != null) searched(c.fallbackQuery) else page
+    }
+
     /** Wiek filmu z daty publikacji ISO 8601 („3 godz. temu”, „2 dni temu”) – podpis kafelków subskrypcji; null przy braku daty. */
     fun ago(iso: String, now: Long = System.currentTimeMillis()): String? {
         if (iso.isBlank()) return null
@@ -375,7 +406,9 @@ class WatchBar(c: android.content.Context) : View(c) {
 class STubeSuggestAdapter(private val c: android.content.Context) : android.widget.BaseAdapter(), android.widget.Filterable {
     var items: List<String> = emptyList(); private set
 
-    fun set(list: List<String>) { items = list; notifyDataSetChanged() }
+    private var history: Set<String> = emptySet()
+    /** [fromHistory] – frazy z historii (ikona zegara); pozostałe to podpowiedzi na żywo (lupa). */
+    fun set(list: List<String>, fromHistory: Set<String> = list.toSet()) { items = list; history = fromHistory; notifyDataSetChanged() }
 
     override fun getCount() = items.size
     override fun getItem(position: Int) = items[position]
@@ -384,7 +417,7 @@ class STubeSuggestAdapter(private val c: android.content.Context) : android.widg
     override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
         val tv = (convertView as? TextView) ?: TextView(c).apply {
             textSize = 18f; maxLines = 1; ellipsize = TextUtils.TruncateAt.END
-            setPadding(Ui.dp(18), Ui.dp(12), Ui.dp(18), Ui.dp(12)); minHeight = Ui.dp(52); gravity = Gravity.CENTER_VERTICAL
+            setPadding(Ui.dp(16), Ui.dp(8), Ui.dp(16), Ui.dp(8)); minHeight = Ui.dp(44); gravity = Gravity.CENTER_VERTICAL
             val sel = intArrayOf(android.R.attr.state_selected); val foc = intArrayOf(android.R.attr.state_focused); val pr = intArrayOf(android.R.attr.state_pressed)
             setTextColor(android.content.res.ColorStateList(arrayOf(sel, foc, pr, intArrayOf()), intArrayOf(Ui.focusText, Ui.focusText, Ui.focusText, Ui.text)))
             background = android.graphics.drawable.StateListDrawable().apply {
@@ -393,7 +426,10 @@ class STubeSuggestAdapter(private val c: android.content.Context) : android.widg
                 addState(intArrayOf(), android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
             }
         }
-        tv.text = "🕘  " + items[position]
+        tv.text = items[position]
+        // rysowana ikona (historia – zegar, podpowiedź – lupa) w kolorach motywu zamiast emoji
+        tv.setCompoundDrawables(PlayerIcon(if (items[position] in history) PlayerIcon.DELAY else PlayerIcon.SEARCH, tv.textColors).apply { setBounds(0, 0, Ui.dp(20), Ui.dp(20)) }, null, null, null)
+        tv.compoundDrawablePadding = Ui.dp(14)
         return tv
     }
 

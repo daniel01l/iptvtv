@@ -31,8 +31,10 @@ class PlayerIcon(private val kind: String, private val tint: ColorStateList = Co
         const val SHUFFLE = "shuffle"; const val REPEAT = "repeat"; const val REPEAT_ONE = "repeat_one"; const val LYRICS = "lyrics"; const val VIDEO = "video"; const val MUSIC = "music"; const val STOP = "stop"
         // (7.10) pasek ikon STube
         const val SEARCH = "search"; const val HOME = "home"; const val PHONE = "phone"; const val REFRESH = "refresh"; const val CLOSE = "close"; const val USER = "user"
+        // (7.11) kategorie STube na pasku bocznym
+        const val NEWS = "news"; const val TRENDING = "trending"; const val SPORT = "sport"; const val KIDS = "kids"; const val HEADLINES = "headlines"; const val GAMES = "games"
         val ALL = listOf(SPEED, QUALITY, AUDIO, CC, EQ, CHAPTERS, QUEUE, PIP, AUTOPLAY, NEXT, DELAY, STYLE, ASPECT, INFO, RELATED,
-            PLAY, PAUSE, PREV, REW, FWD, AUDIO_ONLY, SHUFFLE, REPEAT, REPEAT_ONE, LYRICS, VIDEO, MUSIC, STOP, SEARCH, HOME, PHONE, REFRESH, CLOSE, USER)
+            PLAY, PAUSE, PREV, REW, FWD, AUDIO_ONLY, SHUFFLE, REPEAT, REPEAT_ONE, LYRICS, VIDEO, MUSIC, STOP, SEARCH, HOME, PHONE, REFRESH, CLOSE, USER, NEWS, TRENDING, SPORT, KIDS, HEADLINES, GAMES)
     }
 
     private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
@@ -98,6 +100,19 @@ class PlayerIcon(private val kind: String, private val tint: ColorStateList = Co
             USER -> { c.drawCircle(x(0.5f), y(0.33f), s * 0.18f, p); r.set(x(0.16f), y(0.58f), x(0.84f), y(1.2f)); c.drawArc(r, 180f, 180f, false, p) }
             STOP -> { r.set(x(0.2f), y(0.2f), x(0.8f), y(0.8f)); c.drawRoundRect(r, s * 0.08f, s * 0.08f, f) }
             MUSIC -> { line(0.38f, 0.2f, 0.38f, 0.72f); line(0.38f, 0.2f, 0.84f, 0.1f); line(0.84f, 0.1f, 0.84f, 0.6f); c.drawCircle(x(0.28f), y(0.76f), s * 0.12f, f); c.drawCircle(x(0.74f), y(0.66f), s * 0.12f, f) }
+            NEWS -> { rect(0.16f, 0.2f, 0.84f, 0.8f, 0.08f); line(0.3f, 0.4f, 0.7f, 0.4f); line(0.3f, 0.54f, 0.7f, 0.54f); line(0.3f, 0.68f, 0.52f, 0.68f) }
+            TRENDING -> { line(0.12f, 0.72f, 0.38f, 0.46f); line(0.38f, 0.46f, 0.55f, 0.62f); line(0.55f, 0.62f, 0.86f, 0.28f); line(0.62f, 0.28f, 0.86f, 0.28f); line(0.86f, 0.28f, 0.86f, 0.52f) }
+            SPORT -> {
+                c.drawCircle(x(0.5f), y(0.5f), s * 0.36f, p)
+                path.reset()
+                for (i in 0 until 5) { val a = Math.toRadians(-90.0 + i * 72.0); val px = x(0.5f) + Math.cos(a).toFloat() * s * 0.12f; val py = y(0.5f) + Math.sin(a).toFloat() * s * 0.12f
+                    if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+                    c.drawLine(px, py, x(0.5f) + Math.cos(a).toFloat() * s * 0.36f, y(0.5f) + Math.sin(a).toFloat() * s * 0.36f, p) }
+                path.close(); c.drawPath(path, p)
+            }
+            KIDS -> { c.drawCircle(x(0.5f), y(0.5f), s * 0.36f, p); c.drawCircle(x(0.38f), y(0.42f), s * 0.05f, f); c.drawCircle(x(0.62f), y(0.42f), s * 0.05f, f); r.set(x(0.3f), y(0.34f), x(0.7f), y(0.7f)); c.drawArc(r, 25f, 130f, false, p) }
+            HEADLINES -> { rect(0.12f, 0.3f, 0.88f, 0.74f, 0.08f); line(0.36f, 0.14f, 0.5f, 0.3f); line(0.64f, 0.14f, 0.5f, 0.3f); line(0.34f, 0.86f, 0.66f, 0.86f) }
+            GAMES -> { rect(0.08f, 0.32f, 0.92f, 0.72f, 0.2f); line(0.26f, 0.52f, 0.44f, 0.52f); line(0.35f, 0.43f, 0.35f, 0.61f); c.drawCircle(x(0.62f), y(0.47f), s * 0.05f, f); c.drawCircle(x(0.74f), y(0.57f), s * 0.05f, f) }
             else -> c.drawCircle(x(0.5f), y(0.5f), s * 0.3f, p)
         }
     }

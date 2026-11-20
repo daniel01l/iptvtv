@@ -1,6 +1,6 @@
 {
-  "versionCode": 70,
-  "versionName": "7.10",
+  "versionCode": 71,
+  "versionName": "7.11",
   "apk": "D-iptv-Player.apk",
-  "notes": "STube music view: focus no longer disappears, stays on for next tracks, karaoke-style synced lyrics, new options window, hi-res cover and background; suggestions only from songs (no compilations, vlogs or films); shelf of suggestions slides up from the bottom (handle under the progress bar); drawn icons instead of emoji. / STube widok muzyczny: zaznaczenie nie znika, zostaje dla nastepnych utworow, tekst zsynchronizowany jak karaoke, nowe okno opcji, okladka i tlo w wysokiej rozdzielczosci; propozycje tylko z piosenek (bez skladanek, vlogow i filmow); polka propozycji wysuwana od dolu (uchwyt pod paskiem postepu); rysowane ikony zamiast emoji."
+  "notes": "STube: 7 categories on the side bar (full video grid, focus on first video), live search suggestions, position kept after returning from the player. Stremio: stable cursor on the home screen, plugin errors hidden, back to the right episode from sources, Watched badge and rules (next-episode pop-up / 3 min), long OK menu, Watched row with season percent, 10 s seek and 1.5 min on the progress bar, episodes / other parts panel in the player. / STube: 7 kategorii na pasku bocznym (pelna siatka, kursor na pierwszym filmie), podpowiedzi na zywo, pozycja po powrocie z odtwarzacza. Stremio: stabilny kursor na ekranie glownym, brak komunikatow o bledach wtyczek, powrot na wlasciwy odcinek ze zrodel, znaczek Obejrzany i zasady (okienko Nastepny odcinek / 3 min), menu pod dlugim OK, rzad Obejrzane z procentem sezonu, przewijanie 10 s i 1,5 min na pasku, panel odcinkow / innych czesci w odtwarzaczu."
 }

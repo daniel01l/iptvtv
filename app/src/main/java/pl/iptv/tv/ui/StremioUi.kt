@@ -1,5 +1,7 @@
 package pl.iptv.tv.ui
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
@@ -69,10 +71,36 @@ object StremioMetas {
     }
 
     fun clear() = synchronized(cache) { cache.clear() }
+
+    /** Tytuł bazowy serii filmowej: bez numeru części i podtytułu („Matrix: Reaktywacja”, „Shrek 2” → „Matrix”, „Shrek”); za krótki – pusty. */
+    fun baseTitle(name: String): String = name.substringBefore(":").substringBefore(" - ")
+        .replace(Regex("(?i)\\s+(part|część|czesc|chapter)?\\s*([0-9]{1,2}|[ivx]{1,4})$"), "").trim().takeIf { it.length >= 3 }.orEmpty()
+
+    /**
+     * (7.11) Inne części filmu (sequele / prequele / powiązane), jeśli istnieją: wyszukiwanie po tytule bazowym we włączonych
+     * wtyczkach z wyszukiwaniem filmów, tylko pozycje zaczynające się tym tytułem, bez bieżącego filmu, od najstarszych.
+     * Wtyczki, które zawiodą lub przekroczą czas, są pomijane po cichu.
+     */
+    suspend fun parts(name: String, currentId: String): List<StremioMetaPreview> {
+        val base = baseTitle(name)
+        if (base.isEmpty()) return emptyList()
+        val addons = StremioStore.enabledAddons().filter { a -> a.searchCatalogs.any { it.type == "movie" } }.take(4)
+        val found = coroutineScope {
+            addons.map { a -> async(kotlinx.coroutines.Dispatchers.Default) {
+                runCatching { kotlinx.coroutines.withTimeoutOrNull(6_000) {
+                    a.searchCatalogs.filter { it.type == "movie" }.take(1).flatMap { c -> StremioApi.catalog(a, c, base) }
+                } }.getOrNull().orEmpty()
+            } }.flatMap { it.await() }
+        }
+        val b = base.lowercase()
+        return found.filter { it.type == "movie" && it.id != currentId && it.name.lowercase().startsWith(b) }
+            .distinctBy { it.id }.sortedBy { it.releaseInfo.take(4).toIntOrNull() ?: 9999 }.take(20)
+    }
 }
 
 /** Kafelek plakatu: pozycja katalogu (opcjonalnie z postępem oglądania). */
-data class StremioTile(val meta: StremioMetaPreview, val progress: StremioProgress? = null)
+/** [note] – podpis zamiast domyślnego (np. „Sezon 2 · 60%”), [fraction] – pasek na plakacie (np. procent obejrzanego sezonu). */
+data class StremioTile(val meta: StremioMetaPreview, val progress: StremioProgress? = null, val note: String = "", val fraction: Float? = null)
 
 /** Rząd plakatów (katalog / wyniki wyszukiwania / „Kontynuuj oglądanie”). */
 class StremioPosterAdapter(val items: MutableList<StremioTile> = mutableListOf()) : RecyclerView.Adapter<StremioPosterAdapter.VH>() {
@@ -120,12 +148,12 @@ class StremioPosterAdapter(val items: MutableList<StremioTile> = mutableListOf()
     override fun onBindViewHolder(h: VH, position: Int) {
         val t = items[position]; val m = t.meta
         h.title.text = m.name
-        h.sub.text = t.progress?.let { p -> listOfNotNull(p.videoLabel.ifBlank { null }, StremioUi.fmt(p.positionMs)).joinToString(" · ") }
+        h.sub.text = t.note.ifBlank { null } ?: t.progress?.let { p -> listOfNotNull(p.videoLabel.ifBlank { null }, StremioUi.fmt(p.positionMs)).joinToString(" · ") }
             ?: listOfNotNull(m.releaseInfo.ifBlank { null }, StremioUi.typeName(m.type)).joinToString(" · ")
         h.initials.text = m.name
         h.poster.setImageDrawable(null)
         if (m.poster.isNotBlank()) h.poster.load(m.poster) { crossfade(false); size(Ui.dp(StremioUi.POSTER_W), Ui.dp(StremioUi.POSTER_H)) }
-        val f = t.progress?.fraction ?: 0f
+        val f = t.fraction ?: t.progress?.fraction ?: 0f
         h.barBox.visibility = if (f > 0f) View.VISIBLE else View.GONE
         h.bar.layoutParams = (h.bar.layoutParams as FrameLayout.LayoutParams).apply { width = (Ui.dp(StremioUi.POSTER_W) * f).toInt() }
     }

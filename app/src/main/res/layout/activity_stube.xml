@@ -4,19 +4,30 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/stRoot" android:layout_width="match_parent" android:layout_height="match_parent"
     android:orientation="horizontal" android:clipChildren="true">
-    <LinearLayout android:id="@+id/stRail" android:layout_width="wrap_content" android:layout_height="match_parent"
+    <ScrollView android:id="@+id/stRailScroll" android:layout_width="wrap_content" android:layout_height="match_parent"
+        android:fillViewport="true" android:scrollbars="none" android:focusable="false" android:clipChildren="false" android:overScrollMode="never">
+    <LinearLayout android:id="@+id/stRail" android:layout_width="wrap_content" android:layout_height="wrap_content"
         android:orientation="vertical" android:gravity="center_horizontal" android:clipChildren="false"
-        android:paddingStart="12dp" android:paddingEnd="12dp" android:paddingTop="16dp" android:paddingBottom="16dp">
+        android:paddingStart="12dp" android:paddingEnd="12dp" android:paddingTop="24dp" android:paddingBottom="28dp">
         <TextView android:id="@+id/stAccount" style="@style/StubeRail" android:text="👤"/>
         <TextView android:id="@+id/stSearch" style="@style/StubeRail" android:layout_marginTop="14dp" android:text="🔎"/>
         <TextView android:id="@+id/stHome" style="@style/StubeRail" android:text="🏠"/>
         <TextView android:id="@+id/stLib" style="@style/StubeRail" android:text="🎵"/>
+        <TextView android:id="@+id/stCat0" style="@style/StubeRail" android:text="•"/>
+        <TextView android:id="@+id/stCat1" style="@style/StubeRail" android:text="•"/>
+        <TextView android:id="@+id/stCat2" style="@style/StubeRail" android:text="•"/>
+        <TextView android:id="@+id/stCat3" style="@style/StubeRail" android:text="•"/>
+        <TextView android:id="@+id/stCat4" style="@style/StubeRail" android:text="•"/>
+        <TextView android:id="@+id/stCat5" style="@style/StubeRail" android:text="•"/>
+        <TextView android:id="@+id/stCat6" style="@style/StubeRail" android:text="•"/>
         <TextView android:id="@+id/stPhone" style="@style/StubeRail" android:text="📱"/>
+        <TextView android:id="@+id/stNow" style="@style/StubeRail" android:text="♫" android:visibility="gone"/>
         <TextView android:id="@+id/stSmartTube" style="@style/StubeRail" android:text="▶"/>
         <View android:id="@+id/stRailSpace" android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1"/>
         <TextView android:id="@+id/stRefresh" style="@style/StubeRail" android:text="⟳"/>
         <TextView android:id="@+id/stClose" style="@style/StubeRail" android:text="✕"/>
     </LinearLayout>
+    </ScrollView>
     <LinearLayout android:id="@+id/stMain" android:layout_width="0dp" android:layout_weight="1" android:layout_height="match_parent"
         android:orientation="vertical" android:clipChildren="true"
         android:paddingStart="16dp" android:paddingEnd="32dp" android:paddingTop="16dp" android:paddingBottom="0dp">
@@ -43,5 +54,13 @@
             <LinearLayout android:id="@+id/stRows" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:orientation="vertical" android:paddingBottom="120dp"/>
         </ScrollView>
+        <!-- siatka kategorii (7.11): od razu pełna siatka filmów, bez filtrów; stan wczytywania / pusty / błąd pod spodem -->
+        <FrameLayout android:id="@+id/stGridBox" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+            android:layout_marginTop="6dp" android:visibility="gone" android:clipChildren="true">
+            <androidx.recyclerview.widget.RecyclerView android:id="@+id/stGrid" android:layout_width="match_parent" android:layout_height="match_parent"
+                android:clipToPadding="false" android:paddingBottom="120dp" android:overScrollMode="never" android:scrollbars="none"/>
+            <TextView android:id="@+id/stGridStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="center"
+                android:gravity="center" android:padding="24dp" android:tag="text2" android:textSize="18sp" android:visibility="gone"/>
+        </FrameLayout>
     </LinearLayout>
 </LinearLayout>

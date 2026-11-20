@@ -49,6 +49,21 @@ data class StremioProgress(
     val finished: Boolean get() = durationMs > 0 && positionMs >= durationMs * 0.92
 }
 
+
+/** (7.11) Obejrzany odcinek serialu ([id] = metaId|videoId) – zaliczony z okienka „Następny odcinek”, po 3 min oglądania albo ręcznie. */
+@Entity(tableName = "stremio_watched", indices = [androidx.room.Index("metaId")])
+data class StremioWatched(
+    @PrimaryKey val id: String,
+    val metaId: String,
+    val videoId: String,
+    val type: String = "series",
+    val name: String = "",
+    val poster: String = "",
+    val season: Int = 0,
+    val episode: Int = 0,
+    val watchedAt: Long = 0,
+)
+
 @Dao
 interface StremioDao {
     @Query("SELECT * FROM stremio_addons ORDER BY position") suspend fun addons(): List<StremioAddonState>
@@ -63,6 +78,11 @@ interface StremioDao {
     @Upsert suspend fun upsertProgress(p: List<StremioProgress>)
     @Query("UPDATE stremio_progress SET synced = 1 WHERE metaId IN (:ids)") suspend fun markSynced(ids: List<String>)
     @Query("DELETE FROM stremio_progress") suspend fun clearProgress()
+
+    @Query("SELECT * FROM stremio_watched WHERE metaId = :id") suspend fun watchedOf(id: String): List<StremioWatched>
+    @Query("SELECT * FROM stremio_watched ORDER BY watchedAt DESC") suspend fun allWatched(): List<StremioWatched>
+    @Upsert suspend fun putWatched(w: StremioWatched)
+    @Query("DELETE FROM stremio_watched WHERE id = :id") suspend fun deleteWatched(id: String)
 }
 
 /** (7.8) Decyzja przy wznawianiu („Wznów”, „Oglądaj dalej”): następny odcinek tylko, gdy okienko „Następny odcinek” już się pojawiło. */
@@ -202,6 +222,31 @@ object StremioStore {
     /** Wylogowanie: wtyczki konta usunięte (zostają domyślne / ręczne przy następnym otwarciu). */
     suspend fun forgetAccount() { dao()?.let { d -> withContext(Dispatchers.IO) { d.clearAccountAddons() } }; addonsCache = emptyList() }
 
+
+    // ---------------- (7.11) obejrzane odcinki ----------------
+
+    /** Zasady zaliczenia ręcznie włączonego odcinka: tyle czasu faktycznego oglądania. */
+    const val WATCHED_AFTER_MS = 180_000L
+
+    suspend fun watchedIds(metaId: String): Set<String> = dao()?.let { d -> withContext(Dispatchers.IO) { runCatching { d.watchedOf(metaId).mapTo(HashSet()) { it.videoId } }.getOrDefault(emptySet()) } }.orEmpty()
+    suspend fun allWatched(): List<StremioWatched> = dao()?.let { d -> withContext(Dispatchers.IO) { runCatching { d.allWatched() }.getOrDefault(emptyList()) } }.orEmpty()
+
+    suspend fun setWatched(metaId: String, v: StremioVideo, type: String, name: String, poster: String, watched: Boolean) {
+        val d = dao() ?: return
+        withContext(Dispatchers.IO) {
+            runCatching {
+                if (watched) d.putWatched(StremioWatched("$metaId|${v.id}", metaId, v.id, type, name, poster, v.season, v.episode, System.currentTimeMillis()))
+                else d.deleteWatched("$metaId|${v.id}")
+            }
+        }
+    }
+
+    /** Procent obejrzanego sezonu [season] (zaliczone odcinki / wszystkie odcinki sezonu). */
+    fun seasonPercent(meta: StremioMeta, season: Int, watched: Set<String>): Int {
+        val eps = meta.episodes(season)
+        if (eps.isEmpty()) return 0
+        return eps.count { it.id in watched } * 100 / eps.size
+    }
     // ---------------- postęp ----------------
 
     suspend fun progress(limit: Int = 30): List<StremioProgress> = dao()?.let { d -> withContext(Dispatchers.IO) { runCatching { d.progress(limit) }.getOrDefault(emptyList()) } }.orEmpty()

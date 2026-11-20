@@ -48,7 +48,8 @@ object YtEngine {
         fun onStopped() {}
     }
 
-    const val START_TIMEOUT_MS = 25_000L
+    const val START_TIMEOUT_MS = 15_000L
+    const val RESOLVE_RETRY_MS = 500L
     const val SAVE_EVERY_MS = 10_000L
 
     var player: ExoPlayer? = null; private set
@@ -136,7 +137,10 @@ object YtEngine {
         listeners.forEach { it.onLoading(v) }
         loadJob = scope.launch {
             val sb = if (Prefs.sbEnabled) async { SponsorBlock.segments(v.id) } else null
-            val p = try { YtStreams.resolve(v.id) } catch (e: YtStreamException) { fail(e.message ?: "Film niedostępny"); return@launch }
+            // jedna ponowna próba ekstrakcji (chwilowy błąd sieci / YouTube) – nie każdy utwór z listy ma wtedy odpadać
+            suspend fun attempt() = YtStreams.resolve(v.id)
+            val p = try { try { attempt() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { kotlinx.coroutines.delay(RESOLVE_RETRY_MS); attempt() } }
+                catch (e: YtStreamException) { fail(e.message ?: "Film niedostępny"); return@launch }
                 catch (e: kotlinx.coroutines.CancellationException) { throw e }
                 catch (e: Exception) { fail(YtStreams.message(e)); return@launch }
             if (video?.id != v.id) return@launch
@@ -300,7 +304,11 @@ object YtEngine {
     }
 
     private val startTimeout = Runnable {
-        if (player?.playbackState != Player.STATE_READY && video != null && error == null)
+        val v = video
+        if (player?.playbackState != Player.STATE_READY && v != null && error == null && !reExtracted) {
+            reExtracted = true   // zawieszony start: raz od nowa (świeża ekstrakcja, nowe źródło) zanim utwór zostanie uznany za niedostępny
+            load(app, v, resumeAtMs = 0, force = true)
+        } else if (player?.playbackState != Player.STATE_READY && v != null && error == null)
             fail("Strumień nie odpowiada (YouTube mógł zablokować odtwarzanie w tej aplikacji)")
     }
 

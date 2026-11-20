@@ -60,7 +60,7 @@ class V79Test {
             }
         } }
         server.start()
-        YtLyrics.apiBase = server.url("/lyrics").toString().trimEnd('/')
+        YtLyrics.apiBase = server.url("/lyrics").toString().trimEnd('/'); YtLyrics.fallbackBase = ""
         pl.iptv.tv.data.SponsorBlock.apiBase = server.url("/sb").toString().trimEnd('/')
         Prefs.permissionsAsked = true; Prefs.setupDone = true; Prefs.stubeResume = false; Prefs.stubeInternal = true
         Prefs.ytMusicView = true; Prefs.ytLyrics = true
@@ -78,7 +78,7 @@ class V79Test {
         YtStreams.resolverOverride = null; YtEqSession.factory = null
         YtEngine.releasePlayer(); YtEngine.listeners.clear()
         YtKeyless.source = YtKeyless.NewPipeSource; YtKeyless.clearCache()
-        YtLyrics.apiBase = "https://lrclib.net/api"
+        YtLyrics.apiBase = "https://lrclib.net/api"; YtLyrics.fallbackBase = "https://api.lyrics.ovh/v1"
         server.shutdown(); StubeHistory.useDatabase(null); db.close()
     }
 
@@ -206,6 +206,93 @@ class V79Test {
         // następny utwór z listy: ten sam ekran
         a.playNow(rel[1]); waitFor { YtEngine.video?.id == "rel2" }
         assertEquals("rel2", YtEngine.video?.id)
+    }
+
+    private fun key(a: YtPlayerActivity, code: Int) {
+        a.dispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, code)); a.dispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, code)); idle()
+    }
+
+    @Test fun musicStageFocusStartsOnFirstSongRemembersPositionAndNeverEscapesLyrics() {
+        val rel = (1..6).map { YtVideo("rel$it", "Wykonawca $it – Utwór $it", "Wykonawca $it", duration = "PT3M") }
+        val a = player("Artist – Song", rel)
+        val s = a.stage
+        s.measure(View.MeasureSpec.makeMeasureSpec(960, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(540, View.MeasureSpec.EXACTLY))
+        s.layout(0, 0, 960, 540); idle()
+        waitFor { s.focusedListPos() == 0 }
+        // ▼▼▼ → czwarta pozycja; ◄ → ostatnia ikona (opcje); ► → z powrotem czwarta
+        repeat(3) { key(a, android.view.KeyEvent.KEYCODE_DPAD_DOWN) }
+        waitFor { s.focusedListPos() == 3 }
+        key(a, android.view.KeyEvent.KEYCODE_DPAD_LEFT)
+        assertSame(s.optionsBtn, s.findFocus())
+        key(a, android.view.KeyEvent.KEYCODE_DPAD_RIGHT)
+        waitFor { s.focusedListPos() == 3 }
+        // ▲ do pierwszej, ▲ – zakładka
+        repeat(3) { key(a, android.view.KeyEvent.KEYCODE_DPAD_UP) }
+        waitFor { s.focusedListPos() == 0 }
+        key(a, android.view.KeyEvent.KEYCODE_DPAD_UP)
+        assertSame(s.queueTab, s.findFocus())
+        // tekst: ▼ nie opuszcza okna tekstu, ◄ → ikony, ► → z powrotem tekst
+        s.selectTab(YtMusicStage.TAB_LYRICS); s.lyricsTab.requestFocus()
+        key(a, android.view.KeyEvent.KEYCODE_DPAD_DOWN)
+        val inText = s.findFocus()
+        assertNotNull(inText); assertNotSame(s.playBtn, inText)
+        repeat(3) { key(a, android.view.KeyEvent.KEYCODE_DPAD_DOWN) }
+        assertSame(inText, s.findFocus())
+        key(a, android.view.KeyEvent.KEYCODE_DPAD_LEFT)
+        assertSame(s.optionsBtn, s.findFocus())
+        key(a, android.view.KeyEvent.KEYCODE_DPAD_RIGHT)
+        assertSame(inText, s.findFocus())
+    }
+
+    @Test fun lyricsCleaningAndFallbackQueries() {
+        assertEquals("Song", YtLyrics.cleanTitle("Song [Lyrics] (Live) feat. X"))
+        assertEquals("Song", YtLyrics.baseTitle("Song (Radio Edit)"))
+        assertEquals("Song", YtLyrics.baseTitle("Song - Remastered 2011"))
+        // wynik zapisany w Room; brak tekstu (świeży wpis) – bez zapytań do sieci
+        val before = server.requestCount
+        assertNotNull(runBlocking { YtLyrics.find("Zapis 1", "Ktoś", 100) })
+        assertTrue(server.requestCount > before)
+        assertNotNull(runBlocking { db.lyrics().get("ktoś|zapis 1") })
+        runBlocking { db.lyrics().put(pl.iptv.tv.data.LyricsCacheEntry("x|y", missing = true, savedAt = System.currentTimeMillis())) }
+        val n = server.requestCount
+        assertNull(runBlocking { YtLyrics.find("y", "x", 100) })
+        assertEquals(n, server.requestCount)
+    }
+    @Test fun liveSuggestionsParseAndFailQuietly() {
+        assertEquals(listOf("kot", "kotek"), pl.iptv.tv.data.YtSuggest.parse("""["ko",["kot","","kotek"]]"""))
+        assertTrue(pl.iptv.tv.data.YtSuggest.parse("nie json").isEmpty())
+        pl.iptv.tv.data.YtSuggest.apiBase = server.url("/sg").toString().trimEnd('/')
+        try { assertTrue(runBlocking { pl.iptv.tv.data.YtSuggest.fetch("kot") }.isEmpty()) }   // 404 – bez wyjątku, zostaje historia
+        finally { pl.iptv.tv.data.YtSuggest.apiBase = "https://suggestqueries.google.com/complete/search" }
+        assertTrue(runBlocking { pl.iptv.tv.data.YtSuggest.fetch("k") }.isEmpty())   // za krótka fraza
+    }
+
+    @Test fun categoriesOnRailOpenFullGridWithFocusOnFirstVideo() {
+        val a = Robolectric.buildActivity(STubeActivity::class.java).setup().get()
+        waitFor { a.rows.isNotEmpty() && a.rows.none { it.loading } }
+        // kolejność i ikony
+        assertEquals(listOf("Aktualności", "Na czasie", "Muzyka", "Sport", "Dla dzieci", "Wiadomości", "Gry"), STubeScreen.CATEGORIES.map { it.title })
+        assertEquals(7, STubeScreen.CATEGORIES.map { it.icon }.distinct().size)
+        assertNotEquals(STubeScreen.CATEGORIES[0].query, STubeScreen.CATEGORIES[5].query)   // Aktualności ≠ Wiadomości
+        val ids = intArrayOf(R.id.stCat0, R.id.stCat1, R.id.stCat2, R.id.stCat3, R.id.stCat4, R.id.stCat5, R.id.stCat6)
+        ids.forEachIndexed { i, id -> assertEquals(STubeScreen.CATEGORIES[i].title, a.findViewById<View>(id).contentDescription) }
+        // OK na kategorii → siatka od razu, bez pigułek i rzędów, fokus na pierwszym filmie
+        a.findViewById<View>(R.id.stCat3).performClick()
+        waitFor { a.categoryRow?.tiles?.isNotEmpty() == true }
+        idle(500)
+        assertEquals(View.VISIBLE, a.findViewById<View>(R.id.stGridBox).visibility)
+        assertEquals(View.GONE, a.findViewById<View>(R.id.stScroll).visibility)
+        assertEquals(View.GONE, a.findViewById<View>(R.id.stChipScroll).visibility)
+        assertTrue(a.findViewById<View>(R.id.stCat3).isSelected)
+        // szybka zmiana kategorii: wynik tylko ostatniej
+        a.findViewById<View>(R.id.stCat4).performClick(); a.findViewById<View>(R.id.stCat6).performClick()
+        waitFor { a.categoryRow?.id == "cat_games" && a.categoryRow?.tiles?.isNotEmpty() == true }
+        assertEquals("cat_games", a.categoryRow?.id)
+        assertTrue(a.findViewById<View>(R.id.stCat6).isSelected && !a.findViewById<View>(R.id.stCat3).isSelected)
+        waitFor { a.window.decorView.findFocus() != null && a.categoryGrid.getChildAdapterPosition(a.window.decorView.findFocus().let { var v: View = it; while (v.parent !== a.categoryGrid && v.parent is View) v = v.parent as View; v }) == 0 }
+        // WSTECZ wraca do zwykłego ekranu
+        a.dispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_BACK)); idle()
+        assertNull(a.categoryRow); assertEquals(View.VISIBLE, a.findViewById<View>(R.id.stScroll).visibility)
     }
 
     @Test fun regularVideoKeepsVideoPlayerAndPreviousGoesBack() {

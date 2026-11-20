@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.view.Gravity
+import android.graphics.drawable.GradientDrawable
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -119,13 +120,18 @@ class StremioDetailActivity : BaseActivity() {
                 return true
             }
         }
+        // (7.11) ◄ z listy źródeł – dokładnie na odcinek, z którego przeszliśmy do źródeł (z zachowaniem przewinięcia listy)
+        if (event.action == android.view.KeyEvent.ACTION_DOWN && event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT && ::sources.isInitialized && episodesCol.visibility == View.VISIBLE) {
+            val f = window.decorView.findFocus()
+            if (f != null && sources.findContainingItemView(f) != null) { KeyActivity.lastUserKeyAt = event.eventTime; backToEpisodes(); return true }
+        }
         return super.dispatchKeyEvent(event)
     }
 
     override fun onResume() {
         super.onResume()
         // odświeżenie postępu bez przebudowy listy (te same widoki – fokus zostaje na odcinku)
-        if (meta != null) lifecycleScope.launch { progress = StremioStore.progressOf(metaId); updateResume(); episodeAdapter.notifyItemRangeChanged(0, episodeAdapter.itemCount) }
+        if (meta != null) lifecycleScope.launch { progress = StremioStore.progressOf(metaId); updateResume(); episodeAdapter.notifyItemRangeChanged(0, episodeAdapter.itemCount); refreshWatched() }
     }
 
     private fun build(): View {
@@ -184,6 +190,7 @@ class StremioDetailActivity : BaseActivity() {
             }
             Ui.style(seasonsBar)
             selectSeason(season, start)
+            refreshWatched()
         } else {
             videoId = m.videos.singleOrNull()?.id?.takeIf { it.isNotBlank() } ?: m.id
             loadSources()
@@ -368,20 +375,30 @@ class StremioDetailActivity : BaseActivity() {
         override fun getItemId(position: Int) = items[position].id.hashCode().toLong()
         var items: List<StremioVideo> = emptyList()
         var selected = ""
-        inner class VH(val root: LinearLayout, val t: TextView, val s: TextView) : RecyclerView.ViewHolder(root)
+        inner class VH(val root: LinearLayout, val t: TextView, val s: TextView, val badge: TextView) : RecyclerView.ViewHolder(root)
         override fun getItemCount() = items.size
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
             val root = LinearLayout(parent.context).apply { orientation = LinearLayout.VERTICAL; tag = "item"; isFocusable = true; isClickable = true
                 setPadding(Ui.dp(12), Ui.dp(8), Ui.dp(12), Ui.dp(8)); layoutParams = RecyclerView.LayoutParams(-1, -2).apply { bottomMargin = Ui.dp(4) } }
             val t = StremioUi.text(parent.context, "", 15f, lines = 2); val s = StremioUi.text(parent.context, "", 12f, "text2", lines = 1)
-            root.addView(t); root.addView(s)
-            val vh = VH(root, t, s)
+            // (7.11) znaczek „Obejrzany”: ciemna kapsuła z obwódką i tekstem w kolorze akcentu motywu (czytelny także na zaznaczeniu)
+            val badge = TextView(parent.context).apply {
+                text = "✓ Obejrzany"; textSize = 11f; tag = "keepcolor"; maxLines = 1; visibility = View.GONE
+                setTextColor(Ui.accent or 0xFF000000.toInt()); setPadding(Ui.dp(8), Ui.dp(2), Ui.dp(8), Ui.dp(2))
+                background = GradientDrawable().apply { cornerRadius = Ui.dp(10).toFloat(); setColor(0xCC000000.toInt()); setStroke(Ui.dp(1), Ui.accent or 0xFF000000.toInt()) }
+            }
+            val sub = LinearLayout(parent.context).apply { gravity = Gravity.CENTER_VERTICAL }
+            sub.addView(s, LinearLayout.LayoutParams(0, -2, 1f)); sub.addView(badge, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(6) })
+            root.addView(t); root.addView(sub)
+            val vh = VH(root, t, s, badge)
             root.setOnClickListener { items.getOrNull(vh.bindingAdapterPosition)?.let {
                 // OK: źródła od razu (bez opóźnienia przewijania), kursor na pierwsze źródło, gdy się wczyta
                 if (videoId == it.id && sourcesPending) loadSources()      // czekało na zatrzymanie kursora – od razu
                 else selectEpisode(it)
                 focusSourcesWhenReady()
             } }
+            // (7.11) długie OK: menu z ręcznym zaznaczeniem / odznaczeniem „obejrzany”
+            root.setOnLongClickListener { items.getOrNull(vh.bindingAdapterPosition)?.let { episodeMenu(it) }; true }
             // zaznaczenie odcinka pilotem wczytuje jego źródła (bez OK) – jak w Stremio; z krótkim opóźnieniem przy przewijaniu
             root.setOnFocusChangeListener { _, f -> if (f) items.getOrNull(vh.bindingAdapterPosition)?.let { selectEpisode(it, debounce = true) } }
             Ui.style(root)
@@ -392,8 +409,48 @@ class StremioDetailActivity : BaseActivity() {
             h.t.text = "${e.episode}. " + e.title.ifBlank { "Odcinek ${e.episode}" }
             val p = progress?.takeIf { it.videoId == e.id }
             h.s.text = listOfNotNull(e.released.ifBlank { null }, p?.let { "▶ " + StremioUi.fmt(it.positionMs) }).joinToString("  ·  ")
+            h.badge.visibility = if (e.id in watched) View.VISIBLE else View.GONE
             h.root.isActivated = e.id == selected
         }
+    }
+
+    // ---------------- (7.11) obejrzane odcinki ----------------
+
+    /** Odcinki zaliczone jako obejrzane (Room); testy. */
+    var watched: Set<String> = emptySet(); private set
+
+    private fun refreshWatched() {
+        lifecycleScope.launch {
+            watched = StremioStore.watchedIds(metaId)
+            if (::episodes.isInitialized) episodeAdapter.notifyItemRangeChanged(0, episodeAdapter.itemCount)
+            updateSeasonLabels()
+        }
+    }
+
+    /** Podpis przycisków sezonów z procentem obejrzanego sezonu (zaliczone odcinki / odcinki sezonu). */
+    private fun updateSeasonLabels() {
+        val m = meta ?: return
+        for (i in 0 until seasonsBar.childCount) {
+            val s = m.seasons.getOrNull(i) ?: continue
+            val pct = StremioStore.seasonPercent(m, s, watched)
+            (seasonsBar.getChildAt(i) as? TextView)?.text = (if (s == 0) "Dodatki" else "Sezon $s") + if (pct > 0) " · $pct%" else ""
+        }
+    }
+
+    private fun episodeMenu(e: StremioVideo) {
+        val on = e.id in watched
+        Dialogs.menu(this, "${e.episode}. " + e.title.ifBlank { "Odcinek ${e.episode}" }, listOf(
+            (if (on) "↺ Odznacz jako obejrzany" else "✔ Oznacz jako obejrzany") to { setWatched(e, !on) },
+        ))
+    }
+
+    fun setWatched(e: StremioVideo, on: Boolean) {
+        watched = if (on) watched + e.id else watched - e.id        // od razu na ekranie, zapis w tle
+        val i = episodeAdapter.items.indexOf(e).takeIf { it >= 0 }
+        if (i != null) episodeAdapter.notifyItemChanged(i)
+        updateSeasonLabels()
+        val m = meta
+        lifecycleScope.launch { StremioStore.setWatched(metaId, e, "series", m?.name ?: title.text.toString(), m?.poster ?: intent.getStringExtra(EXTRA_POSTER).orEmpty(), on) }
     }
 
     /**
@@ -422,9 +479,9 @@ class StremioDetailActivity : BaseActivity() {
             // sortowanie stabilne: polska wersja (dubbing / lektor, potem napisy) na górze rozdzielczości, dalej kolejność wtyczki
             val by = order.mapNotNull { q -> groups[q]?.let { l -> q to l.map { it to StremioStreams.polishRank(it) }.sortedBy { it.second }.map { it.first } } }
             val notes = buildList<SourceItem> {
+                // (7.11) błędy i przekroczenia czasu wtyczek są pomijane po cichu (bez komunikatów w trakcie wyszukiwania)
                 // (7.7) jeden, jednolity wiersz zamiast listy wczytywanych wtyczek
                 if (gs.any { it.loading }) add(SourceItem.Loading)
-                gs.filter { it.error != null }.forEach { add(SourceItem.Note("🧩 ${it.addon.name}: błąd – ${it.error}")) }
                 if (all.isEmpty() && gs.none { it.loading }) add(SourceItem.Note("Brak źródeł dla tego tytułu we włączonych wtyczkach."))
             }
             return SourcePrepared(by, by.flatMap { it.second }, notes)

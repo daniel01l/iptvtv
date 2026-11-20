@@ -85,6 +85,8 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
     private var scrubbing = false
     private var lastPlaying: Boolean? = null
     private var bodyRef: View? = null
+    private var buttonsRow: View? = null
+    private var extrasRow: View? = null
     private var lyricsState = 0       // 0 – nie pobierano, 1 – pobieranie, 2 – jest, 3 – brak
     /** Pierwsza pozycja listy – cel fokusu przy wejściu do prawej strefy (testy). */
     val listView: RecyclerView get() = list
@@ -141,6 +143,7 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
         val extras = LinearLayout(c).apply { gravity = Gravity.CENTER; orientation = LinearLayout.HORIZONTAL; clipChildren = false }
         for (b in if (wide) emptyList() else listOf(videoBtn, optionsBtn)) extras.addView(b, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(5); marginEnd = dp(5) })
 
+        buttonsRow = buttons; extrasRow = extras
         val left = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; clipChildren = false }
         left.addView(cover, LinearLayout.LayoutParams(coverSide, coverSide))
         left.addView(titleView, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
@@ -156,7 +159,7 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
         tabs.addView(queueTab, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(10) }); tabs.addView(lyricsTab)
         list.apply { layoutManager = LinearLayoutManager(c); adapter = this@YtMusicStage.adapter; itemAnimator = null; clipToPadding = false
             setPadding(0, dp(2), dp(4), dp(24)); isFocusable = false; descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS; overScrollMode = OVER_SCROLL_NEVER }
-        lyricsText.apply { setTextColor(Ui.text); textSize = if (wide) 20f else 17f; setLineSpacing(0f, 1.25f); setPadding(dp(6), dp(6), dp(10), dp(30)) }
+        lyricsText.apply { isFocusable = false; setTextColor(Ui.text); textSize = if (wide) 20f else 17f; setLineSpacing(0f, 1.25f); setPadding(dp(6), dp(6), dp(10), dp(30)) }
         lyricsBox.addView(lyricsText)
         lyricsScroll.apply { addView(lyricsBox); visibility = View.GONE; setOnKeyListener { _, _, e -> if (e.action == android.view.KeyEvent.ACTION_DOWN) holdScrollUntil = android.os.SystemClock.uptimeMillis() + 4000; false }
             setOnTouchListener { _, _ -> holdScrollUntil = android.os.SystemClock.uptimeMillis() + 4000; false }; isFocusable = true; isFocusableInTouchMode = false; isVerticalScrollBarEnabled = false
@@ -273,17 +276,112 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
         ensureFocus()
     }
 
-    /** Odświeża listę „Następne” (kolejka / propozycje) i stan przycisków. */
+    /**
+     * Odświeża listę „Następne” (kolejka / propozycje) i stan przycisków. Nowy utwór: fokus (jeśli był na liście albo zniknął)
+     * wraca na pierwszą pozycję, pamięć pozycji jest zerowana; ta sama lista – fokus zostaje na tej samej pozycji.
+     */
     fun refresh() {
+        val pos = focusedListPos()
+        val trackChanged = refreshedId != boundId
         items = host.entries()
         adapter.notifyDataSetChanged()
         queueTab.text = "Następne w kolejce" + (items.count { !it.current }.takeIf { it > 0 }?.let { " ($it)" } ?: "")
         updatePlay()
+        if (trackChanged) {
+            refreshedId = boundId; listMemory = -1; scrollToCurrent()
+            if (pos >= 0) post { focusListPos(0) }
+        } else if (pos >= 0) post { focusListPos(pos) }
         ensureFocus()
     }
 
-    /** Odświeżenie listy / zmiana utworu potrafi zabrać zaznaczenie – wraca na ⏯ (nawigacja pilotem nigdy nie zostaje bez fokusu). */
-    fun ensureFocus() { post { if (isShown && findFocus() == null) playBtn.requestFocus() } }
+    private var refreshedId: String? = null
+    /** Pozycja listy, na której był fokus przed przejściem na ikony nawigacji (powrót na ten sam utwór); -1 – brak. */
+    private var listMemory = -1
+    val rememberedListPos get() = listMemory
+
+    /** Odświeżenie listy / zmiana utworu potrafi zabrać zaznaczenie – wraca na pierwszą pozycję (nawigacja pilotem nigdy nie zostaje bez fokusu). */
+    fun ensureFocus() { post { if (isShown && findFocus() == null && !optionsOpen) focusContentDefault() } }
+
+    // ---------------- fokus pilotem (D-pad) ----------------
+
+    /** Indeks pozycji listy, w której jest fokus (-1 – fokus poza listą). */
+    fun focusedListPos(): Int {
+        var v: View? = findFocus()
+        while (v != null && v.parent !== list) v = v.parent as? View
+        return if (v == null) -1 else list.getChildAdapterPosition(v)
+    }
+
+    /** Fokus na pozycji [pos] listy (przewija i ponawia, aż wiersz powstanie); lista pusta – na zakładkę. */
+    fun focusListPos(pos: Int, tries: Int = 10) {
+        if (items.isEmpty()) { currentPill().requestFocus(); return }
+        val p = pos.coerceIn(0, items.size - 1)
+        val v = list.layoutManager?.findViewByPosition(p)
+        if (v != null && v.isShown && v.isFocusable) { v.requestFocus(); return }
+        list.scrollToPosition(p)
+        if (tries > 0) list.postDelayed({ focusListPos(p, tries - 1) }, 40) else playBtn.requestFocus()
+    }
+
+    private fun currentPill() = if (tab == TAB_LYRICS) lyricsTab else queueTab
+
+    /** Wejście do prawej strefy z ikon nawigacji: zakładka Tekst – okno tekstu; lista – zapamiętana pozycja albo pierwsza (bieżący utwór). */
+    private fun enterContent() {
+        if (tab == TAB_LYRICS) lyricsScroll.requestFocus() else focusListPos(if (listMemory >= 0) listMemory else 0)
+    }
+
+    private fun focusContentDefault() { if (tab == TAB_LYRICS) lyricsScroll.requestFocus() else focusListPos(0) }
+
+    /**
+     * Własna nawigacja D-pad widoku muzycznego (fokus nigdy nie ucieka ani nie ginie): lista – ▲▼ po pozycjach (na pierwszej ▲ →
+     * zakładka), ◄ → ostatnia ikona z prawej (opcje), pozycja zapamiętana do powrotu; tekst – ▲▼ przewijają okno i nie opuszczają go
+     * (tylko ▲ na samej górze → zakładka); zakładki ◄► i ▼ do treści; z ikon ► (z opcji) do listy / tekstu. Zwraca true, gdy klawisz obsłużono.
+     */
+    fun handleKey(e: android.view.KeyEvent): Boolean {
+        val k = e.keyCode
+        if (k != android.view.KeyEvent.KEYCODE_DPAD_LEFT && k != android.view.KeyEvent.KEYCODE_DPAD_RIGHT && k != android.view.KeyEvent.KEYCODE_DPAD_UP && k != android.view.KeyEvent.KEYCODE_DPAD_DOWN) return false
+        if (optionsOpen) return false
+        val f = findFocus() ?: return false
+        val down = e.action == android.view.KeyEvent.ACTION_DOWN
+        fun act(block: () -> Unit): Boolean { if (down) block(); return true }
+        val left = k == android.view.KeyEvent.KEYCODE_DPAD_LEFT; val right = k == android.view.KeyEvent.KEYCODE_DPAD_RIGHT
+        val up = k == android.view.KeyEvent.KEYCODE_DPAD_UP
+        val pos = focusedListPos()
+        when {
+            pos >= 0 -> return when {
+                left && wide -> act { listMemory = pos; optionsBtn.requestFocus() }
+                left || right -> true
+                up && pos == 0 -> act { listMemory = 0; currentPill().requestFocus() }
+                up -> act { focusListPos(pos - 1) }
+                else -> act { if (pos < items.size - 1) focusListPos(pos + 1) }
+            }
+            f === lyricsScroll -> return when {
+                left && wide -> act { optionsBtn.requestFocus() }
+                left || right -> true
+                up && lyricsScroll.scrollY <= 0 -> act { currentPill().requestFocus() }
+                else -> act { holdScrollUntil = android.os.SystemClock.uptimeMillis() + 4000; lyricsScroll.smoothScrollBy(0, (if (up) -1 else 1) * maxOf(dp(80), lyricsScroll.height / 3)) }
+            }
+            f === queueTab || f === lyricsTab -> return when {
+                left && f === lyricsTab -> act { queueTab.requestFocus() }
+                left -> if (wide) act { optionsBtn.requestFocus() } else true
+                right -> if (f === queueTab) act { lyricsTab.requestFocus() } else true
+                up -> if (wide) true else act { optionsBtn.requestFocus() }
+                else -> act { enterContent() }
+            }
+        }
+        // ikony nawigacji i pasek postępu
+        val bottomRow = if (wide) buttonsRow else extrasRow
+        val inBottom = bottomRow != null && f.parent === bottomRow
+        return when {
+            wide && right && f === optionsBtn -> act { enterContent() }
+            !wide && right && f === optionsBtn -> true
+            left && f === shuffleBtn && wide -> true
+            left && !wide && f === videoBtn -> true
+            up && f === timeBar -> true
+            !wide && !up && !left && !right && inBottom -> act { enterContent() }
+            wide && !up && !left && !right && inBottom -> true
+            else -> false
+        }
+    }
+
 
     /** Okładka w największym dostępnym rozmiarze (miniatury YouTube: …/vi/ID/mqdefault.jpg → maxresdefault.jpg). */
     private fun hires(url: String) = url.replace(Regex("""/(default|mqdefault|hqdefault|sddefault)(\.jpg|\.webp)"""), "/maxresdefault.jpg")
@@ -292,6 +390,7 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
 
     /** Komunikat w zakładce „Tekst” (pobieranie / brak tekstu) zamiast wierszy. */
     private fun showLyricsStatus(msg: String) {
+        lyricsScroll.scrollTo(0, 0)
         lyricsPlain = msg; lyricIdx = -1; lyricLines = emptyList(); lyricTimes = LongArray(0)
         while (lyricsBox.childCount > 1) lyricsBox.removeViewAt(1)
         lyricsText.text = msg; lyricsText.visibility = if (msg.isEmpty()) View.GONE else View.VISIBLE
@@ -311,7 +410,7 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
         lyricLines = r.synced.map { l ->
             TextView(context).apply {
                 text = l.text.ifBlank { "♪" }; textSize = if (wide) 22f else 18f; setLineSpacing(0f, 1.15f)
-                setTextColor(Ui.withAlpha(Ui.text, 0x88)); setPadding(dp(6), dp(9), dp(10), dp(9)); isClickable = true
+                setTextColor(Ui.withAlpha(Ui.text, 0x88)); setPadding(dp(6), dp(9), dp(10), dp(9)); isClickable = true; isFocusable = false   // wiersz nie przejmuje fokusu D-pad (dotyk działa)
                 setOnClickListener { host.player?.seekTo(l.ms) }
             }.also { lyricsBox.addView(it, LinearLayout.LayoutParams(-1, -2)) }
         }
@@ -367,8 +466,8 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
     /** Pobierz tekst od nowa (przełącznik „Teksty piosenek”). */
     fun resetLyrics() { lyricsState = 0; showLyricsStatus(""); if (tab == TAB_LYRICS) selectTab(TAB_LYRICS) }
 
-    /** Fokus startowy: ⏯. */
-    fun focusDefault() { playBtn.requestFocus() }
+    /** Fokus startowy (wejście do widoku muzycznego): pierwsza pozycja listy (bieżący utwór) albo okno tekstu. */
+    fun focusDefault() { listMemory = -1; focusContentDefault() }
 
 
     // ---------------- okno opcji w stylu widoku muzycznego ----------------

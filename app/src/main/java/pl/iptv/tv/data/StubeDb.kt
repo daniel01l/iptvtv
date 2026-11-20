@@ -128,13 +128,32 @@ interface WatchLaterDao {
     @Query("SELECT COUNT(*) FROM watch_later") suspend fun count(): Int
 }
 
+/** Zapisany tekst piosenki (cache [YtLyrics]): [plain] i [synced] (LRC) albo [missing] – brak tekstu (ponowne zapytanie dopiero po TTL). */
+@Entity(tableName = "lyrics_cache")
+data class LyricsCacheEntry(
+    @PrimaryKey val key: String,
+    val plain: String = "",
+    val synced: String = "",
+    val missing: Boolean = false,
+    val savedAt: Long,
+)
+
+@Dao
+interface LyricsCacheDao {
+    @Query("SELECT * FROM lyrics_cache WHERE `key` = :key") suspend fun get(key: String): LyricsCacheEntry?
+    @Upsert suspend fun put(e: LyricsCacheEntry)
+    @Query("DELETE FROM lyrics_cache WHERE savedAt < :before") suspend fun prune(before: Long)
+    @Query("DELETE FROM lyrics_cache") suspend fun clear()
+}
+
 // v2: lista „Do obejrzenia później”, v3: kolejka odtwarzania, v4: kafelki pulpitu X25, v5: Stremio (wtyczki, postęp) – migracje automatyczne (schematy w app/schemas), dane zachowane
 // v6: dobrane ustawienia silnika kanałów TV (ChannelEngineOptimizer)
 @Database(entities = [SearchEntry::class, WatchProgress::class, WatchLater::class, QueueItem::class, DashTile::class, StremioAddonState::class, StremioProgress::class,
-    ChannelEngine::class], version = 7, exportSchema = true,
+    ChannelEngine::class, LyricsCacheEntry::class, StremioWatched::class], version = 9, exportSchema = true,
     autoMigrations = [androidx.room.AutoMigration(from = 1, to = 2), androidx.room.AutoMigration(from = 2, to = 3), androidx.room.AutoMigration(from = 3, to = 4), androidx.room.AutoMigration(from = 4, to = 5),
-        androidx.room.AutoMigration(from = 5, to = 6), androidx.room.AutoMigration(from = 6, to = 7)])
+        androidx.room.AutoMigration(from = 5, to = 6), androidx.room.AutoMigration(from = 6, to = 7), androidx.room.AutoMigration(from = 7, to = 8), androidx.room.AutoMigration(from = 8, to = 9)])
 abstract class StubeDatabase : RoomDatabase() {
+    abstract fun lyrics(): LyricsCacheDao
     abstract fun channelEngines(): ChannelEngineDao
     abstract fun search(): SearchDao
     abstract fun progress(): ProgressDao

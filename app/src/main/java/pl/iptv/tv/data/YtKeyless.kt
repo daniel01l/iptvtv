@@ -16,6 +16,7 @@ import org.schabi.newpipe.extractor.stream.StreamType
 object YtKeyless {
     const val MUSIC = "trending_music"; const val LIVE = "live"; const val GAMING = "trending_gaming"
     const val MOVIES = "trending_movies_and_shows"; const val PODCASTS = "trending_podcasts_episodes"
+    const val TRENDING = "Trending"
 
     /** Źródło danych (testy podmieniają na wersję bez sieci). */
     interface Source {

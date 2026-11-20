@@ -103,6 +103,14 @@
 
 Kanał trafia do „ostatnio oglądanych” po co najmniej 1 minucie odtwarzania.
 
+**v7.11** (20.11.2026):
+- **STube – kategorie na pasku bocznym**: Aktualności, Na czasie, Muzyka, Sport, Dla dzieci, Wiadomości, Gry (własne ikony i zestawy filmów; Aktualności = komentarze i analizy, Wiadomości = serwisy informacyjne). OK / dotknięcie od razu otwiera pełną siatkę, kursor na pierwszym filmie, WSTECZ wraca; szybka zmiana kategorii anuluje poprzednie ładowanie; stan ładowania / pusty / błąd z „Ponów”.
+- **STube – wyszukiwanie**: podpowiedzi na żywo (z krótką zwłoką, w tle) obok historii, lista pod polem; po powrocie z odtwarzacza zostaje rząd i kafelek; skrót „Teraz odtwarzane” (ikona na pasku, klawisz INFO, dotknięcie paska); teksty piosenek z kilku źródeł i pamięcią w Room.
+- **Stremio – stabilny kursor** na ekranie głównym (▲▼ pomijają rzędy jeszcze się wczytujące, ta sama kolumna, blokada krawędzi); wtyczki, które zawiodą, są pomijane po cichu (bez komunikatów o błędach).
+- **Stremio – odcinki**: ◄ ze źródeł wraca dokładnie na odcinek, z którego wszedłeś; znaczek „✓ Obejrzany”; odcinek zalicza się po przejściu z okienka „Następny odcinek” albo po 3 min oglądania; długie OK na odcinku – ręczne zaznaczenie / odznaczenie; procent obejrzanego sezonu przy sezonach.
+- **Stremio – „Obejrzane”**: rząd z obejrzanymi filmami i serialami (procent sezonu i pasek na plakacie).
+- **Odtwarzacz Stremio**: ◄► i przyciski – 10 s, na zaznaczonym pasku postępu – 1,5 min; ikona „Odcinki serialu” / „Inne części filmu” (panel boczny z listą i szybkim przejściem).
+
 **v7.10** (19.11.2026):
 - **Widok muzyczny STube**: zaznaczenie nie znika po zmianie utworu, widok zostaje na kolejnych piosenkach (koniec utworu = następna propozycja, bez okna z teledyskiem), przycisk „Teledysk” w rzędzie sterowania, okładka i rozmyte tło w wysokiej rozdzielczości, wyraźniejsze zakładki i bieżący utwór; **tekst zsynchronizowany jak karaoke** (śpiewany wiersz podświetlony i wyśrodkowany, stuknięcie przewija); **nowe okno opcji** w stylu widoku (ikony, wartości, kolory motywu).
 - **Propozycje tylko z piosenek**: bez składanek („Hity 2026”), wideo dłuższych niż 9 minut, vlogów, filmów i odcinków; w playlistach i autoodtwarzaniu wykonawcy przeplatani.
