@@ -53,6 +53,10 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
         fun remove(e: Entry)
         fun entries(): List<Entry>
         fun wantLyrics()
+        /** (7.16) Ręczna synchronizacja tekstu zmieniona (ms; dodatnie – tekst opóźniony) – do zapamiętania dla utworu. */
+        fun lyricDelayChanged(ms: Long) {}
+        /** (7.16) Łączna długość (ms) fragmentów pominiętych przez SponsorBlock przed pozycją [posMs] (bez nakładania się) – tekst z płyty ich nie zawiera. */
+        fun skippedBefore(posMs: Long): Long = 0L
     }
 
     companion object {
@@ -78,6 +82,34 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
     private var lyricLines: List<TextView> = emptyList()
     private var lyricTimes = LongArray(0)
     private var lyricIdx = -1
+    /** (7.16) Ręczne przesunięcie tekstu względem utworu (ms; dodatnie – tekst opóźniony). */
+    var lyricDelayMs = 0L; private set
+    /** Tryb ręcznej synchronizacji: OK na tekście włącza, ◄ ► przesuwają tekst, OK kończy. */
+    var syncMode = false; private set
+    private val syncHint = TextView(c).apply {
+        textSize = 13f; setTextColor(Color.WHITE); setPadding(dp(14), dp(7), dp(14), dp(7)); visibility = View.GONE; isClickable = true
+        background = GradientDrawable().apply { setColor(0xB0000000.toInt()); cornerRadius = dp(18).toFloat() }
+        setOnClickListener { toggleSync() }
+    }
+    val hasSyncedLyrics get() = lyricLines.isNotEmpty()
+    private var lyricLenSec = 0.0
+
+    /**
+     * Czas wiersza w czasie filmu: tekst pochodzi zwykle z płyty, a film ma dodatkowe fragmenty (wstęp, rozmowa), które SponsorBlock
+     * pomija – pozycja filmu jest wtedy większa o ich długość. Korekta tylko, gdy przybliża długość filmu do długości tekstu
+     * (albo długość tekstu nieznana).
+     */
+    private fun skipped(posMs: Long): Long {
+        val total = host.skippedBefore(Long.MAX_VALUE)
+        if (total <= 0) return 0
+        val dur = host.player?.duration?.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
+        val len = (lyricLenSec * 1000).toLong()
+        val aware = len <= 0 || dur <= 0 || Math.abs(dur - total - len) < Math.abs(dur - len)
+        return if (aware) host.skippedBefore(posMs) else 0
+    }
+
+    /** Pozycja filmu (ms) odpowiadająca czasowi wiersza [songMs] (odwrotność [skipped], kilka przybliżeń). */
+    private fun videoPos(songMs: Long): Long { var p = songMs + lyricDelayMs; repeat(3) { p = songMs + lyricDelayMs + skipped(p) }; return p.coerceAtLeast(0) }
     private var holdScrollUntil = 0L
     private var lyricsPlain = ""
     private val adapter = Adapter()
@@ -165,9 +197,10 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
         lyricsBox.addView(lyricsText)
         lyricsScroll.apply { addView(lyricsBox); visibility = View.GONE; setOnKeyListener { _, _, e -> if (e.action == android.view.KeyEvent.ACTION_DOWN) holdScrollUntil = android.os.SystemClock.uptimeMillis() + 4000; false }
             setOnTouchListener { _, _ -> holdScrollUntil = android.os.SystemClock.uptimeMillis() + 4000; false }; isFocusable = true; isFocusableInTouchMode = false; isVerticalScrollBarEnabled = false
-            background = focusFrame() }
+            background = focusFrame(); isClickable = true; setOnClickListener { toggleSync() } }
         val rightBody = FrameLayout(c).apply { clipChildren = true }
         rightBody.addView(list, LayoutParams(-1, -1)); rightBody.addView(lyricsScroll, LayoutParams(-1, -1))
+        rightBody.addView(syncHint, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(10), dp(10)) })
         val right = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; clipChildren = true }
         right.addView(tabs, LinearLayout.LayoutParams(-1, -2)); right.addView(rightBody, LinearLayout.LayoutParams(-1, 0, 1f))
 
@@ -362,6 +395,8 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
         val up = k == android.view.KeyEvent.KEYCODE_DPAD_UP
         val pos = focusedListPos()
         when {
+            // (7.16) tryb ręcznej synchronizacji tekstu: ◄ ► przesuwają tekst o 0,25 s (tekst wcześniej / później)
+            f === lyricsScroll && syncMode && (left || right) -> return act { nudgeLyrics(if (right) 250 else -250) }
             pos >= 0 -> return when {
                 left && wide -> act { listMemory = pos; optionsBtn.requestFocus() }
                 right -> act { removeAt(pos) }
@@ -406,10 +441,46 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
     private fun scrollToCurrent() { list.scrollToPosition(0) }
 
     /** Komunikat w zakładce „Tekst” (pobieranie / brak tekstu) zamiast wierszy. */
+    /** Przesunięcie tekstu w sekundach z jednym miejscem po przecinku, ze znakiem. */
+    fun delayLabel(ms: Long = lyricDelayMs) = "%+.2f".format(java.util.Locale.US, ms / 1000.0).replace('.', ',') + " s"
+
+    private fun refreshSyncHint() {
+        val on = tab == TAB_LYRICS && lyricLines.isNotEmpty()
+        syncHint.visibility = if (on) View.VISIBLE else View.GONE
+        syncHint.text = if (syncMode) "◄ ► przesuń tekst (${delayLabel()}) · OK – gotowe"
+            else if (lyricDelayMs != 0L) "OK – synchronizacja tekstu (${delayLabel()})" else "OK – synchronizacja tekstu"
+    }
+
+    fun toggleSync() {
+        if (lyricLines.isEmpty()) return
+        syncMode = !syncMode; refreshSyncHint()
+    }
+
+    fun setLyricDelay(ms: Long) {
+        lyricDelayMs = ms.coerceIn(-30_000L, 30_000L); refreshSyncHint(); updateLyricLine(force = true)
+    }
+
+    /** Przesuwa tekst o [deltaMs] (dodatnie – później) i zapamiętuje dla utworu. */
+    fun nudgeLyrics(deltaMs: Long) { setLyricDelay(lyricDelayMs + deltaMs); host.lyricDelayChanged(lyricDelayMs) }
+
+    /**
+     * Szybkie dopasowanie: „teraz śpiewany jest [next] ? następny : poprzedni wiersz” – przesunięcie tak, by ten wiersz był podświetlony
+     * w tej chwili. Zwraca false, gdy tekst nie jest zsynchronizowany.
+     */
+    fun snapLyrics(next: Boolean): Boolean {
+        if (lyricTimes.isEmpty()) return false
+        val t = (lyricIdx + if (next) 1 else -1).coerceIn(0, lyricTimes.size - 1)
+        val vp = host.player?.currentPosition ?: 0L; val raw = vp + 250 - skipped(vp)
+        setLyricDelay(raw - lyricTimes[t]); host.lyricDelayChanged(lyricDelayMs)
+        return true
+    }
+
     private fun showLyricsStatus(msg: String) {
+        syncMode = false
         lyricsScroll.scrollTo(0, 0)
         lyricsPlain = msg; lyricIdx = -1; lyricLines = emptyList(); lyricTimes = LongArray(0)
         while (lyricsBox.childCount > 1) lyricsBox.removeViewAt(1)
+        refreshSyncHint()
         lyricsText.text = msg; lyricsText.visibility = if (msg.isEmpty()) View.GONE else View.VISIBLE
     }
 
@@ -419,7 +490,7 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
      */
     fun setLyrics(r: pl.iptv.tv.data.YtLyrics.Result?) {
         if (r == null) { lyricsState = 3; showLyricsStatus("Brak tekstu dla tego utworu"); lyricsTab.alpha = 0.6f; return }
-        lyricsState = 2; lyricsTab.alpha = 1f
+        lyricsState = 2; lyricsTab.alpha = 1f; lyricLenSec = r.duration
         if (!r.isSynced) { showLyricsStatus(r.plain); return }
         showLyricsStatus("")
         lyricsPlain = r.synced.joinToString("\n") { it.text }
@@ -428,17 +499,19 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
             TextView(context).apply {
                 text = l.text.ifBlank { "♪" }; textSize = if (wide) 22f else 18f; setLineSpacing(0f, 1.15f)
                 setTextColor(Ui.withAlpha(Ui.text, 0x88)); setPadding(dp(6), dp(9), dp(10), dp(9)); isClickable = true; isFocusable = false   // wiersz nie przejmuje fokusu D-pad (dotyk działa)
-                setOnClickListener { host.player?.seekTo(l.ms) }
+                setOnClickListener { host.player?.seekTo(videoPos(l.ms)) }
             }.also { lyricsBox.addView(it, LinearLayout.LayoutParams(-1, -2)) }
         }
         lyricsBox.addView(View(context), LinearLayout.LayoutParams(-1, dp(120)))     // miejsce na wyśrodkowanie ostatnich wierszy
+        refreshSyncHint()
         updateLyricLine(force = true)
     }
 
     /** Wiersz śpiewany teraz wg pozycji odtwarzacza: podświetlenie i płynne wyśrodkowanie (chyba że użytkownik przewija ręcznie). */
     private fun updateLyricLine(force: Boolean = false) {
         if (lyricLines.isEmpty()) return
-        val pos = (host.player?.currentPosition ?: 0L) + 250          // lekkie wyprzedzenie – wiersz podświetla się tuż przed śpiewem
+        val vpos = host.player?.currentPosition ?: 0L
+        val pos = vpos + 250 - lyricDelayMs - skipped(vpos)   // lekkie wyprzedzenie – wiersz podświetla się tuż przed śpiewem
         var i = -1
         for (k in lyricTimes.indices) { if (lyricTimes[k] <= pos) i = k else break }
         if (i == lyricIdx && !force) return
@@ -456,6 +529,8 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
         queueTab.isSelected = t == TAB_QUEUE; lyricsTab.isSelected = t == TAB_LYRICS
         list.visibility = if (t == TAB_QUEUE) View.VISIBLE else View.GONE
         lyricsScroll.visibility = if (t == TAB_LYRICS) View.VISIBLE else View.GONE
+        if (t != TAB_LYRICS) syncMode = false
+        refreshSyncHint()
         if (t == TAB_LYRICS && lyricsState == 0) { lyricsState = 1; showLyricsStatus("Szukanie tekstu…"); host.wantLyrics() }
         if (t == TAB_LYRICS) { holdScrollUntil = 0; updateLyricLine(force = true) }
     }

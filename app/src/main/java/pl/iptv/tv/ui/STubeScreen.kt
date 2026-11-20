@@ -58,6 +58,12 @@ class STubeRow(val id: String, val title: String, val load: suspend (page: Strin
 object STubeScreen {
     const val ROW_SEARCH = "search"; const val ROW_FOR_YOU = "for_you"; const val ROW_TRENDING = "trending"
     const val ROW_MUSIC = "music"; const val ROW_SUBS = "subs"; const val ROW_LOGIN = "login"
+    private val BIG_THUMB = Regex("/(maxres|sd|hq)default(_live)?\\.(jpg|webp)")
+
+    /** (7.16) Mniejszy wariant miniatury YouTube dla widoku o szerokości [widthPx] ≤ 400 (16:9, bez czarnych pasów hqdefault). */
+    fun thumbUrl(url: String, widthPx: Int): String =
+        if (widthPx in 1..400 && url.contains("ytimg.com/vi")) BIG_THUMB.replace(url) { "/mqdefault${it.groupValues[2]}.${it.groupValues[3]}" } else url
+
     const val ACT_LOGIN = "login"; const val ACT_SMARTTUBE_SEARCH = "st_search"; const val ACT_RETRY = "retry"
 
     /** Wymiary kafelków (dp). */
@@ -419,6 +425,32 @@ class STubeTileAdapter(private val row: STubeRow) : RecyclerView.Adapter<STubeTi
         return vh
     }
 
+    /**
+     * (7.16) Miniatura w rozmiarze widoku (bez dekodowania pełnego obrazu), mniejszy wariant adresu YouTube dla małych kafelków
+     * (mqdefault 320×180 – kilka razy mniej danych niż maxresdefault) i łagodne pojawienie się obrazu.
+     */
+    private fun loadThumb(iv: ImageView, url: String) {
+        val lp = iv.layoutParams
+        val w = lp?.width ?: 0; val h = lp?.height ?: 0
+        val smooth = !runCatching { pl.iptv.tv.data.Prefs.lowPerf }.getOrDefault(false)
+        iv.load(STubeScreen.thumbUrl(url, w)) {
+            crossfade(if (smooth) 140 else 0)
+            if (w > 0 && h > 0) size(w, h)
+        }
+    }
+
+    /** Wczytuje z wyprzedzeniem miniatury [count] kafelków od [from] (do pamięci podręcznej) – siatka pojawia się już z obrazami. */
+    fun prefetch(ctx: android.content.Context, from: Int, count: Int) {
+        val lay = StubeTheme.layout
+        val w = Ui.dp(lay.tileW) - Ui.dp(12); val h = Ui.dp(lay.thumbH)
+        val loader = coil.Coil.imageLoader(ctx)
+        for (i in from until minOf(row.tiles.size, from + count)) {
+            val v = (row.tiles[i] as? STubeTile.Video)?.v ?: continue
+            if (v.thumb.isBlank()) continue
+            loader.enqueue(coil.request.ImageRequest.Builder(ctx).data(STubeScreen.thumbUrl(v.thumb, w)).size(w, h).build())
+        }
+    }
+
     private fun tileIcon(kind: String) = PlayerIcon(kind, android.content.res.ColorStateList(
         arrayOf(intArrayOf(android.R.attr.state_focused), intArrayOf(android.R.attr.state_pressed), intArrayOf()),
         intArrayOf(Ui.focusText, Ui.focusText, Ui.withAlpha(Ui.text, 0xB0))))
@@ -443,7 +475,7 @@ class STubeTileAdapter(private val row: STubeRow) : RecyclerView.Adapter<STubeTi
         when (val t = row.tiles[position]) {
             is STubeTile.Video -> {
                 h.icon.visibility = View.GONE; h.thumb.visibility = View.VISIBLE
-                if (t.v.thumb.isNotBlank()) h.thumb.load(t.v.thumb) { crossfade(false) }
+                if (t.v.thumb.isNotBlank()) loadThumb(h.thumb, t.v.thumb)
                 val d = STubeScreen.duration(t.v.duration)
                 h.badge.text = d.ifBlank { if (t.v.duration == "P0D") "● NA ŻYWO" else "" }
                 h.badge.visibility = if (h.badge.text.isEmpty()) View.GONE else View.VISIBLE
@@ -453,7 +485,7 @@ class STubeTileAdapter(private val row: STubeRow) : RecyclerView.Adapter<STubeTi
             }
             is STubeTile.Channel -> {
                 h.icon.visibility = View.GONE; h.badge.visibility = View.GONE
-                if (t.c.thumb.isNotBlank()) h.thumb.load(t.c.thumb) { crossfade(false) }
+                if (t.c.thumb.isNotBlank()) loadThumb(h.thumb, t.c.thumb)
                 h.title.text = t.c.title; h.sub.visibility = View.GONE
                 h.root.contentDescription = t.c.title
             }
@@ -461,7 +493,7 @@ class STubeTileAdapter(private val row: STubeRow) : RecyclerView.Adapter<STubeTi
                 // miniatura playlisty (konto/kanał) albo duża ikona (listy lokalne); liczba filmów w rogu
                 val hasThumb = t.p.thumb.isNotBlank()
                 h.icon.visibility = if (hasThumb) View.GONE else View.VISIBLE; h.icon.setImageDrawable(tileIcon(STubeScreen.playlistIconKind(t.p.id)))
-                if (hasThumb) h.thumb.load(t.p.thumb) { crossfade(false) }
+                if (hasThumb) loadThumb(h.thumb, t.p.thumb)
                 val count = if (t.p.id == STubeScreen.PL_LATER) StubeHistory.watchLaterCount else t.p.count
                 h.badge.text = if (count >= 0) "☰ $count" else ""
                 h.badge.visibility = if (h.badge.text.isEmpty()) View.GONE else View.VISIBLE

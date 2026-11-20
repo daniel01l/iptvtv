@@ -129,6 +129,11 @@ object Prefs {
     /** (7.9) Tekst piosenki w widoku muzycznym (zapytanie z tytułem i wykonawcą do bazy tekstów). */
     /** (7.14) Odrzucone utwory STube (wykonawcy, gatunki, id) – patrz [StubeTaste]. */
     var ytDislikes: String get() = str("yt_dislikes"); set(v) = put("yt_dislikes", v)
+    /** (7.16) Pasek boczny STube: kolejność ikon (klucze po przecinku; puste = domyślna) i ukryte ikony. */
+    var stubeRailOrder: String get() = str("stube_rail_order"); set(v) = put("stube_rail_order", v)
+    var stubeRailHidden: String get() = str("stube_rail_hidden"); set(v) = put("stube_rail_hidden", v)
+    /** (7.16) Ręczne przesunięcia synchronizacji tekstu: „idFilmu=ms” po przecinku (ostatnie 200). */
+    var ytLyricDelays: String get() = str("yt_lyric_delays"); set(v) = put("yt_lyric_delays", v)
     var ytLyrics: Boolean get() = bool("yt_lyrics", true); set(v) = putBool("yt_lyrics", v)
     /** Korektor dźwięku: preset ([pl.iptv.tv.ui.YtEq]) i poziomy pasm presetu „Własny” (millibele, po przecinku). */
     var ytEqPreset: Int get() = int("yt_eq", 0); set(v) = putInt("yt_eq", v)

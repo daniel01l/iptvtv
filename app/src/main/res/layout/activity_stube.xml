@@ -4,11 +4,11 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/stRoot" android:layout_width="match_parent" android:layout_height="match_parent"
     android:orientation="horizontal" android:clipChildren="true">
-    <ScrollView android:id="@+id/stRailScroll" android:layout_width="wrap_content" android:layout_height="match_parent"
+    <pl.iptv.tv.ui.RailScrollView android:id="@+id/stRailScroll" android:layout_width="wrap_content" android:layout_height="match_parent"
         android:fillViewport="true" android:scrollbars="none" android:focusable="false" android:clipChildren="false" android:overScrollMode="never">
     <LinearLayout android:id="@+id/stRail" android:layout_width="wrap_content" android:layout_height="wrap_content"
         android:orientation="vertical" android:gravity="center_horizontal" android:clipChildren="false"
-        android:paddingStart="12dp" android:paddingEnd="12dp" android:paddingTop="24dp" android:paddingBottom="28dp">
+        android:paddingStart="12dp" android:paddingEnd="12dp" android:paddingTop="16dp" android:paddingBottom="16dp">
         <TextView android:id="@+id/stAccount" style="@style/StubeRail" android:text="👤"/>
         <TextView android:id="@+id/stSearch" style="@style/StubeRail" android:layout_marginTop="14dp" android:text="🔎"/>
         <TextView android:id="@+id/stHome" style="@style/StubeRail" android:text="🏠"/>
@@ -25,10 +25,11 @@
         <TextView android:id="@+id/stNow" style="@style/StubeRail" android:text="♫" android:visibility="gone"/>
         <TextView android:id="@+id/stSmartTube" style="@style/StubeRail" android:text="▶"/>
         <View android:id="@+id/stRailSpace" android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1"/>
+        <TextView android:id="@+id/stEdit" style="@style/StubeRail" android:text="✎"/>
         <TextView android:id="@+id/stRefresh" style="@style/StubeRail" android:text="⟳"/>
         <TextView android:id="@+id/stClose" style="@style/StubeRail" android:text="✕"/>
     </LinearLayout>
-    </ScrollView>
+    </pl.iptv.tv.ui.RailScrollView>
     <LinearLayout android:id="@+id/stMain" android:layout_width="0dp" android:layout_weight="1" android:layout_height="match_parent"
         android:orientation="vertical" android:clipChildren="true"
         android:paddingStart="16dp" android:paddingEnd="32dp" android:paddingTop="16dp" android:paddingBottom="0dp">

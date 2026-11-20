@@ -103,6 +103,11 @@
 
 Kanał trafia do „ostatnio oglądanych” po co najmniej 1 minucie odtwarzania.
 
+**v7.16** (20.11.2026):
+- **STube – pasek boczny**: o jedną ikonę więcej na ekranie (mniejsze ikony i odstępy), przewijanie za fokusem animowane (zaznaczona ikona w środku, ikony zanikają przy krawędziach – także w poziomym pasku na wąskim ekranie), edytor ✎ (kolejność, ukrywanie: Start, Biblioteka, Dodaj playlistę, 7 kategorii, Sterowanie z telefonu, SmartTube; „Domyślne”). Kategorie: siatka wchodzi łagodnie, miniatury w rozmiarze widoku (mniejszy wariant YouTube dla małych kafelków), z wyprzedzeniem (18 pierwszych i kolejne strony).
+- **STube – teksty**: ręczna synchronizacja (OK na tekście → ◄ ► po 0,25 s; opcje → „Synchronizacja tekstu”: „teraz śpiewany jest następny / poprzedni wiersz”, ±0,5 s / ±0,1 s, zerowanie; zapamiętywana dla filmu), korekta o fragmenty pominięte przez SponsorBlock (gdy zbliża długość filmu do długości tekstu), lepsze wyszukiwanie (tytuły w cudzysłowie, „Official Video” bez nawiasów, wybór wersji wg długości, wyszukiwanie ogólne, błąd sieci nie jest zapamiętywany jako brak tekstu; brak tekstu pamiętany 20 min).
+- **Nowoczesny / wspólne**: zmiana kategorii bez wygaszania listy, bez poświaty wokół zaznaczenia, szybsza sprężyna fokusu (też PS5, X25, biblioteka aplikacji).
+
 **v7.15** (20.11.2026):
 - **Stremio – „Następny odcinek”**: okienko pojawia się od 85% długości odcinka (zamiast ostatnich 4 minut) albo od rozdziału napisów końcowych, gdy źródło go podaje; osiągnięcie progu zapisuje się w historii (Room), więc „Wznów” i „Oglądaj dalej” trafiają we właściwy odcinek – także dla wpisów z innych urządzeń.
 - **Wyślij na telewizor**: telewizor jest widoczny w sieci (NSD, `_iptvtv._tcp.`), a telefon wysyła link żądaniem `POST /api/cast` z PIN-em – playlista YouTube / Spotify, film YouTube albo lista „Wykonawca – Tytuł”. Playlista jest pobierana w tle, zapisywana w Room i startuje jako aktywna kolejka; gdy aplikacja jest w tle, link czeka w oknie „＋” w STube. Włączane w Ustawieniach („Odbieraj linki do odtwarzania”).

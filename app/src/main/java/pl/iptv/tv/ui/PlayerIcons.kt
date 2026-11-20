@@ -32,10 +32,10 @@ class PlayerIcon(private val kind: String, private val tint: ColorStateList = Co
         // (7.10) pasek ikon STube
         const val SEARCH = "search"; const val HOME = "home"; const val PHONE = "phone"; const val REFRESH = "refresh"; const val CLOSE = "close"; const val USER = "user"
         // (7.11) kategorie STube na pasku bocznym
-        const val PLUG = "plug"; const val CINEMA = "cinema"; const val CHECK = "check"; const val STAR = "star"; const val TVSET = "tvset"; const val FILM = "film"; const val EYE = "eye"; const val PLUS = "plus"
+        const val PLUG = "plug"; const val CINEMA = "cinema"; const val CHECK = "check"; const val STAR = "star"; const val TVSET = "tvset"; const val FILM = "film"; const val EYE = "eye"; const val PLUS = "plus"; const val EDIT = "edit"
         const val NEWS = "news"; const val TRENDING = "trending"; const val SPORT = "sport"; const val KIDS = "kids"; const val HEADLINES = "headlines"; const val GAMES = "games"
         val ALL = listOf(SPEED, QUALITY, AUDIO, CC, EQ, CHAPTERS, QUEUE, PIP, AUTOPLAY, NEXT, DELAY, STYLE, ASPECT, INFO, RELATED,
-            PLAY, PAUSE, PREV, REW, FWD, AUDIO_ONLY, SHUFFLE, REPEAT, REPEAT_ONE, LYRICS, VIDEO, MUSIC, STOP, SEARCH, HOME, PHONE, REFRESH, CLOSE, USER, NEWS, TRENDING, SPORT, KIDS, HEADLINES, GAMES, PLUG, CINEMA, CHECK, STAR, TVSET, FILM, EYE, PLUS)
+            PLAY, PAUSE, PREV, REW, FWD, AUDIO_ONLY, SHUFFLE, REPEAT, REPEAT_ONE, LYRICS, VIDEO, MUSIC, STOP, SEARCH, HOME, PHONE, REFRESH, CLOSE, USER, NEWS, TRENDING, SPORT, KIDS, HEADLINES, GAMES, PLUG, CINEMA, CHECK, STAR, TVSET, FILM, EYE, PLUS, EDIT)
     }
 
     private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
@@ -122,6 +122,7 @@ class PlayerIcon(private val kind: String, private val tint: ColorStateList = Co
             FILM -> { rect(0.16f, 0.1f, 0.84f, 0.9f, 0.06f); line(0.34f, 0.1f, 0.34f, 0.9f); line(0.66f, 0.1f, 0.66f, 0.9f); line(0.16f, 0.34f, 0.34f, 0.34f); line(0.16f, 0.5f, 0.34f, 0.5f); line(0.16f, 0.66f, 0.34f, 0.66f); line(0.66f, 0.34f, 0.84f, 0.34f); line(0.66f, 0.5f, 0.84f, 0.5f); line(0.66f, 0.66f, 0.84f, 0.66f) }
             EYE -> { r.set(x(0.06f), y(0.26f), x(0.94f), y(0.74f)); c.drawOval(r, p); c.drawCircle(x(0.5f), y(0.5f), s * 0.12f, f) }
             PLUS -> { line(0.5f, 0.18f, 0.5f, 0.82f); line(0.18f, 0.5f, 0.82f, 0.5f) }
+            EDIT -> { line(0.2f, 0.78f, 0.3f, 0.5f); line(0.3f, 0.5f, 0.68f, 0.12f); line(0.68f, 0.12f, 0.88f, 0.32f); line(0.88f, 0.32f, 0.5f, 0.7f); line(0.5f, 0.7f, 0.2f, 0.78f); line(0.12f, 0.92f, 0.88f, 0.92f) }
             else -> c.drawCircle(x(0.5f), y(0.5f), s * 0.3f, p)
         }
     }

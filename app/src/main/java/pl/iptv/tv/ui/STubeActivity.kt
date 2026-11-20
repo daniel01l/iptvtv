@@ -88,7 +88,7 @@ class STubeActivity : BaseActivity() {
         scroll = findViewById(R.id.stScroll)
         account = findViewById(R.id.stAccount)
         rail = findViewById(R.id.stRail); chips = findViewById(R.id.stChips); chipScroll = findViewById(R.id.stChipScroll)
-        for ((id, desc) in listOf(R.id.stSearch to "Szukaj", R.id.stHome to "Start", R.id.stLib to "Biblioteka", R.id.stAdd to "Dodaj playlistę (link YouTube / Spotify)", R.id.stPhone to "Sterowanie z telefonu",
+        for ((id, desc) in listOf(R.id.stSearch to "Szukaj", R.id.stHome to "Start", R.id.stLib to "Biblioteka", R.id.stAdd to "Dodaj playlistę (link YouTube / Spotify)", R.id.stEdit to "Edytuj pasek boczny", R.id.stPhone to "Sterowanie z telefonu",
             R.id.stNow to "Teraz odtwarzane – otwórz odtwarzacz", R.id.stSmartTube to "SmartTube", R.id.stRefresh to "Odśwież", R.id.stClose to "Zamknij")) findViewById<View>(id).contentDescription = desc
         styleRail()
         findViewById<View>(R.id.stHome).setOnClickListener { goStart() }
@@ -100,7 +100,7 @@ class STubeActivity : BaseActivity() {
             rail.orientation = LinearLayout.HORIZONTAL; rail.setPadding(Ui.dp(6), Ui.dp(8), Ui.dp(6), 0)
             run {   // 16 ikon nie mieści się w szerokości – pasek przewijany poziomo
                 val vs = findViewById<android.view.ViewGroup>(R.id.stRailScroll); vs.removeView(rail); root.removeView(vs)
-                val hs = android.widget.HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; isFillViewport = true; overScrollMode = View.OVER_SCROLL_NEVER; isFocusable = false; clipChildren = false; addView(rail, android.widget.FrameLayout.LayoutParams(-2, -2)) }
+                val hs = RailHorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; isFillViewport = true; overScrollMode = View.OVER_SCROLL_NEVER; isFocusable = false; clipChildren = false; addView(rail, android.widget.FrameLayout.LayoutParams(-2, -2)) }
                 root.addView(hs, 0, LinearLayout.LayoutParams(-1, -2))
             }
             findViewById<View>(R.id.stMain).let { it.layoutParams = LinearLayout.LayoutParams(-1, 0, 1f); it.setPadding(Ui.dp(10), Ui.dp(6), Ui.dp(10), Ui.dp(8)) }
@@ -113,6 +113,8 @@ class STubeActivity : BaseActivity() {
             findViewById<View>(R.id.stSearch).let { (it.layoutParams as LinearLayout.LayoutParams).topMargin = 0 }
         }
 
+        applyRailLayout()
+        findViewById<View>(R.id.stEdit).setOnClickListener { editRail() }
         findViewById<View>(R.id.stClose).setOnClickListener { finish() }
         findViewById<View>(R.id.stRefresh).setOnClickListener { YouTubeRepository.clearCache(); pl.iptv.tv.data.YtKeyless.clearCache(); build(force = true) }
         findViewById<View>(R.id.stSmartTube).setOnClickListener { SmartTubeIntegrationHelper.launch(this) }
@@ -443,6 +445,7 @@ class STubeActivity : BaseActivity() {
         row.adapter.onClick = { t -> onTile(row, t) }
         row.adapter.onLongClick = { t -> tileMenu(row, t) }
         row.adapter.onFocus = { pos -> row.lastFocus = pos; if (pos >= row.tiles.size - 6 && row.next != null && !row.loading) loadCategoryPage(row) }
+        grid.animate().cancel(); grid.alpha = 0f
         grid.adapter = row.adapter
         findViewById<TextView>(R.id.stTitle).apply { text = c.title; if (narrowHeader) visibility = View.VISIBLE }
         if (rebuildChips) buildSubChips(c) else markSubChip()
@@ -451,6 +454,14 @@ class STubeActivity : BaseActivity() {
         categoryIds.forEachIndexed { i, id -> findViewById<View>(id).isSelected = STubeScreen.CATEGORIES[i].id == c.id }
         gridStatus.text = "Wczytywanie…"; gridStatus.translationY = 0f; gridStatus.visibility = View.VISIBLE
         loadCategory(row)
+    }
+
+    /** (7.16) Siatka wchodzi łagodnie (przezroczystość + lekkie uniesienie, jedna warstwa) zamiast pojawiać się naraz. */
+    private fun revealGrid() {
+        grid.animate().cancel()
+        if (runCatching { pl.iptv.tv.data.Prefs.lowPerf }.getOrDefault(false)) { grid.alpha = 1f; grid.translationY = 0f; return }
+        grid.alpha = 0f; grid.translationY = Ui.dp(14).toFloat()
+        grid.animate().alpha(1f).translationY(0f).setDuration(240).setInterpolator(android.view.animation.DecelerateInterpolator(1.4f)).start()
     }
 
     private fun loadCategory(row: STubeRow) {
@@ -466,15 +477,17 @@ class STubeActivity : BaseActivity() {
                     gridStatus.text = "Brak materiałów w tej kategorii"; gridStatus.visibility = View.VISIBLE
                     gridStatus.translationY = -Ui.dp(90).toFloat()
                 } else gridStatus.visibility = View.GONE
+                row.adapter.prefetch(this@STubeActivity, 0, 18)
                 row.adapter.notifyDataSetChanged()
                 grid.scrollToPosition(0)
+                revealGrid()
                 if (wantGridFocus) { wantGridFocus = false; focusFirstInGrid() }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 if (categoryRow !== row) return@launch
                 row.error = e.message ?: e.javaClass.simpleName
-                row.tiles.clear(); row.tiles += STubeTile.Action(STubeScreen.ACT_RETRY, "⟳", "Ponów"); row.adapter.notifyDataSetChanged()
+                row.tiles.clear(); row.tiles += STubeTile.Action(STubeScreen.ACT_RETRY, "⟳", "Ponów"); row.adapter.notifyDataSetChanged(); revealGrid()
                 gridStatus.text = "⚠ ${row.error}"; gridStatus.visibility = View.VISIBLE; gridStatus.translationY = -Ui.dp(90).toFloat()
                 if (wantGridFocus) { wantGridFocus = false; focusFirstInGrid() }
             } finally { row.loading = false }
@@ -489,12 +502,63 @@ class STubeActivity : BaseActivity() {
                 val p = row.load(page)
                 if (categoryRow !== row) return@launch
                 val start = row.tiles.size; row.tiles += p.tiles; row.next = p.next
+                row.adapter.prefetch(this@STubeActivity, start, 12)
                 row.adapter.notifyItemRangeInserted(start, p.tiles.size)
             } catch (e: CancellationException) { throw e } catch (e: Exception) { row.next = null } finally { row.loading = false }
         }
     }
 
-    private fun categoryIcon(): View = findViewById(categoryIds[STubeScreen.CATEGORIES.indexOfFirst { it.id == category?.id }.coerceAtLeast(0)])
+    private fun categoryIcon(): View = findViewById<View>(categoryIds[STubeScreen.CATEGORIES.indexOfFirst { it.id == category?.id }.coerceAtLeast(0)])
+        .takeIf { it.visibility == View.VISIBLE } ?: railEntry()
+
+    // ---------------- (7.16) edycja paska bocznego: kolejność i widoczność ikon ----------------
+
+    /** Ikony, które można przestawiać i ukrywać (klucz → id widoku, nazwa); Szukaj / konto u góry oraz Edytuj / Odśwież / Zamknij na dole są stałe. */
+    private val railItems = linkedMapOf(
+        "home" to (R.id.stHome to "Start"), "lib" to (R.id.stLib to "Biblioteka"), "add" to (R.id.stAdd to "Dodaj playlistę"),
+        "cat0" to (R.id.stCat0 to "Kategoria: Wiadomości"), "cat1" to (R.id.stCat1 to "Kategoria: Na czasie"), "cat2" to (R.id.stCat2 to "Kategoria: Muzyka"),
+        "cat3" to (R.id.stCat3 to "Kategoria: Sport"), "cat4" to (R.id.stCat4 to "Kategoria: Dzieci"), "cat5" to (R.id.stCat5 to "Kategoria: Nagłówki"),
+        "cat6" to (R.id.stCat6 to "Kategoria: Gry"), "phone" to (R.id.stPhone to "Sterowanie z telefonu"), "now" to (R.id.stNow to "Teraz odtwarzane (gdy gra)"),
+        "smart" to (R.id.stSmartTube to "SmartTube"))
+
+    private fun railOrder(): List<String> {
+        val saved = pl.iptv.tv.data.Prefs.stubeRailOrder.split(',').filter { it in railItems }.distinct()
+        return saved + railItems.keys.filter { it !in saved }
+    }
+    private fun railHidden() = pl.iptv.tv.data.Prefs.stubeRailHidden.split(',').filter { it in railItems && it != "now" }.toSet()
+
+    /** Ustawia kolejność i widoczność ikon wg zapisanych ustawień (bez gubienia fokusu i stylu). */
+    private fun applyRailLayout() {
+        val hidden = railHidden()
+        val views = railItems.mapValues { findViewById<View>(it.value.first) }
+        views.values.forEach { rail.removeView(it) }
+        var at = rail.indexOfChild(findViewById(R.id.stSearch)) + 1
+        railOrder().forEach { k ->
+            val v = views.getValue(k)
+            if (k != "now") v.visibility = if (k in hidden) View.GONE else View.VISIBLE
+            rail.addView(v, at++)
+        }
+        // „Teraz odtwarzane” widoczne tylko, gdy coś gra
+        if (miniBar?.shown != true) views.getValue("now").visibility = View.GONE
+        val cur = category
+        categoryIds.forEachIndexed { i, id -> findViewById<View>(id).isSelected = cur != null && STubeScreen.CATEGORIES[i].id == cur.id }
+    }
+
+    private fun editRail() {
+        val names = railItems.mapValues { it.value.second }
+        Dialogs.orderEditor(this, "Pasek boczny – widoczność i kolejność",
+            ids = { railOrder() }, label = { names.getValue(it) }, hidden = { it in railHidden() },
+            toggle = { k -> if (k != "now") { val h = railHidden().toMutableSet(); if (!h.add(k)) h.remove(k); pl.iptv.tv.data.Prefs.stubeRailHidden = h.joinToString(",") } },
+            move = { k, d ->
+                val l = railOrder().toMutableList(); val i = l.indexOf(k)
+                if (i >= 0) { l.removeAt(i); l.add((i + d).coerceIn(0, l.size), k); pl.iptv.tv.data.Prefs.stubeRailOrder = l.joinToString(",") }
+            },
+            reset = { pl.iptv.tv.data.Prefs.stubeRailOrder = ""; pl.iptv.tv.data.Prefs.stubeRailHidden = "" },
+            onDone = { applyRailLayout(); findViewById<View>(R.id.stEdit).requestFocus() }, onChange = { applyRailLayout() })
+    }
+
+    /** Pierwsza widoczna ikona paska, na którą wraca kursor (Start, a gdy ukryty – Szukaj). */
+    private fun railEntry(): View = listOf(R.id.stHome, R.id.stSearch, R.id.stEdit).map { findViewById<View>(it) }.first { it.visibility == View.VISIBLE }
 
     /** Fokus na pierwszym filmie siatki (ponawiany do rozmieszczenia siatki; nie odbiera kursora, gdy użytkownik już się ruszył). */
     private fun focusFirstInGrid() {
@@ -536,7 +600,7 @@ class STubeActivity : BaseActivity() {
 
     private val RAIL_ICONS = mapOf(R.id.stAccount to PlayerIcon.USER, R.id.stSearch to PlayerIcon.SEARCH, R.id.stHome to PlayerIcon.HOME, R.id.stLib to PlayerIcon.QUEUE, R.id.stAdd to PlayerIcon.PLUS,
         R.id.stCat0 to PlayerIcon.NEWS, R.id.stCat1 to PlayerIcon.TRENDING, R.id.stCat2 to PlayerIcon.MUSIC, R.id.stCat3 to PlayerIcon.SPORT, R.id.stCat4 to PlayerIcon.KIDS, R.id.stCat5 to PlayerIcon.HEADLINES, R.id.stCat6 to PlayerIcon.GAMES,
-        R.id.stPhone to PlayerIcon.PHONE, R.id.stNow to PlayerIcon.AUDIO_ONLY, R.id.stSmartTube to PlayerIcon.PLAY, R.id.stRefresh to PlayerIcon.REFRESH, R.id.stClose to PlayerIcon.CLOSE)
+        R.id.stPhone to PlayerIcon.PHONE, R.id.stNow to PlayerIcon.AUDIO_ONLY, R.id.stSmartTube to PlayerIcon.PLAY, R.id.stRefresh to PlayerIcon.REFRESH, R.id.stClose to PlayerIcon.CLOSE, R.id.stEdit to PlayerIcon.EDIT)
 
     /** Ikony paska: okrągłe, bez ramek; zaznaczona – wypełnienie koloru zaznaczenia motywu (jak aktywna ikona w aplikacjach muzycznych na TV). */
     private fun styleRail() {
@@ -1005,7 +1069,7 @@ class STubeActivity : BaseActivity() {
     private var lastRow = 0
 
     /** Pasek ikon po lewej (Start; z konta – pierwszy element). */
-    private fun focusRail() { findViewById<View>(if (searchQuery != null) R.id.stSearch else R.id.stHome).requestFocus() }
+    private fun focusRail() { (if (searchQuery != null) findViewById<View>(R.id.stSearch) else railEntry()).requestFocus() }
 
     private fun selectedSubChip(): View? =
         if (chipScroll.visibility == View.VISIBLE) (0 until chips.childCount).map(chips::getChildAt).firstOrNull { it.isSelected } ?: chips.getChildAt(0) else null

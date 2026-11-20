@@ -1,6 +1,6 @@
 {
-  "versionCode": 75,
-  "versionName": "7.15",
+  "versionCode": 76,
+  "versionName": "7.16",
   "apk": "D-iptv-Player.apk",
-  "notes": "Stremio: the Next episode card now appears from 85% of the episode (or at the end-credits chapter when available) and is saved in history, so Resume / Continue watching pick the right episode. Send to TV: the TV is discoverable on the local network and receives YouTube / Spotify playlist links or YouTube videos from a phone (PIN required) - saved in the library and started as the active queue. Enable in Settings. / Stremio: okienko Nastepny odcinek pojawia sie od 85% odcinka (lub od rozdzialu napisow koncowych) i zapisuje sie w historii, wiec Wznow i Ogladaj dalej trafiaja we wlasciwy odcinek. Wyslij na telewizor: telewizor jest widoczny w sieci i odbiera z telefonu (PIN) linki do playlist YouTube / Spotify lub filmow YouTube - zapis w bibliotece i start jako aktywna kolejka. Wlaczane w Ustawieniach."
+  "notes": "STube: side bar shows one more icon, scrolls smoothly with soft edges and can be edited (show/hide, reorder); categories and thumbnails load faster and smoother. Music view: manual lyrics sync (OK on the lyrics, left/right to shift; quick 'next/previous line' fit in options; remembered per video), lyrics corrected for segments skipped by SponsorBlock, better lyrics search. Modern theme: smoother navigation, no fade when switching categories. / STube: pasek boczny pokazuje o jedna ikone wiecej, plynnie sie przewija z miekkimi krawedziami i mozna go edytowac (pokaz/ukryj, kolejnosc); kategorie i miniatury laduja sie szybciej i plynniej. Widok muzyczny: reczna synchronizacja tekstu (OK na tekscie, strzalki przesuwaja; szybkie dopasowanie 'nastepny/poprzedni wiersz' w opcjach; zapamietywane dla filmu), korekta o fragmenty pominiete przez SponsorBlock, lepsze wyszukiwanie tekstow. Motyw Nowoczesny: plynniejsza nawigacja, bez wygaszania przy zmianie kategorii."
 }

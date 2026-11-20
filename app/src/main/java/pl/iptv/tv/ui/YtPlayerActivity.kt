@@ -753,7 +753,20 @@ class YtPlayerActivity : AppCompatActivity() {
         override fun wantLyrics() {
             val id = videoId; val title = titleView.text.toString(); val ch = stageArtist()
             val sec = (player?.duration?.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L) / 1000
-            lifecycleScope.launch { val t = YtLyrics.find(title, ch, sec); if (videoId == id && ::stage.isInitialized) stage.setLyrics(t) }
+            lifecycleScope.launch {
+                val t = YtLyrics.find(title, ch, sec)
+                if (videoId == id && ::stage.isInitialized) { stage.setLyricDelay(YtLyrics.delayFor(id)); stage.setLyrics(t) }
+            }
+        }
+        override fun lyricDelayChanged(ms: Long) { YtLyrics.saveDelay(videoId, ms) }
+        override fun skippedBefore(posMs: Long): Long {
+            var covered = 0L; var sum = 0L
+            for (s in segments.sortedBy { it.startMs }) {
+                val a = maxOf(s.startMs, covered); val b = minOf(s.endMs, posMs)
+                if (b > a) sum += b - a
+                covered = maxOf(covered, s.endMs)
+            }
+            return sum
         }
     }
 
@@ -904,6 +917,23 @@ class YtPlayerActivity : AppCompatActivity() {
         else Dialogs.menu(this, title, items)
     }
 
+    /**
+     * (7.16) Ręczna synchronizacja tekstu: szybkie dopasowanie („teraz śpiewany jest następny / poprzedni wiersz”) i korekta co 0,5 s / 0,1 s;
+     * przesunięcie zapamiętywane dla filmu. Okno otwiera się ponownie po każdej zmianie.
+     */
+    private fun lyricsSyncMenu() {
+        fun again(block: () -> Unit): () -> Unit = { block(); lyricsSyncMenu() }
+        stage.showOptions("Synchronizacja tekstu (${stage.delayLabel()})", listOf(
+            YtMusicStage.Opt(PlayerIcon.LYRICS, "Teraz śpiewany jest następny wiersz", action = again { stage.snapLyrics(true) }),
+            YtMusicStage.Opt(PlayerIcon.LYRICS, "Teraz śpiewany jest poprzedni wiersz", action = again { stage.snapLyrics(false) }),
+            YtMusicStage.Opt(PlayerIcon.DELAY, "Opóźnij tekst o 0,5 s", action = again { stage.nudgeLyrics(500) }),
+            YtMusicStage.Opt(PlayerIcon.DELAY, "Przyspiesz tekst o 0,5 s", action = again { stage.nudgeLyrics(-500) }),
+            YtMusicStage.Opt(PlayerIcon.DELAY, "Opóźnij tekst o 0,1 s", action = again { stage.nudgeLyrics(100) }),
+            YtMusicStage.Opt(PlayerIcon.DELAY, "Przyspiesz tekst o 0,1 s", action = again { stage.nudgeLyrics(-100) }),
+            YtMusicStage.Opt(PlayerIcon.REFRESH, "Zeruj synchronizację") { stage.nudgeLyrics(-stage.lyricDelayMs) },
+        ), PlayerIcon.LYRICS)
+    }
+
     /** Opcje widoku muzycznego: ikony, wartości po prawej, wszystko w jednym oknie ze stylem motywu. */
     private fun showMusicOptions() {
         val opts = buildList {
@@ -917,6 +947,7 @@ class YtPlayerActivity : AppCompatActivity() {
             add(YtMusicStage.Opt(PlayerIcon.LYRICS, "Teksty piosenek", if (Prefs.ytLyrics) "wł." else "wył.") {
                 Prefs.ytLyrics = !Prefs.ytLyrics; stage.resetLyrics(); toast("Teksty piosenek " + if (Prefs.ytLyrics) "włączone" else "wyłączone")
             })
+            if (stage.hasSyncedLyrics) add(YtMusicStage.Opt(PlayerIcon.LYRICS, "Synchronizacja tekstu", stage.delayLabel()) { lyricsSyncMenu() })
             add(YtMusicStage.Opt(PlayerIcon.VIDEO, "Teledysk (wideo)") { setMusicView(false) })
             if (!Tutorial.isTv(this@YtPlayerActivity)) add(YtMusicStage.Opt(PlayerIcon.AUDIO_ONLY, "Tylko dźwięk", if (YtEngine.audioOnly) "wł." else "wył.") { toggleAudioOnly() })
             if (pipSupported && !YtEngine.audioOnly) add(YtMusicStage.Opt(PlayerIcon.PIP, "Obraz w obrazie") { enterPip() })

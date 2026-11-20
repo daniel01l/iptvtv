@@ -443,11 +443,9 @@ class ModernHomeActivity : BaseActivity() {
     /** Przenikanie z przesunięciem o 18 dp wg [sectionAnim] – odczyt w warstwie rysowania (bez ponownego składania). */
     private fun Modifier.sectionFade(): Modifier = graphicsLayer {
         // (7.14) nowa sekcja rysowana od razu z v = 0 (wcześniej jedna klatka z pełną widocznością, potem skok); bez przesunięcia pionowego
-        val a = sectionAnim.value                       // zawsze odczytane – warstwa śledzi animację także, gdy v = 0
-        val v = if (animSection != section) 0f else a
-        alpha = 0.2f + 0.8f * v
-        // (7.7) przezroczystość nakładana przy rysowaniu (bez pełnoekranowego bufora pośredniego w każdej klatce – płynniej na TV)
-        compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
+        // (7.16) bez wygaszania całej listy przy zmianie kategorii (wyglądało źle i kosztowało klatki) – treść podmieniana od razu,
+        // jak w oknie opcji STube; płynność zapewnia przenikanie obrazu hero
+        if (animSection != section) alpha = 1f
     }
 
     /**
@@ -595,7 +593,7 @@ class ModernHomeActivity : BaseActivity() {
             .x25Clickable(onClick, onLong)
             .focusable()
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .then(if (frame) Modifier.modernFrame(focused.value, radius, c.ring, halo = !c.lowPerf) else Modifier)
+            .then(if (frame) Modifier.modernFrame(focused.value, radius, c.ring, halo = false) else Modifier)
     }
 
     // ================= UI =================
@@ -646,7 +644,7 @@ class ModernHomeActivity : BaseActivity() {
         // (7.6) zmiana sekcji: rzędy i opis hero wchodzą przenikaniem z lekkim przesunięciem (tylko w warstwie – bez przebudowy)
         LaunchedEffect(section) {
             if (lowPerfNow) { animSection = section; return@LaunchedEffect }
-            sectionAnim.snapTo(0f); animSection = section; sectionAnim.animateTo(1f, tween(SECTION_ANIM_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+            animSection = section
         }
         // zapasowo: element docelowy zniknął (np. rząd po odświeżeniu) – „Odtwórz” w hero
         LaunchedEffect(pendingFocus) {

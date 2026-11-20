@@ -160,7 +160,7 @@ const val SCROLL_STIFFNESS = 450f
  * (7.12) Wspólna sprężyna fokusu (skala, obwódka) na wszystkich pulpitach: przejmuje prędkość przerwanej animacji, więc przy
  * szybkim wciskaniu strzałek kursor płynie od elementu do elementu zamiast zaczynać każdą animację od zera (tween).
  */
-fun <T> focusSpring() = androidx.compose.animation.core.spring<T>(dampingRatio = 0.86f, stiffness = 650f)
+fun <T> focusSpring() = androidx.compose.animation.core.spring<T>(dampingRatio = 1f, stiffness = 900f)   // (7.16) bez odbicia, szybsza – kursor jak w oknie opcji
 
 /** Animowana skala elementu z fokusem (odczyt tylko w warstwie rysowania, np. `graphicsLayer { scaleX = scale }`). */
 @Composable

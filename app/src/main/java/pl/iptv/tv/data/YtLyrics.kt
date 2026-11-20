@@ -21,7 +21,7 @@ object YtLyrics {
     data class Line(val ms: Long, val text: String)
 
     /** Tekst: zwykły ([plain]) i – gdy baza ma znaczniki czasu – wiersze zsynchronizowane z utworem ([synced]). */
-    class Result(val plain: String, val synced: List<Line>) {
+    class Result(val plain: String, val synced: List<Line>, val duration: Double = 0.0) {
         val isSynced get() = synced.size >= 2
     }
 
@@ -30,9 +30,25 @@ object YtLyrics {
     }
 
     /** Czas, po którym ponawiane jest zapytanie o utwór bez tekstu. */
-    const val MISSING_TTL_MS = 2 * 3600_000L
+    const val MISSING_TTL_MS = 20 * 60_000L
     const val FOUND_TTL_MS = 90L * 24 * 3600_000L
-    const val CALL_TIMEOUT_S = 6L
+    const val CALL_TIMEOUT_S = 8L
+
+    /** (7.16) Błąd sieci / serwera w bieżącym wyszukiwaniu – brak wyniku wtedy nie jest zapamiętywany (znana piosenka nie „znika” na czas awarii). */
+    private val netError = ThreadLocal<Boolean>()
+
+    private fun delays(): Map<String, Long> = Prefs.ytLyricDelays.split(',').mapNotNull { e -> e.split('=').takeIf { it.size == 2 }?.let { it[0] to (it[1].toLongOrNull() ?: return@mapNotNull null) } }.toMap()
+
+    /** Ręczne przesunięcie synchronizacji tekstu dla filmu (ms; dodatnie – tekst opóźniony). */
+    fun delayFor(videoId: String?): Long = videoId?.let { delays()[it] } ?: 0L
+
+    fun saveDelay(videoId: String?, ms: Long) {
+        videoId ?: return
+        val m = LinkedHashMap(delays()); m.remove(videoId)
+        if (ms != 0L) m[videoId] = ms
+        while (m.size > 200) m.remove(m.keys.first())
+        Prefs.ytLyricDelays = m.entries.joinToString(",") { "${it.key}=${it.value}" }
+    }
     /** Zapasowe źródło zwykłego tekstu (bez znaczników czasu); pusty – wyłączone (testy). */
     var fallbackBase = "https://api.lyrics.ovh/v1"
 
@@ -40,6 +56,8 @@ object YtLyrics {
     fun cleanTitle(raw: String): String = raw
         .replace(Regex("(?i)[\\(\\[][^\\)\\]]*(official|video|audio|lyrics?|teledysk|clip|hd|4k|remaster|visuali[sz]er|mv|live|na żywo|explicit)[^\\)\\]]*[\\)\\]]"), " ")
         .replace(Regex("(?i)\\b(ft|feat)\\.?\\s.*$"), " ")
+        .replace(Regex("(?i)\\b(official\\s+(music\\s+)?(video|audio|lyric\\s+video|visuali[sz]er)|lyric\\s+video|lyrics?\\s+video|oficjalny\\s+teledysk|teledysk\\s+oficjalny|official)\\b"), " ")
+        .replace(Regex("^\\s*\\d{1,2}[.)]\\s+"), "")
         .replace(Regex("\\s*[|｜].*$"), " ")
         .replace(Regex("[\"“”„*#~_]+"), " ")
         .replace(Regex("\\s+"), " ").trim(' ', '-', '–', '—', '.', ',')
@@ -54,8 +72,13 @@ object YtLyrics {
     fun artistAndTrack(title: String, channel: String): Pair<String, String> {
         val c = channel.trim().removeSuffix("- Topic").removeSuffix("VEVO").trim()
         val parts = title.split(Regex("\\s[-–—]\\s"), limit = 2)
-        return if (parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) cleanTitle(parts[0]) to cleanTitle(parts[1])
-        else c to cleanTitle(title)
+        if (parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) return cleanTitle(parts[0]) to cleanTitle(parts[1])
+        // „Artysta „Utwór” (Official Video)” – tytuł w cudzysłowie
+        Regex("^(.+?)\\s*[\"„“](.+?)[\"”“]").find(title)?.let { m ->
+            val a = cleanTitle(m.groupValues[1]); val t = cleanTitle(m.groupValues[2])
+            if (a.isNotBlank() && t.isNotBlank()) return a to t
+        }
+        return c to cleanTitle(title)
     }
 
     /** Tekst albo null. Pamięć → Room (znaleziony bez TTL, brak – [MISSING_TTL_MS]) → źródła. Wywołanie w tle (Dispatchers.IO). */
@@ -65,6 +88,7 @@ object YtLyrics {
         if (track.isBlank()) return null
         val key = "$artist|$track".lowercase()
         synchronized(cache) { if (cache.containsKey(key)) return cache[key] }
+        var transient = false
         val text = withContext(Dispatchers.IO) {
             val dao = runCatching { StubeHistory.db()?.lyrics() }.getOrNull()
             val now = System.currentTimeMillis()
@@ -73,14 +97,16 @@ object YtLyrics {
                 if (saved.missing && now - saved.savedAt < MISSING_TTL_MS) return@withContext null
                 if (!saved.missing) fromEntry(saved)?.let { return@withContext it }
             }
-            val net = runCatching { fetch(artist, track, durationSec, channel) }.getOrNull()
+            netError.set(false)
+            val net = runCatching { fetch(artist, track, durationSec, channel, cleanTitle(title)) }.getOrNull()
+            if (net == null && netError.get() == true) { transient = true; return@withContext null }   // awaria sieci – bez zapamiętywania braku
             runCatching {
                 dao?.put(LyricsCacheEntry(key, net?.plain.orEmpty(), net?.synced?.joinToString("\n") { stamp(it) }.orEmpty(), net == null, now))
                 dao?.prune(now - FOUND_TTL_MS)
             }
             net
         }
-        synchronized(cache) { cache[key] = text }
+        if (!transient) synchronized(cache) { cache[key] = text }
         return text
     }
 
@@ -94,16 +120,25 @@ object YtLyrics {
 
     private val fast by lazy { Repository.http.newBuilder().callTimeout(CALL_TIMEOUT_S, java.util.concurrent.TimeUnit.SECONDS).build() }
 
-    private fun get(url: okhttp3.HttpUrl): String? = runCatching {
-        fast.newCall(Request.Builder().url(url).header("User-Agent", "D-iptv-Player").build()).execute().use { r -> if (!r.isSuccessful) null else r.body?.string() }
-    }.getOrNull()
+    private fun get(url: okhttp3.HttpUrl): String? = try {
+        fast.newCall(Request.Builder().url(url).header("User-Agent", "D-iptv-Player").build()).execute().use { r ->
+            if (!r.isSuccessful) { if (r.code != 404) netError.set(true); null } else r.body?.string()
+        }
+    } catch (e: Exception) { netError.set(true); null }
 
     /** Kaskada: LRCLIB dokładne → wyszukiwanie (tytuł oczyszczony, potem bez dopisków o remiksie) → zapytanie ogólne → zwykły tekst z zapasowego źródła. */
-    private fun fetch(artist: String, track: String, durationSec: Long, channel: String = ""): Result? {
+    private fun fetch(artist: String, track: String, durationSec: Long, channel: String = "", fullTitle: String = ""): Result? {
         val pairs = candidatePairs(artist, track, channel)
         var best: Result? = null
         for ((i, p) in pairs.withIndex()) {
-            val r = if (i == 0) fetchLrclib(p.first, p.second, durationSec) else searchOnly(p.first, p.second)
+            val r = if (i == 0) fetchLrclib(p.first, p.second, durationSec) else searchOnly(p.first, p.second, durationSec)
+            if (r?.isSynced == true) return r
+            if (best == null) best = r
+        }
+        // (7.16) wyszukiwanie ogólne po całym tytule filmu i po „wykonawca tytuł” – gdy nazwa kanału / format tytułu nie pasują do bazy
+        for (s in listOf(fullTitle, "$artist $track", baseTitle(fullTitle)).map { it.trim() }.filter { it.length > 2 }.distinct().take(2)) {
+            val u = "$apiBase/search".toHttpUrl().newBuilder().addQueryParameter("q", s).build()
+            val r = pick(searchList(u), durationSec)
             if (r?.isSynced == true) return r
             if (best == null) best = r
         }
@@ -130,11 +165,19 @@ object YtLyrics {
         return out.take(4).toList()
     }
 
-    private fun searchOnly(artist: String, track: String): Result? {
+    private fun searchOnly(artist: String, track: String, durationSec: Long = 0): Result? {
         val u = "$apiBase/search".toHttpUrl().newBuilder().addQueryParameter("track_name", track)
             .apply { if (artist.isNotBlank()) addQueryParameter("artist_name", artist) }.build()
-        val found = searchList(u)
-        return found.firstOrNull { it.isSynced } ?: found.firstOrNull()
+        return pick(searchList(u), durationSec)
+    }
+
+    /** Z wyników: zsynchronizowany o czasie najbliższym długości filmu (±10 s), inaczej pierwszy zsynchronizowany, inaczej pierwszy. */
+    private fun pick(found: List<Result>, durationSec: Long): Result? {
+        val synced = found.filter { it.isSynced }
+        if (synced.isEmpty()) return found.firstOrNull()
+        if (durationSec > 0) synced.filter { it.duration > 0 }.minByOrNull { Math.abs(it.duration - durationSec) }
+            ?.takeIf { Math.abs(it.duration - durationSec) <= 10 }?.let { return it }
+        return synced.first()
     }
 
     /** NetEase Music (nieoficjalne API bez klucza): wyszukanie utworu i tekst z znacznikami czasu. Wyłączone razem z [fallbackBase]. */
@@ -191,20 +234,24 @@ object YtLyrics {
         for (t in titles) {
             val exact = "$apiBase/get".toHttpUrl().newBuilder().addQueryParameter("artist_name", artist).addQueryParameter("track_name", t)
                 .apply { if (durationSec > 0) addQueryParameter("duration", durationSec.toString()) }.build()
-            val first = get(exact)?.let { runCatching { parse(JSONObject(it)) }.getOrNull() }
+            var first = get(exact)?.let { runCatching { parse(JSONObject(it)) }.getOrNull() }
+            if (first == null && durationSec > 0) {   // wersja teledyskowa bywa dłuższa od albumowej – dokładne dopasowanie bez czasu
+                val noDur = "$apiBase/get".toHttpUrl().newBuilder().addQueryParameter("artist_name", artist).addQueryParameter("track_name", t).build()
+                first = get(noDur)?.let { runCatching { parse(JSONObject(it)) }.getOrNull() }
+            }
             if (first?.isSynced == true) return first
             if (best == null) best = first
             val search = "$apiBase/search".toHttpUrl().newBuilder().addQueryParameter("track_name", t)
                 .apply { if (artist.isNotBlank()) addQueryParameter("artist_name", artist) }.build()
-            val found = searchList(search)
-            found.firstOrNull { it.isSynced }?.let { return it }
-            if (best == null) best = found.firstOrNull()
+            val found = pick(searchList(search), durationSec)
+            if (found?.isSynced == true) return found
+            if (best == null) best = found
         }
         if (best == null) {   // zapytanie ogólne „wykonawca tytuł” (np. odwrócona kolejność w tytule)
             val q = "$apiBase/search".toHttpUrl().newBuilder().addQueryParameter("q", "$artist ${titles.last()}".trim()).build()
-            val found = searchList(q)
-            found.firstOrNull { it.isSynced }?.let { return it }
-            best = found.firstOrNull()
+            val found = pick(searchList(q), durationSec)
+            if (found?.isSynced == true) return found
+            best = found
         }
         return best
     }
@@ -221,7 +268,7 @@ object YtLyrics {
         var plain = o.optString("plainLyrics").trim()
         if (plain.isEmpty() && synced.isNotEmpty()) plain = synced.joinToString("\n") { it.text }
         if (plain.isEmpty()) return null
-        return Result(plain, synced)
+        return Result(plain, synced, o.optDouble("duration", 0.0))
     }
 
     /** Wiersze LRC: „[mm:ss.xx] tekst” (także kilka znaczników na wiersz), posortowane po czasie. */
