@@ -89,7 +89,7 @@ class V40Test {
         assertTrue(desc, desc.contains("S"))
         assertFalse(desc.contains("Następny odcinek"))
         // ikony motywu w kolumnie przycisków
-        assertNotNull(a.findViewById<TextView>(R.id.btnSettings).compoundDrawables[1])
+        assertNotNull(a.findViewById<TextView>(R.id.btnSettings).let { it.compoundDrawables[1] ?: it.compoundDrawablesRelative[0] })   // 7.17: w pasku Obsidian ikona po lewej
         Dialogs.confirm(a, "Pytanie", "Treść") {}; idle()
         val d = ShadowDialog.getLatestDialog() as androidx.appcompat.app.AlertDialog
         assertTrue(d.getButton(android.content.DialogInterface.BUTTON_POSITIVE).isFocused)
@@ -97,7 +97,8 @@ class V40Test {
         c.pause().stop().destroy()
     }
 
-    @Test fun okShowsChannelListAboveInfoBar() {
+    /** Dawny pasek informacji i lista kanałów pod OK (7.17: w Nowoczesnym – OSD „Obsidian Stream”, V717OsdTest). */
+    @Test fun okShowsChannelListAboveInfoBar() = classicTheme {
         val c = player(3); val a = c.get()
         idle(6000)
         key(a, KeyEvent.KEYCODE_DPAD_CENTER)

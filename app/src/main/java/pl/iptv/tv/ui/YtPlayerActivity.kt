@@ -185,7 +185,7 @@ class YtPlayerActivity : AppCompatActivity() {
         // komunikat SponsorBlock – duży, w rogu, czytelny z kanapy
         skipLabel = TextView(this).apply {
             setTextColor(Color.WHITE); textSize = 18f; visibility = View.GONE; setPadding(Ui.dp(18), Ui.dp(10), Ui.dp(18), Ui.dp(10))
-            background = GradientDrawable().apply { setColor(0xD0101010.toInt()); cornerRadius = Ui.dp(22).toFloat(); setStroke(Ui.dp(2), Ui.accent) }
+            background = GradientDrawable().apply { setColor(pl.iptv.tv.ui.theme.ObsidianViews.overlay(0xD0101010.toInt())); cornerRadius = Ui.dp(22).toFloat(); setStroke(Ui.dp(2), Ui.accent) }
         }
         root.addView(skipLabel, FrameLayout.LayoutParams(-2, -2, Gravity.END or Gravity.BOTTOM).apply { setMargins(0, 0, Ui.dp(40), Ui.dp(150)) })
 
@@ -202,7 +202,7 @@ class YtPlayerActivity : AppCompatActivity() {
         chapterLabel = TextView(this).apply {
             setTextColor(Color.WHITE); textSize = 16f; visibility = View.GONE; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
             setPadding(Ui.dp(14), Ui.dp(6), Ui.dp(14), Ui.dp(6))
-            background = GradientDrawable().apply { setColor(0xC0101010.toInt()); cornerRadius = Ui.dp(16).toFloat() }
+            background = GradientDrawable().apply { setColor(pl.iptv.tv.ui.theme.ObsidianViews.overlay(0xC0101010.toInt())); cornerRadius = Ui.dp(16).toFloat() }
         }
         optionsBar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
             setPadding(Ui.dp(4), Ui.dp(6), Ui.dp(4), Ui.dp(6)); clipChildren = false; clipToPadding = false }
@@ -228,7 +228,7 @@ class YtPlayerActivity : AppCompatActivity() {
         upNextLabel = TextView(this).apply {
             setTextColor(Color.WHITE); textSize = 16f; visibility = View.GONE; maxLines = 2; maxWidth = Ui.dp(460)
             ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(Ui.dp(16), Ui.dp(10), Ui.dp(16), Ui.dp(10))
-            background = GradientDrawable().apply { setColor(0xD0101010.toInt()); cornerRadius = Ui.dp(14).toFloat(); setStroke(Ui.dp(1), Ui.withAlpha(Ui.accent, 0xA0)) }
+            background = GradientDrawable().apply { setColor(pl.iptv.tv.ui.theme.ObsidianViews.overlay(0xD0101010.toInt())); cornerRadius = Ui.dp(14).toFloat(); setStroke(Ui.dp(1), Ui.withAlpha(Ui.accent, 0xA0)) }
         }
         root.addView(upNextLabel, FrameLayout.LayoutParams(-2, -2, Gravity.END or Gravity.BOTTOM).apply { setMargins(0, 0, Ui.dp(32), Ui.dp(110)) })
         root.addView(buildShelf(), FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply { bottomMargin = Ui.dp(96) })
@@ -249,7 +249,7 @@ class YtPlayerActivity : AppCompatActivity() {
         seekBadge = TextView(this).apply {
             setTextColor(Color.WHITE); textSize = 20f; setTypeface(typeface, android.graphics.Typeface.BOLD); setShadowLayer(6f, 0f, 2f, Color.BLACK)
             setPadding(Ui.dp(16), Ui.dp(6), Ui.dp(16), Ui.dp(6))
-            background = GradientDrawable().apply { setColor(0xC0101010.toInt()); cornerRadius = Ui.dp(18).toFloat() }
+            background = GradientDrawable().apply { setColor(pl.iptv.tv.ui.theme.ObsidianViews.overlay(0xC0101010.toInt())); cornerRadius = Ui.dp(18).toFloat() }
         }
         seekProgress = android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 1000; progressTintList = android.content.res.ColorStateList.valueOf(Ui.accent or 0xFF000000.toInt())

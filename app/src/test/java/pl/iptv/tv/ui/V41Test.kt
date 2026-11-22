@@ -89,7 +89,8 @@ class V41Test {
         } finally { srv.shutdown(); Scores.follows = emptyList() }
     }
 
-    @Test fun zapListCenteredTilesAndHidesAfter3s() {
+    /** Dawny pasek informacji i lista kanałów pod OK (7.17: w Nowoczesnym – OSD „Obsidian Stream”, V717OsdTest). */
+    @Test fun zapListCenteredTilesAndHidesAfter3s() = classicTheme {
         val c = player(); val a = c.get()
         idle(6000)
         key(a, KeyEvent.KEYCODE_DPAD_CENTER)
@@ -103,7 +104,8 @@ class V41Test {
         c.pause().stop().destroy()
     }
 
-    @Test fun zapListScrollsByWholeRows() {
+    /** Dawny pasek informacji i lista kanałów pod OK (7.17: w Nowoczesnym – OSD „Obsidian Stream”, V717OsdTest). */
+    @Test fun zapListScrollsByWholeRows() = classicTheme {
         val c = player(); val a = c.get()
         idle(6000)
         key(a, KeyEvent.KEYCODE_DPAD_CENTER)

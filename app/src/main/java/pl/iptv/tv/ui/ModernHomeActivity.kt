@@ -75,6 +75,9 @@ import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import pl.iptv.tv.ui.theme.obsidianAmbientGlow
+import pl.iptv.tv.ui.theme.obsidianHeroVignette
+import pl.iptv.tv.ui.theme.obsidianGlassCard
 import pl.iptv.tv.data.Channel
 import pl.iptv.tv.data.Prefs
 import pl.iptv.tv.data.Repository
@@ -110,6 +113,7 @@ class ModernHomeActivity : BaseActivity() {
     enum class Kind { WIDE, POSTER, CHANNEL, ACTION }
 
     /** Materiał w „hero”: [images] – kolejne adresy (następny, gdy poprzedni się nie wczyta), [logo] – logo kanału na gradiencie. */
+    @androidx.compose.runtime.Immutable
     data class Feature(
         val key: String, val title: String, val meta: List<String> = emptyList(), val time: String = "", val badge: String = "",
         val desc: String = "", val images: List<String> = emptyList(), val logo: Boolean = false, val fraction: Float = -1f,
@@ -118,9 +122,13 @@ class ModernHomeActivity : BaseActivity() {
         val guide: (() -> Unit)? = null,
     )
 
+    @androidx.compose.runtime.Immutable
     data class Tile(val key: String, val title: String, val sub: String, val image: String, val kind: Kind, val feature: Feature,
-                    val fraction: Float = -1f, val icon: String = "", val run: () -> Unit)
+                    val fraction: Float = -1f, val icon: String = "",
+                    /** Kanały: czasy bieżącego programu – pasek postępu liczony przy rysowaniu ([EpgProgressFill]). */
+                    val progStart: Long = 0L, val progEnd: Long = 0L, val run: () -> Unit)
 
+    @androidx.compose.runtime.Immutable
     data class Shelf(val id: String, val title: String, val tiles: List<Tile>)
 
     private class Nav(val icon: String, val label: String)
@@ -134,8 +142,13 @@ class ModernHomeActivity : BaseActivity() {
     private var videos by mutableStateOf<List<WatchProgress>>(emptyList())
     private var titles by mutableStateOf<List<StremioProgress>>(emptyList())
     private var clock by mutableStateOf("")
-    /** Minuta (bieżące programy kanałów odświeżane raz na minutę). */
-    private var minute by mutableStateOf(0L)
+    /**
+     * (7.17) Zmiana bieżących programów kanałów: rzędy przebudowywane dopiero, gdy któryś pokazany program się skończył
+     * (albo zaczął) – dawniej co minutę cała lista. Postęp programu przesuwa się sam ([EpgProgressFill], [EpgClock]).
+     */
+    private var epgEpoch by mutableStateOf(0)
+    /** Najbliższy koniec / początek programu na pokazanych kafelkach kanałów (ms). */
+    private var nextEpgChange = Long.MAX_VALUE
     private var feature by mutableStateOf<Feature?>(null)
     private var options by mutableStateOf(false)
     private var railOpen by mutableStateOf(false)
@@ -193,7 +206,7 @@ class ModernHomeActivity : BaseActivity() {
     private fun tick() {
         val now = System.currentTimeMillis()
         clock = Fmt.time(now)
-        if (now / 60_000 != minute) minute = now / 60_000
+        if (now >= nextEpgChange) { nextEpgChange = Long.MAX_VALUE; epgEpoch++ }
         if (loaded && Repository.version != repoVersion) refresh()
     }
 
@@ -295,9 +308,12 @@ class ModernHomeActivity : BaseActivity() {
     private fun channelTile(shelf: String, c: Channel): Tile {
         val p = runCatching { Repository.current(c) }.getOrNull()
         val now = System.currentTimeMillis()
-        val frac = p?.let { if (it.end > it.start) ((now - it.start).toFloat() / (it.end - it.start)).coerceIn(0f, 1f) else -1f } ?: -1f
+        val frac = p?.let { EpgClock.fraction(it.start, it.end, now) } ?: -1f
+        // następna zmiana kafelka: koniec bieżącego programu albo początek następnego (przerwa w EPG)
+        val change = p?.end ?: runCatching { Repository.next(c, now)?.start }.getOrNull()
+        if (change != null && change > now) nextEpgChange = minOf(nextEpgChange, change)
         return Tile("ch:" + c.key, p?.fullTitle?.ifBlank { null } ?: c.name, if (p != null) c.name else c.group, c.logo.ifBlank { c.epgIcon ?: "" },
-            Kind.CHANNEL, channelFeature(c), frac) { X25Actions.playChannel(this, c, if (shelf == "fav") Repository.FAV else Repository.ALL) }
+            Kind.CHANNEL, channelFeature(c), frac, progStart = p?.start ?: 0L, progEnd = p?.end ?: 0L) { X25Actions.playChannel(this, c, if (shelf == "fav") Repository.FAV else Repository.ALL) }
     }
 
     private fun videoFeature(v: WatchProgress) = Feature("yt:" + v.videoId, v.title.ifBlank { "Film" }, listOf("STube", v.channel).filter { it.isNotBlank() },
@@ -530,16 +546,10 @@ class ModernHomeActivity : BaseActivity() {
         featureJob = lifecycleScope.launch { delay(FEATURE_DELAY_MS); feature = f }
     }
 
+    /** (7.17) „Szukaj” – uniwersalna wyszukiwarka (kanały, program EPG, STube, Stremio), filtr wg bieżącej sekcji. */
     private fun search() {
-        when (section) {
-            1 -> X25Actions.run(this, X25Action(X25Action.EPG_SEARCH))
-            2 -> searchIn(true)
-            3 -> searchIn(false)
-            else -> Dialogs.menu(this, "Szukaj", listOf(
-                "Program telewizyjny" to { X25Actions.run(this, X25Action(X25Action.EPG_SEARCH)) },
-                "STube – filmy i kanały" to { searchIn(true) },
-                "Stremio – filmy i seriale" to { searchIn(false) }))
-        }
+        val f = when (section) { 1 -> SearchActivity.F_CHANNELS; 2 -> SearchActivity.F_STUBE; 3 -> SearchActivity.F_STREMIO; else -> SearchActivity.F_ALL }
+        startActivity(Intent(this, SearchActivity::class.java).putExtra(SearchActivity.EXTRA_FILTER, f))
     }
 
     private fun searchIn(stube: Boolean) {
@@ -603,10 +613,12 @@ class ModernHomeActivity : BaseActivity() {
      * (7.6) [portrait] – telefon w pionie: węższy pasek, kafelki z szerokości ekranu ([availW]) – 2 szerokie / 3 plakaty
      * na ekran (dawniej stałe 236 dp – półtora kafelka i przycinanie), krótsze przyciski hero.
      */
+    @androidx.compose.runtime.Immutable
     data class Dims(val compact: Boolean, val narrow: Boolean, val portrait: Boolean = false, val availW: Dp = 0.dp) {
-        val rail get() = if (compact || portrait) 56.dp else 76.dp
-        val railOpen get() = if (compact || portrait) 200.dp else 250.dp
-        val railItem get() = if (compact) 34.dp else if (portrait) 40.dp else 44.dp
+        // (7.17) pasek „Obsidian Stream”: TV 72 → 240 dp, pigułki 48 dp; telefon – węższy
+        val rail get() = if (compact || portrait) 56.dp else pl.iptv.tv.ui.theme.AppNavRail.COLLAPSED
+        val railOpen get() = if (compact || portrait) 200.dp else pl.iptv.tv.ui.theme.AppNavRail.EXPANDED
+        val railItem get() = if (compact) 34.dp else if (portrait) 40.dp else pl.iptv.tv.ui.theme.AppNavRail.ITEM_H
         val railPad get() = if (compact || portrait) 8.dp else 12.dp
         val side get() = if (narrow) 10.dp else if (compact) 16.dp else 28.dp
         val heroH get() = if (compact) 150.dp else if (portrait) 210.dp else 236.dp
@@ -627,7 +639,9 @@ class ModernHomeActivity : BaseActivity() {
         // dostępna szerokość rzędów: ekran − pasek − marginesy − odstęp z lewej rzędu (10) i z prawej (≈ 16)
         dims = Dims(compact = cfg.screenHeightDp < 520, narrow = cfg.screenWidthDp < 600, portrait = portrait,
             availW = (cfg.screenWidthDp - 56 - 10 - 10 - 16).dp)
-        Box(Modifier.fillMaxSize().modernBackdrop(c.bg, c.accent)
+        // (7.17) modyfikator tła zapamiętany – bitmapa gradientów powstaje raz (nie przy każdej rekompozycji ekranu)
+        val backdrop = remember(c.bg, c.accent) { Modifier.modernBackdrop(c.bg, c.accent) }
+        Box(Modifier.fillMaxSize().then(backdrop)
             .focusProperties { enter = { ((pendingFocus ?: lastFocus)?.takeIf { it in attached })?.let { requester(it) } ?: FocusRequester.Default } }
             .focusGroup()) {
             HeroBackdrop()
@@ -638,6 +652,8 @@ class ModernHomeActivity : BaseActivity() {
                 HeroInfo()
                 Shelves()
             }
+            // (7.17) rozwinięty pasek: treść pod nim przyciemniona (podpisy menu nie nachodzą na tytuł hero)
+            pl.iptv.tv.ui.theme.AppNavigationScrim(railOpen, lowPerf = c.lowPerf)
             Rail()
             if (options) Options()
         }
@@ -660,7 +676,13 @@ class ModernHomeActivity : BaseActivity() {
     private fun BoxScope.HeroBackdrop() {
         val c = LocalModern.current
         val f = feature
-        Box(Modifier.align(Alignment.TopEnd).fillMaxWidth(0.74f).fillMaxHeight(0.82f).modernScrim(c.bg)) {
+        // (7.17) „Obsidian Stream”: hero na pełną szerokość, winieta od lewej (95 % → 0 %) i od dołu, poświata w kolorze materiału
+        val glow = remember(f?.key) { f?.let { ambientColor(it, c.accent) } ?: c.accent }
+        // (7.17) warstwy zapamiętane po kolorze – bitmapy tylko przy zmianie materiału (poświata) / motywu (winieta)
+        val glowLayer = remember(glow) { Modifier.obsidianAmbientGlow(glow) }
+        val vignette = remember(c.bg) { Modifier.obsidianHeroVignette(c.bg) }
+        Box(Modifier.fillMaxSize().then(glowLayer))
+        Box(Modifier.align(Alignment.TopEnd).fillMaxWidth().fillMaxHeight(0.82f).then(vignette)) {
             // przenikanie tylko przy zmianie materiału (klucz), nie przy odświeżeniu danych tego samego materiału
             val byKey = remember { HashMap<String, Feature>() }
             if (f != null) { if (byKey.size > 16) byKey.clear(); byKey[f.key] = f }
@@ -668,13 +690,19 @@ class ModernHomeActivity : BaseActivity() {
         }
     }
 
+    /** Kolor poświaty ambient: kanał – kolor jego gradientu, film / tytuł – stały kolor z klucza (bez czytania pikseli obrazu). */
+    private fun ambientColor(f: Feature, accent: Color): Color =
+        if (f.logo) channelGradient(f.meta.firstOrNull() ?: f.title).first()
+        else if (f.key.startsWith("yt:")) androidx.compose.ui.graphics.lerp(accent, Color(0xFFEF4444), 0.35f)
+        else androidx.compose.ui.graphics.lerp(accent, channelGradient(f.key).first(), 0.5f)
+
     @Composable
     private fun HeroImage(f: Feature) {
         val c = LocalModern.current
         val ctx = LocalContext.current
         when {
             f.logo -> Box(Modifier.fillMaxSize().background(Brush.linearGradient(channelGradient(f.meta.firstOrNull() ?: f.title)))) {
-                if (f.images.isNotEmpty()) TileImage(f.images.first(), "", Modifier.align(Alignment.Center).fillMaxSize(0.42f), ContentScale.Fit,
+                if (f.images.isNotEmpty()) TileImage(f.images.first(), "", Modifier.align(Alignment.CenterEnd).padding(end = 96.dp).fillMaxWidth(0.3f).fillMaxHeight(0.42f), ContentScale.Fit,
                     ModernType.hero, sizePx = Ui.dp(320))
             }
             f.images.isEmpty() -> Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(c.accent.copy(alpha = 0.55f), c.bg))))
@@ -683,8 +711,8 @@ class ModernHomeActivity : BaseActivity() {
                 val url = f.images.getOrNull(idx)
                 if (url == null) Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(c.accent.copy(alpha = 0.45f), c.bg))))
                 else {
-                    // dekodowanie w ok. połowie rozdzielczości ekranu – obraz jest pod wygaszeniem, a zmiana materiału nie obciąża słabszych TV
-                    val w = (resources.displayMetrics.widthPixels * 0.42f).toInt().coerceAtLeast(1)
+                    // (7.17) hero na pełną szerokość: dekodowanie w 60 % szerokości ekranu (obraz pod winietą – ostrość wystarcza, pamięć mała)
+                    val w = (resources.displayMetrics.widthPixels * 0.6f).toInt().coerceAtLeast(1)
                     val req = remember(url) { coil.request.ImageRequest.Builder(ctx).data(url).crossfade(false).precision(coil.size.Precision.INEXACT)
                         .memoryCacheKey("$url@hero").size(w, (w * 9 / 16).coerceAtLeast(1)).build() }
                     coil.compose.AsyncImage(req, null, Modifier.fillMaxSize().clipToBounds(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter,
@@ -733,8 +761,19 @@ class ModernHomeActivity : BaseActivity() {
                 }
             }
             // opis dostaje tylko pozostałe miejsce (do 3 linii) – hero ma stałą wysokość, przyciski nigdy nie nachodzą na rzędy
-            if (!dims.compact) BasicText(f.desc, Modifier.padding(top = 10.dp).weight(1f, fill = false).clipToBounds(),
-                style = ModernType.body.copy(color = c.text.copy(alpha = 0.88f)), maxLines = 3, overflow = TextOverflow.Ellipsis)
+            // (7.17) tylko linie, które mieszczą się w całości (wielokropek na ostatniej); gdy nie ma miejsca nawet na jedną
+            // (dwuwierszowy tytuł) – opis ukryty, zamiast linii uciętej w połowie liter
+            if (!dims.compact) {
+                var fit by remember(f.key, f.desc) { mutableIntStateOf(3) }
+                BasicText(f.desc, Modifier.padding(top = 10.dp).weight(1f, fill = false).clipToBounds()
+                    .graphicsLayer { alpha = if (fit == 0) 0f else 1f },
+                    style = ModernType.body.copy(color = c.text.copy(alpha = 0.88f)), maxLines = fit.coerceAtLeast(1), overflow = TextOverflow.Ellipsis,
+                    onTextLayout = { r ->
+                        var n = 0
+                        while (n < r.lineCount && r.getLineBottom(n) <= r.size.height + 0.5f) n++
+                        if (n < fit) fit = n
+                    })
+            }
             if (f.fraction >= 0f) Box(Modifier.padding(top = 8.dp).width(260.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.22f))) {
                 Box(Modifier.fillMaxWidth(f.fraction.coerceIn(0f, 1f)).fillMaxHeight().background(c.accent))
             }
@@ -750,19 +789,24 @@ class ModernHomeActivity : BaseActivity() {
         }
     }
 
-    /** Kapsuła akcji: główna – niebieska, pozostałe – szare; zaznaczona – jaśniejsza, z obwódką i lekko powiększona. */
+    /**
+     * (7.17) Pigułka CTA „Obsidian Stream”: główna – akcent, pozostałe – szkło ze specular; zaznaczona – biała z ciemnym
+     * tekstem i ikoną, obwódka w kolorze akcentu i poświata (`obsidianGlassCard`), skala fokusu na warstwie GPU.
+     */
     @Composable
     private fun PillButton(key: String, label: String, primary: Boolean, icon: String, toRail: Boolean = false, onClick: () -> Unit) {
         val c = LocalModern.current
         val focused = remember { mutableStateOf(false) }
-        val h = if (dims.compact) 32.dp else 40.dp
-        Row(Modifier.height(h).item(key, h / 2, 1.06f, focused, toRail = toRail, onClick = onClick)
+        val h = if (dims.compact) 32.dp else 44.dp
+        val ink = if (focused.value) pl.iptv.tv.ui.theme.ObsidianTokens.BackgroundPrimary else Color.White
+        Row(Modifier.height(h).item(key, h / 2, 1.06f, focused, frame = false, toRail = toRail, onClick = onClick)
+            .obsidianGlassCard(focused.value, h / 2, c.accent)
             .clip(RoundedCornerShape(h / 2))
-            .background(if (primary) (if (focused.value) lighten(c.accent) else c.accent) else if (focused.value) Color.White.copy(alpha = 0.32f) else c.pill)
-            .padding(horizontal = if (label.isEmpty()) 12.dp else if (dims.compact || dims.narrow) 12.dp else 20.dp), verticalAlignment = Alignment.CenterVertically) {
-            Canvas(Modifier.size(if (dims.compact) 12.dp else 15.dp)) { if (icon == "play") ModernIcons.play(this, Color.White) else ModernIcons.draw(this, icon, Color.White) }
+            .background(when { focused.value -> Color.White; primary -> c.accent; else -> Color.Transparent })
+            .padding(horizontal = if (label.isEmpty()) 12.dp else if (dims.compact || dims.narrow) 12.dp else 22.dp), verticalAlignment = Alignment.CenterVertically) {
+            Canvas(Modifier.size(if (dims.compact) 12.dp else 16.dp)) { if (icon == "play") ModernIcons.play(this, ink) else ModernIcons.draw(this, icon, ink) }
             // pełny napis: bez zawijania i przycinania (kapsuła rośnie do tekstu)
-            if (label.isNotEmpty()) BasicText(label.uppercase(), Modifier.padding(start = 9.dp), style = ModernType.button.copy(fontSize = if (dims.compact) 12.sp else 14.sp),
+            if (label.isNotEmpty()) BasicText(label.uppercase(), Modifier.padding(start = 10.dp), style = ModernType.button.copy(color = ink, fontSize = if (dims.compact) 12.sp else 15.sp),
                 maxLines = 1, softWrap = false, overflow = TextOverflow.Visible)
         }
     }
@@ -774,8 +818,8 @@ class ModernHomeActivity : BaseActivity() {
     @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
     @Composable
     private fun Shelves() {
-        // (7.6) postęp programów (co minutę) tylko w sekcjach z kanałami – w pozostałych bez przebudowy rzędów co minutę
-        val tick = if (section == 0 || section == 1) minute else 0L
+        // (7.17) rzędy kanałów przebudowywane tylko przy zmianie programu (sekcje z kanałami); postęp – lokalnie w kafelku
+        val tick = if (section == 0 || section == 1) epgEpoch else 0
         val list = remember(section, recent, favs, all, videos, titles, tick, stMovies, stSeries) { shelves() }
         // (7.14) stan listy per sekcja: nowa sekcja od razu od góry (bez klatki ze starym przewinięciem i skoku)
         val state = remember(section) { androidx.compose.foundation.lazy.LazyListState() }
@@ -788,7 +832,7 @@ class ModernHomeActivity : BaseActivity() {
         CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides spec) {
             LazyColumn(Modifier.fillMaxSize().sectionFade(), state = state,
                 contentPadding = PaddingValues(bottom = 80.dp)) {
-                items(list, key = { "$section/${it.id}" }) { s -> ShelfRow(s) }
+                items(list, key = { "$section/${it.id}" }, contentType = { "shelf" }) { s -> ShelfRow(s) }
             }
         }
     }
@@ -805,7 +849,7 @@ class ModernHomeActivity : BaseActivity() {
                 LazyRow(Modifier.fillMaxWidth().rowEntry("r:${s.id}|").focusGroup(),
                     contentPadding = PaddingValues(start = 10.dp, end = 48.dp, top = 12.dp, bottom = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(dims.gap)) {
-                    itemsIndexed(s.tiles, key = { _, t -> t.key }) { i, t -> Card(s.id, t, first = i == 0) }
+                    itemsIndexed(s.tiles, key = { _, t -> t.key }, contentType = { _, t -> if (t.kind == Kind.POSTER) "poster" else t.kind.name }) { i, t -> Card(s.id, t, first = i == 0) }
                 }
             }
         }
@@ -817,14 +861,17 @@ class ModernHomeActivity : BaseActivity() {
         val key = "r:$shelf|${t.key}"
         val focused = remember { mutableStateOf(false) }
         val (w, h) = when (t.kind) { Kind.POSTER -> dims.posterW to dims.posterH; else -> dims.wideW to dims.wideH }
-        val r = 8.dp
+        // (7.17) „Obsidian Stream”: karty 16 dp; kanały – szklana karta (obsidianGlassCard) z logo na środku i paskiem 3 dp
+        val r = 16.dp
+        val glass = t.kind == Kind.CHANNEL
         Column(Modifier.width(w)) {
-            Box(Modifier.size(w, h).item(key, r, 1.06f, focused, onFocus = { showFeature(t.feature) }, toRail = first, onClick = t.run)
-                .modernTileSheen(r).clip(RoundedCornerShape(r)).background(c.panel)) {
+            Box(Modifier.size(w, h).item(key, r, 1.06f, focused, frame = !glass, onFocus = { showFeature(t.feature) }, toRail = first, onClick = t.run)
+                .then(if (glass) Modifier.obsidianGlassCard(focused.value, r, c.accent) else Modifier.modernTileSheen(r))
+                .clip(RoundedCornerShape(r)).then(if (glass) Modifier else Modifier.background(c.panel))) {
                 when (t.kind) {
                     Kind.CHANNEL -> {
-                        Box(Modifier.fillMaxSize().background(Brush.linearGradient(channelGradient(t.sub.takeIf { t.fraction >= 0f } ?: t.title))))
-                        TileImage(t.image, t.sub.takeIf { t.fraction >= 0f } ?: t.title, Modifier.fillMaxSize().padding(horizontal = w * 0.2f, vertical = h * 0.18f),
+                        // logo nadawcy wyśrodkowane na szkle (inicjały, gdy logo brak)
+                        TileImage(t.image, t.sub.takeIf { t.fraction >= 0f } ?: t.title, Modifier.align(Alignment.Center).fillMaxSize().padding(horizontal = w * 0.22f, vertical = h * 0.2f),
                             ContentScale.Fit, ModernType.tile.copy(fontSize = if (dims.compact) 15.sp else 20.sp), sizePx = Ui.dp(w.value.toInt()))
                     }
                     Kind.ACTION -> {
@@ -837,11 +884,13 @@ class ModernHomeActivity : BaseActivity() {
                         }
                     }
                     else -> TileImage(t.image, initialsOf(t.title), Modifier.fillMaxSize(), ContentScale.Crop, ModernType.tile.copy(color = c.text2),
-                        sizePx = Ui.dp(w.value.toInt()))
+                        sizePx = Ui.dp(w.value.toInt()), heightPx = Ui.dp(h.value.toInt()))
                 }
                 // pasek postępu: programu (kanały – czerwony) albo oglądania (STube / Stremio – niebieski)
-                if (t.fraction >= 0f) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(4.dp).background(Color.Black.copy(alpha = 0.45f))) {
-                    Box(Modifier.fillMaxWidth(t.fraction.coerceIn(0f, 1f)).fillMaxHeight().background(if (t.kind == Kind.CHANNEL) c.live else c.accent))
+                if (t.fraction >= 0f) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(if (glass) 3.dp else 4.dp).background(Color.Black.copy(alpha = 0.45f))) {
+                    // (7.17) program kanału: postęp z zegara EPG przy rysowaniu – bez przebudowy rzędów co minutę
+                    if (t.kind == Kind.CHANNEL && t.progEnd > t.progStart) EpgProgressFill(t.progStart, t.progEnd, c.live, Modifier.fillMaxSize())
+                    else Box(Modifier.fillMaxWidth(t.fraction.coerceIn(0f, 1f)).fillMaxHeight().background(if (t.kind == Kind.CHANNEL) c.live else c.accent))
                 }
             }
             if (t.kind != Kind.ACTION) {
@@ -855,21 +904,20 @@ class ModernHomeActivity : BaseActivity() {
 
     // ---------------- pasek ikon ----------------
 
+    /**
+     * (7.17) Wspólny pasek „Obsidian Stream” ([pl.iptv.tv.ui.theme.AppNavigationRail]): 72 dp → 240 dp (220 ms, FastOutSlowIn)
+     * nad treścią; pod nim scrim ([pl.iptv.tv.ui.theme.AppNavigationScrim] w [Home]) – podpisy nie zlewają się z hero.
+     */
     @Composable
     private fun Rail() {
-        val w by animateDpAsState(if (railOpen) dims.railOpen else dims.rail, if (LocalModern.current.lowPerf) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(1f, 700f), label = "rail")
-        val open = railOpen
-        Column(Modifier.fillMaxHeight().width(w)
-            .drawBehind {
-                drawRect(Brush.horizontalGradient(0f to Color.Black.copy(alpha = if (open) 0.96f else 0.72f), 0.7f to Color.Black.copy(alpha = if (open) 0.9f else 0.35f),
-                    1f to Color.Transparent))
-            }
+        pl.iptv.tv.ui.theme.AppNavigationRail(railOpen,
+            Modifier
             // (7.7) kursor opuścił pasek – zaplanowany podgląd sekcji odwołany (nie podmienia rzędów pod kursorem)
             .onFocusChanged { if (railOpen != it.hasFocus) railOpen = it.hasFocus; if (!it.hasFocus) previewJob?.cancel() }
             .focusProperties { enter = { "nav:s$section".takeIf { it in attached }?.let { requester(it) } ?: FocusRequester.Default } }
-            .focusGroup()
-            .padding(vertical = if (dims.compact) 8.dp else 18.dp, horizontal = dims.railPad),
-            verticalArrangement = Arrangement.spacedBy(if (dims.compact) 2.dp else 6.dp)) {
+            .focusGroup(),
+            collapsedWidth = dims.rail, expandedWidth = dims.railOpen, lowPerf = LocalModern.current.lowPerf,
+            padding = dims.railPad, spacing = if (dims.compact) 2.dp else 4.dp) {
             RailItem("nav:profile", X25Icons.PROFILE, "Profil i opcje", avatar = true) { openOptions() }
             RailItem("nav:search", X25Icons.SEARCH, "Szukaj") { search() }
             Spacer(Modifier.height(if (dims.compact) 4.dp else 10.dp))
@@ -887,21 +935,10 @@ class ModernHomeActivity : BaseActivity() {
         val c = LocalModern.current
         val focused = remember { mutableStateOf(false) }
         val h = dims.railItem
-        Row(Modifier.fillMaxWidth().height(h).item(key, h / 2, 1f, focused, frame = false, onFocus = onFocus, onClick = onClick)
-            .clip(RoundedCornerShape(h / 2))
-            .background(if (focused.value) c.accent else Color.Transparent)
-            .padding(horizontal = ((dims.rail - dims.railPad * 2 - h * 0.56f) / 2).coerceAtLeast(2.dp)),
-            verticalAlignment = Alignment.CenterVertically) {
-            val tint = if (focused.value || selected) Color.White else c.text2
-            Box(Modifier.size(h * 0.56f).then(if (avatar) Modifier.clip(CircleShape).background(Brush.linearGradient(listOf(c.accent, c.live))).padding(4.dp) else Modifier)) {
-                Canvas(Modifier.fillMaxSize()) { ModernIcons.draw(this, icon, if (avatar) Color.White else tint) }
-            }
-            if (railOpen) BasicText(label, Modifier.padding(start = 14.dp).weight(1f), style = ModernType.meta.copy(color = tint,
-                fontWeight = if (selected || focused.value) FontWeight.Bold else FontWeight.Medium, fontSize = if (dims.compact) 13.sp else 15.sp),
-                maxLines = 1, overflow = TextOverflow.Clip)
-            // bieżąca sekcja przy zwiniętym pasku – czerwona kropka przy ikonie
-            if (selected && !focused.value) Box(Modifier.padding(start = if (railOpen) 0.dp else 4.dp).size(5.dp).clip(CircleShape).background(c.live))
-        }
+        pl.iptv.tv.ui.theme.AppNavigationRailItem(label, expanded = railOpen, focused = focused.value, selected = selected,
+            focusModifier = Modifier.item(key, h / 2, 1f, focused, frame = false, onFocus = onFocus, onClick = onClick),
+            accent = c.accent, live = c.live, itemHeight = h, iconSize = if (dims.compact) h * 0.56f else 24.dp,
+            railWidth = dims.rail, railPadding = dims.railPad, avatar = avatar) { tint -> ModernIcons.draw(this, icon, tint) }
     }
 
     // ---------------- panel opcji (nakładka z prawej) ----------------
@@ -926,7 +963,7 @@ class ModernHomeActivity : BaseActivity() {
                 }
                 LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(horizontal = 18.dp, vertical = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(opts, key = { it.label }) { o -> OptionRow(o, if (o === opts.first()) first else null) }
+                    items(opts, key = { it.label }, contentType = { "option" }) { o -> OptionRow(o, if (o === opts.first()) first else null) }
                 }
             }
         }

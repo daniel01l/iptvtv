@@ -86,6 +86,9 @@ open class BaseActivity : AppCompatActivity() {
     override fun onStart() { super.onStart(); miniBar?.start() }
     override fun onStop() { miniBar?.stop(); super.onStop() }
 
+    /** Obraz kanału w tle tego ekranu odpięty od wspólnego odtwarzacza (singleton nie trzyma zniszczonego ekranu). */
+    override fun onDestroy() { videoView?.let { Playback.detach(it) }; super.onDestroy() }
+
     /** ▼ z najniższego elementu – pasek „Teraz odtwarzane”. */
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
         // PS5: podpowiedzi przycisków wg ostatnio użytego urządzenia (pilot / pad)
@@ -160,7 +163,9 @@ open class BaseActivity : AppCompatActivity() {
             v.resizeMode = if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT)
                 androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT else androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
             v.visibility = View.VISIBLE; Playback.attach(v)
-            dim.visibility = View.VISIBLE; dim.setBackgroundColor(Color.argb(150, 0, 0, 0))
+            // (7.17) „Obsidian Stream”: kanał w tle przyciemniony w 65 % – opcje nad nim zawsze czytelne
+            dim.visibility = View.VISIBLE
+            dim.setBackgroundColor(if (pl.iptv.tv.ui.theme.ObsidianViews.active) pl.iptv.tv.ui.theme.ObsidianViews.VIDEO_DIM_65 else Color.argb(150, 0, 0, 0))
         } else v.visibility = View.GONE
     }
 
@@ -214,7 +219,7 @@ open class BaseActivity : AppCompatActivity() {
             val key = "bg:${f.lastModified()}:${f.length()}"
             if (bgImage.getTag(pl.iptv.tv.R.id.ui_style) != key) {
                 bgImage.setTag(pl.iptv.tv.R.id.ui_style, key)
-                bgImage.load(f) { memoryCacheKey(key); diskCachePolicy(CachePolicy.DISABLED); crossfade(false) }
+                bgImage.load(f) { memoryCacheKey(key); diskCachePolicy(CachePolicy.DISABLED); crossfade(false); backdropSize(this@BaseActivity).let { (w, h) -> size(w, h) } }
             }
             dim.setBackgroundColor(Color.argb(Ui.DIMS[Ui.dimIndex.coerceIn(Ui.DIMS.indices)] * 255 / 100, 0, 0, 0))
             dim.visibility = View.VISIBLE

@@ -94,11 +94,13 @@ class UiFlowTest {
         val m = EditorActivity::class.java.getDeclaredMethod("startMove", pl.iptv.tv.data.Channel::class.java)
         m.isAccessible = true; m.invoke(a, first); idle()
         key(a, KeyEvent.KEYCODE_DPAD_DOWN); key(a, KeyEvent.KEYCODE_DPAD_DOWN)
+        // 7.17: ▲▼ przesuwa kanał w liście edytora (w pamięci), kolejność kanałów zmienia się raz – przy OK
+        key(a, KeyEvent.KEYCODE_DPAD_CENTER)
         assertEquals(first.key, Repository.allChannels[2].key)
         assertEquals(3, Repository.byKey(first.key)!!.number)
-        key(a, KeyEvent.KEYCODE_DPAD_CENTER)
         assertTrue(list.adapter!!.itemCount == 12)
-        // zmiany zapisują się na dysku
+        // zmiany zapisują się na dysku jednym zapisem (Gotowe / wyjście z edytora)
+        runBlocking { Repository.flushEdits() }
         assertTrue(File(ctx.filesDir, "edits.json").readText().contains("1.m3u8"))
         c.pause().stop().destroy()
     }

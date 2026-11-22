@@ -1,5 +1,6 @@
 package pl.iptv.tv.ui
 
+import pl.iptv.tv.ui.theme.gradientLayer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
@@ -97,12 +98,15 @@ fun Modifier.modernScrim(bg: Color): Modifier = drawWithCache {
  * [ModernBackdrop] na widokach. Pędzle tworzone raz na rozmiar (drawWithCache), rysowane jako jedna warstwa.
  */
 fun Modifier.modernBackdrop(bg: Color, accent: Color): Modifier = drawWithCache {
-    val w = size.width; val h = size.height; val r = maxOf(w, h)
-    val base = Brush.verticalGradient(listOf(androidx.compose.ui.graphics.lerp(bg, accent, 0.08f), bg, androidx.compose.ui.graphics.lerp(bg, Color.Black, 0.55f)))
-    val glow = Brush.radialGradient(listOf(accent.copy(alpha = 0.19f), accent.copy(alpha = 0.05f), Color.Transparent), Offset(w * 0.85f, h * 0.05f), r * 0.6f)
-    val cool = Brush.radialGradient(listOf(Color(0xFF5B3BD6).copy(alpha = 0.11f), Color.Transparent), Offset(w * 0.05f, h * 0.95f), r * 0.45f)
-    val vignette = Brush.radialGradient(0f to Color.Transparent, 0.6f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.38f), center = Offset(w / 2, h / 2), radius = r * 0.75f)
-    onDrawBehind { drawRect(base); drawRect(glow); drawRect(cool); drawRect(vignette) }
+    // (7.17) cztery pełnoekranowe gradienty wyrenderowane raz do bitmapy w połowie rozdzielczości (jedna tekstura na klatkę)
+    val img = gradientLayer {
+        val w = size.width; val h = size.height; val r = maxOf(w, h)
+        drawRect(Brush.verticalGradient(listOf(androidx.compose.ui.graphics.lerp(bg, accent, 0.08f), bg, androidx.compose.ui.graphics.lerp(bg, Color.Black, 0.55f))))
+        drawRect(Brush.radialGradient(listOf(accent.copy(alpha = 0.19f), accent.copy(alpha = 0.05f), Color.Transparent), Offset(w * 0.85f, h * 0.05f), r * 0.6f))
+        drawRect(Brush.radialGradient(listOf(Color(0xFF5B3BD6).copy(alpha = 0.11f), Color.Transparent), Offset(w * 0.05f, h * 0.95f), r * 0.45f))
+        drawRect(Brush.radialGradient(0f to Color.Transparent, 0.6f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.38f), center = Offset(w / 2, h / 2), radius = r * 0.75f))
+    }
+    onDrawBehind { img() }
 }
 
 /**
@@ -123,6 +127,7 @@ fun Modifier.modernTileSheen(radius: Dp): Modifier = drawWithCache {
 }
 
 /** Pozycja panelu opcji ([switch] = przełącznik po prawej, null – zwykła pozycja). */
+@androidx.compose.runtime.Immutable
 class ModernOption(val label: String, val sub: String = "", val switch: Boolean? = null, val action: () -> Unit)
 
 /** Ikony paska nawigacji (własne rysunki: ekran główny, wyjście); pozostałe – [X25Icons]. */

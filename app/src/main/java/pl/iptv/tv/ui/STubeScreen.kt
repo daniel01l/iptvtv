@@ -73,6 +73,14 @@ object STubeScreen {
     fun squareSide(l: StubeTheme.Layout) = (l.thumbH * 1.3).toInt()
 
     /**
+     * (7.17) Wysokość miniatury filmu (px): „Obsidian Stream” (motyw Nowoczesny) – równe 16:9 do szerokości kafelka,
+     * inne motywy – wysokość z układu kafelków.
+     */
+    fun thumbHeightPx(l: StubeTheme.Layout): Int = if (pl.iptv.tv.ui.theme.ObsidianViews.active) (Ui.dp(l.tileW) - Ui.dp(12)) * 9 / 16 else Ui.dp(l.thumbH)
+    /** Zaokrąglenie miniatury (px): Obsidian 16 dp, inne motywy – z motywu. */
+    fun thumbRadiusPx(): Float = Ui.dp(if (pl.iptv.tv.ui.theme.ObsidianViews.active) pl.iptv.tv.ui.theme.ObsidianViews.RADIUS_DP else maxOf(Ui.preset.radius - 4, 6)).toFloat()
+
+    /**
      * Kolejność rzędów: [wyniki], Dla Ciebie (konto, źródło „Moje”) albo zachęta do logowania, Na czasie, Muzyka, Subskrypcje (konto).
      * Czysta funkcja – testowana bez sieci.
      */
@@ -376,7 +384,7 @@ class STubeTileAdapter(private val row: STubeRow) : RecyclerView.Adapter<STubeTi
         val lay = StubeTheme.layout
         val side = STubeScreen.squareSide(lay)
         val w = Ui.dp(if (channel) STubeScreen.CHANNEL_W else if (sq) side + 12 else lay.tileW)
-        val imgW = w - Ui.dp(12); val imgH = Ui.dp(if (channel) STubeScreen.AVATAR else if (sq) side else lay.thumbH)
+        val imgW = w - Ui.dp(12); val imgH = if (channel) Ui.dp(STubeScreen.AVATAR) else if (sq) Ui.dp(side) else STubeScreen.thumbHeightPx(lay)
         val root = LinearLayout(c).apply {
             orientation = LinearLayout.VERTICAL; tag = "item"; isFocusable = true; isClickable = true
             setPadding(Ui.dp(6), Ui.dp(6), Ui.dp(6), Ui.dp(8))
@@ -389,7 +397,7 @@ class STubeTileAdapter(private val row: STubeRow) : RecyclerView.Adapter<STubeTi
             background = GradientDrawable().apply { setColor(Ui.withAlpha(Ui.text2, 0x30)); cornerRadius = Ui.dp(8).toFloat() }
         }
         frame.addView(thumb, FrameLayout.LayoutParams(if (channel) imgH else imgW, imgH))
-        Ui.roundClip(thumb, if (channel) imgH / 2f else Ui.dp(maxOf(Ui.preset.radius - 4, 6)).toFloat())
+        Ui.roundClip(thumb, if (channel) imgH / 2f else STubeScreen.thumbRadiusPx())
         // ikona kafelka akcji (zamiast miniatury)
         // ikona kafelka (lista lokalna, akcja): rysowana, w kolorach motywu, zmienia kolor wraz z zaznaczeniem kafelka
         val icon = ImageView(c).apply { scaleType = ImageView.ScaleType.CENTER_INSIDE; visibility = View.GONE; isDuplicateParentStateEnabled = true; setPadding(imgH / 4, imgH / 4, imgH / 4, imgH / 4) }
@@ -397,14 +405,15 @@ class STubeTileAdapter(private val row: STubeRow) : RecyclerView.Adapter<STubeTi
         // czas filmu w rogu miniatury (stałe kolory – czytelny na każdym obrazie)
         val badge = TextView(c).apply {
             tag = "keepcolor"; setTextColor(Color.WHITE); textSize = 13f; setPadding(Ui.dp(6), Ui.dp(2), Ui.dp(6), Ui.dp(2))
-            background = GradientDrawable().apply { setColor(0xCC000000.toInt()); cornerRadius = Ui.dp(4).toFloat() }
+            background = if (pl.iptv.tv.ui.theme.ObsidianViews.active) pl.iptv.tv.ui.theme.ObsidianViews.durationBadge() else GradientDrawable().apply { setColor(0xCC000000.toInt()); cornerRadius = Ui.dp(4).toFloat() }
+            if (pl.iptv.tv.ui.theme.ObsidianViews.active) { textSize = 12f; setTypeface(typeface, android.graphics.Typeface.BOLD); setPadding(Ui.dp(7), Ui.dp(2), Ui.dp(7), Ui.dp(2)) }
         }
         frame.addView(badge, FrameLayout.LayoutParams(-2, -2, Gravity.END or Gravity.BOTTOM).apply { setMargins(0, 0, Ui.dp(6), Ui.dp(6) + Ui.dp(STubeScreen.PROGRESS_H)) })
         // pasek obejrzenia (jak w YouTube): na dole miniatury, na całą szerokość; ramka przycięta do zaokrąglenia miniatury
         val progress = if (channel) null else WatchBar(c).also { bar ->
             bar.visibility = View.GONE
             frame.addView(bar, FrameLayout.LayoutParams(imgW, Ui.dp(STubeScreen.PROGRESS_H), Gravity.BOTTOM))
-            Ui.roundClip(frame, Ui.dp(maxOf(Ui.preset.radius - 4, 6)).toFloat())
+            Ui.roundClip(frame, STubeScreen.thumbRadiusPx())
         }
         root.addView(frame, LinearLayout.LayoutParams(-2, -2))
         val title = TextView(c).apply {
@@ -435,14 +444,16 @@ class STubeTileAdapter(private val row: STubeRow) : RecyclerView.Adapter<STubeTi
         val smooth = !runCatching { pl.iptv.tv.data.Prefs.lowPerf }.getOrDefault(false)
         iv.load(STubeScreen.thumbUrl(url, w)) {
             crossfade(if (smooth) 140 else 0)
-            if (w > 0 && h > 0) size(w, h)
+            // bez stałych wymiarów widoku – rozmiar kafelka z bieżącego układu (nigdy pełna rozdzielczość miniatury)
+            val lay = StubeTheme.layout
+            fitTo(iv, Ui.dp(lay.tileW) - Ui.dp(12), STubeScreen.thumbHeightPx(lay))
         }
     }
 
     /** Wczytuje z wyprzedzeniem miniatury [count] kafelków od [from] (do pamięci podręcznej) – siatka pojawia się już z obrazami. */
     fun prefetch(ctx: android.content.Context, from: Int, count: Int) {
         val lay = StubeTheme.layout
-        val w = Ui.dp(lay.tileW) - Ui.dp(12); val h = Ui.dp(lay.thumbH)
+        val w = Ui.dp(lay.tileW) - Ui.dp(12); val h = STubeScreen.thumbHeightPx(lay)
         val loader = coil.Coil.imageLoader(ctx)
         for (i in from until minOf(row.tiles.size, from + count)) {
             val v = (row.tiles[i] as? STubeTile.Video)?.v ?: continue

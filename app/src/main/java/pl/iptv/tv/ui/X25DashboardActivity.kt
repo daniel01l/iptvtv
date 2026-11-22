@@ -82,6 +82,7 @@ import pl.iptv.tv.data.YouTubeRepository
 import pl.iptv.tv.data.YouTubeTokens
 
 /** Ostatnio oglądany materiał na pulpicie: kanał TV, film STube albo tytuł Stremio. */
+@androidx.compose.runtime.Immutable
 sealed class X25Recent {
     abstract val key: String
     data class Ch(val c: Channel) : X25Recent() { override val key get() = "ch:" + c.key }
@@ -89,6 +90,7 @@ sealed class X25Recent {
     data class St(val p: StremioProgress) : X25Recent() { override val key get() = "st:" + p.metaId }
 
     /** Sekcja „Ostatnio …” – każde źródło osobno. */
+    @androidx.compose.runtime.Immutable
     data class Group(val id: String, val title: String, val items: List<X25Recent>)
 
     companion object {
@@ -394,6 +396,7 @@ class X25DashboardActivity : BaseActivity() {
      * żeby sekcje ostatnich i kafelki funkcji mieściły się bez nachodzenia; wąski (telefon w pionie) – ikony paska od lewej.
      */
     /** (7.6) [portrait] – telefon w pionie: kafelki funkcji w siatce 2 kolumn na resztę ekranu (bez pustej połowy u góry). */
+    @androidx.compose.runtime.Immutable
     data class Dims(val compact: Boolean, val narrow: Boolean, val portrait: Boolean = false) {
         val topH get() = if (compact) 50.dp else 66.dp
         val topIcon get() = if (compact || narrow) 36.dp else 44.dp
@@ -531,7 +534,7 @@ class X25DashboardActivity : BaseActivity() {
         val c = LocalX25.current
         LazyRow(Modifier.fillMaxWidth().rowEntry("r:").focusGroup(), contentPadding = PaddingValues(start = side, end = side, top = 4.dp, bottom = dims.rowPad),
             horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            itemsIndexed(recents, key = { _, g -> g.id }) { i, g ->
+            itemsIndexed(recents, key = { _, g -> g.id }, contentType = { _, _ -> "recent" }) { i, g ->
                 Row(verticalAlignment = Alignment.Bottom) {
                     if (i > 0) Box(Modifier.padding(end = 14.dp, bottom = 8.dp).width(1.dp).height(dims.recent - 8.dp).background(c.text2.copy(alpha = 0.25f)))
                     Column {
@@ -567,8 +570,14 @@ class X25DashboardActivity : BaseActivity() {
             .background(Brush.verticalGradient(listOf(c.panel.copy(alpha = 0.92f), Color.Black.copy(alpha = 0.85f))))) {
             when (r) {
                 // logo kanału; inicjały tylko, gdy logo się nie wczyta (wcześniej zawsze pod logo – prześwitywały)
-                is X25Recent.Ch -> TileImage(r.c.logo, initialsOf(r.c.name), Modifier.fillMaxSize().padding(16.dp), ContentScale.Fit,
-                    X25Type.hero.copy(fontSize = 26.sp, color = c.text2), sizePx = Ui.dp(dims.recent.value.toInt()))
+                // (7.17) logo nad nazwą kanału – kanały z tym samym logo (np. kolejne kanały sportowe) da się odróżnić
+                is X25Recent.Ch -> {
+                    TileImage(r.c.logo, initialsOf(r.c.name), Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 46.dp), ContentScale.Fit,
+                        X25Type.hero.copy(fontSize = 26.sp, color = c.text2), sizePx = Ui.dp(dims.recent.value.toInt()))
+                    BasicText(r.c.name, Modifier.align(Alignment.BottomCenter).padding(start = 8.dp, end = 8.dp, bottom = 10.dp),
+                        style = X25Type.title.copy(fontSize = 12.sp, lineHeight = 14.sp, color = c.text2, textAlign = androidx.compose.ui.text.style.TextAlign.Center),
+                        maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                }
                 is X25Recent.Vid -> {
                     if (r.p.thumb.isNotBlank()) TileImage(r.p.thumb, "", Modifier.fillMaxSize(), ContentScale.Crop, X25Type.title, sizePx = Ui.dp(dims.recent.value.toInt()))
                     else Canvas(Modifier.size(40.dp).align(Alignment.Center)) { X25Icons.draw(this, X25Icons.PLAY, c.text2) }
@@ -592,7 +601,7 @@ class X25DashboardActivity : BaseActivity() {
         val visible = X25Layout.visible(tiles)
         LazyRow(Modifier.fillMaxWidth().rowEntry("t:").focusGroup(), state = state,
             contentPadding = PaddingValues(horizontal = side, vertical = dims.rowPad), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            itemsIndexed(visible, key = { _, t -> t.id }) { _, t ->
+            itemsIndexed(visible, key = { _, t -> t.id }, contentType = { _, _ -> "tile" }) { _, t ->
                 FnTile(t, Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null,
                     placementSpec = spring(stiffness = Spring.StiffnessMediumLow, visibilityThreshold = androidx.compose.ui.unit.IntOffset(1, 1))))
             }
@@ -621,7 +630,7 @@ class X25DashboardActivity : BaseActivity() {
             m.fillMaxWidth().rowEntry("t:").focusGroup(), state = state,
             contentPadding = PaddingValues(start = side, end = side, top = dims.rowPad, bottom = 24.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(visible.size, key = { visible[it].id }) { i -> FnTile(visible[i], Modifier, fill = true) }
+            items(visible.size, key = { visible[it].id }, contentType = { "fn" }) { i -> FnTile(visible[i], Modifier, fill = true) }
         }
         LaunchedEffect(pendingFocus) {
             val id = pendingFocus?.takeIf { it.startsWith("t:") }?.removePrefix("t:") ?: return@LaunchedEffect
@@ -700,7 +709,7 @@ class X25DashboardActivity : BaseActivity() {
                 }
                 LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    itemsIndexed(page.items) { i, it -> FlyRow(it, if (i == 0) first else null) }
+                    itemsIndexed(page.items, key = { i, it -> "$i:${it.label}" }, contentType = { _, _ -> "fly" }) { i, it -> FlyRow(it, if (i == 0) first else null) }
                 }
                 BasicText("OK – wybierz   ·   WSTECZ – " + (if (flyout.size > 1) "poprzedni panel" else "zamknij"),
                     Modifier.padding(horizontal = 24.dp, vertical = 12.dp), style = X25Type.small.copy(color = c.text2))

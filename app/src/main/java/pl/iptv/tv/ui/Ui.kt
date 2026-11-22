@@ -120,8 +120,8 @@ object Ui {
     val PRESETS = listOf(
         // (7.0) Nowoczesny – styl serwisu VOD: głęboka czerń, niebieskie zaznaczenie z jasną obwódką, półprzezroczyste okna,
         // ekran główny z paskiem ikon, hero i rzędami kafelków (ModernHomeActivity); to samo id – dotychczasowi użytkownicy dostają nowy wygląd
-        ThemePreset(ModernTheme.ID, "Nowoczesny", c("#07080C"), c("#14171F"), c("#2F6BFF"), c("#2F6BFF"), c("#FFFFFF"),
-            c("#F5F7FA"), c("#9EA6B4"), 10, 0, FocusStyle.FILL, 9, 2, 0, true, S_MODERN),
+        ThemePreset(ModernTheme.ID, "Nowoczesny", c("#080A0F"), c("#121722"), c("#3B82F6"), c("#3B82F6"), c("#FFFFFF"),
+            c("#F8FAFC"), c("#94A3B8"), 16, 0, FocusStyle.FILL, 9, 2, 0, true, S_MODERN),
         ThemePreset("classic", "Klasyczny dekoder", c("#06134A"), c("#0D2470"), c("#FFC400"), c("#FFB300"), c("#000000"),
             c("#FFFFFF"), c("#B8C7F0"), 0, 2, FocusStyle.GRADIENT, 0, 3, 0, false),
         // (6.5) zostają tylko: Nowoczesny, Klasyczny dekoder, Xbox, X25 i PS5 – pozostałe w [REMOVED_THEMES]
@@ -340,8 +340,9 @@ object Ui {
             S_PS5 -> TexturedDrawable(withAlpha(blend(shade(base, 0.05f), accent, 0.06f), minOf(alpha, 0xF0)), withAlpha(shade(base, -0.35f), minOf(alpha, 0xF6)), r,
                 stroke = withAlpha(Color.WHITE, 0x16), strokeW = dp(1).toFloat(), highlight = withAlpha(Color.WHITE, 0x22))
             // Nowoczesny: półprzezroczysta grafitowa czerń (nakładka), cienka jasna krawędź
-            S_MODERN -> TexturedDrawable(withAlpha(shade(base, 0.05f), minOf(alpha, 0xE6)), withAlpha(shade(base, -0.3f), minOf(alpha, 0xF0)), r,
-                stroke = withAlpha(Color.WHITE, 0x14), strokeW = dp(1).toFloat(), highlight = withAlpha(Color.WHITE, 0x18))
+            // (7.17) „Obsidian Stream”: szkło SurfaceGlass → SurfaceElevated (krycie jak w motywie, najwyżej 85 % / 92 %), krawędź specular
+            S_MODERN -> TexturedDrawable(withAlpha(pl.iptv.tv.ui.theme.ObsidianViews.GLASS_TOP, minOf(alpha, 0xD9)), withAlpha(pl.iptv.tv.ui.theme.ObsidianViews.GLASS_BOTTOM, minOf(alpha, 0xEB)), r,
+                stroke = pl.iptv.tv.ui.theme.ObsidianViews.SPECULAR, strokeW = dp(1).toFloat(), highlight = withAlpha(Color.WHITE, 0x18))
             else -> null
         }
     }
@@ -833,6 +834,8 @@ object Ui {
         // ramka okna wg motywu: ostra (Xbox), duże zaokrąglenia (iOS)
         val r = when (surface) { S_XBOX -> 2; S_GLASS -> 22; S_X25 -> 6; S_PS5 -> 14; S_MODERN -> 16; else -> maxOf(preset.radius, 14) }
         if (color2("panel") != null) return fill("panel").apply { setStroke(dp(1), withAlpha(accent, 0x90)); cornerRadius = dp(r).toFloat() }
+        // (7.17) „Obsidian Stream” (Nowoczesny): ciemny panel #0F141F 92 % z krawędzią specular
+        if (surface == S_MODERN) return pl.iptv.tv.ui.theme.ObsidianViews.dialogPanel()
         // szkło: okno półprzezroczyste (rozmycie tła pod oknem, gdy system je obsługuje)
         return texturedSurface(panel, if (geo.blur > 0 && surface != S_XBOX) 0xE4 else 0xFA, r, frame = true)
             ?: surfaceClassic(0xF6, r).apply { cornerRadius = dp(r).toFloat() }
@@ -865,14 +868,15 @@ object Ui {
         else if (overlay) ModernTheme.layoutOverlay(w, wide)
         else if (guide) X25Theme.layoutGuide(w, wide)
         else w.setLayout(if (wide) (dm.widthPixels * 0.46f).toInt() else minOf((dm.widthPixels * 0.92f).toInt(), dp(560)), ViewGroup.LayoutParams.WRAP_CONTENT)
-        w.setDimAmount(if (guide) 0.45f else 0.7f)
+        // (7.17) Nowoczesny („Obsidian Stream”): scrim 75 % pod każdym oknem i panelem
+        w.setDimAmount(if (surface == S_MODERN) pl.iptv.tv.ui.theme.ObsidianViews.DIALOG_DIM else if (guide) 0.45f else 0.7f)
         if (anim != 0) w.setWindowAnimations(if (overlay) R.style.ModernOverlayAnim else if (guide) R.style.X25GuideAnim else R.style.DialogAnim)
         // szkło: rozmyte tło pod oknem (Android 12+, gdy urządzenie obsługuje rozmycie między oknami)
         if (geo.blur > 0 && android.os.Build.VERSION.SDK_INT >= 31 &&
             (d.context.getSystemService(android.content.Context.WINDOW_SERVICE) as? android.view.WindowManager)?.isCrossWindowBlurEnabled == true) {
             w.addFlags(android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
             w.attributes = w.attributes.apply { blurBehindRadius = dp(geo.blur) }
-            w.setDimAmount(0.4f)
+            w.setDimAmount(if (surface == S_MODERN) pl.iptv.tv.ui.theme.ObsidianViews.DIALOG_DIM else 0.4f)
         }
         // okno nad odtwarzaczem pełnoekranowym nie wywołuje pasków systemu (obraz nie „skacze”)
         (d.ownerActivity ?: (d.context as? android.content.ContextWrapper)?.baseContext as? Activity)?.window?.let { aw ->

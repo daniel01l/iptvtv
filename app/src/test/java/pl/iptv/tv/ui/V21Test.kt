@@ -82,7 +82,8 @@ class V21Test {
         val w = d.window!!.attributes
         val dm = c.get().resources.displayMetrics
         assertEquals((dm.widthPixels * 0.46f).toInt(), w.width)          // ekran TV: ~połowa szerokości
-        assertEquals(0.7f, w.dimAmount, 0.01f)
+        // 7.17: Nowoczesny („Obsidian Stream”) – scrim 75 %, inne motywy – 70 %
+        assertEquals(if (pl.iptv.tv.ui.theme.ObsidianViews.active) pl.iptv.tv.ui.theme.ObsidianViews.DIALOG_DIM else 0.7f, w.dimAmount, 0.01f)
         assertTrue(d.getButton(android.content.DialogInterface.BUTTON_POSITIVE).background is android.graphics.drawable.StateListDrawable)
         d.dismiss(); c.pause().stop().destroy()
     }

@@ -56,7 +56,7 @@ class SidePanel(private val a: Activity, private val tabs: List<Tab>, private va
         val content = a.findViewById<ViewGroup>(android.R.id.content)
         val r = FrameLayout(a).apply {
             isClickable = true
-            setBackgroundColor(0x66000000)
+            setBackgroundColor(pl.iptv.tv.ui.theme.ObsidianViews.scrim(0x66000000))
             setOnClickListener { close() }
         }
         val panel = LinearLayout(a).apply {
@@ -204,7 +204,7 @@ class SidePanel(private val a: Activity, private val tabs: List<Tab>, private va
             frame.addView(icon, FrameLayout.LayoutParams(tw, th))
             val badge = TextView(c).apply {
                 tag = "keepcolor"; setTextColor(android.graphics.Color.WHITE); textSize = 12f; setPadding(Ui.dp(4), Ui.dp(1), Ui.dp(4), Ui.dp(1))
-                background = GradientDrawable().apply { setColor(0xCC000000.toInt()); cornerRadius = Ui.dp(4).toFloat() }
+                background = GradientDrawable().apply { setColor(pl.iptv.tv.ui.theme.ObsidianViews.overlay(0xCC000000.toInt())); cornerRadius = Ui.dp(4).toFloat() }
             }
             frame.addView(badge, FrameLayout.LayoutParams(-2, -2, Gravity.END or Gravity.BOTTOM).apply { setMargins(0, 0, Ui.dp(4), Ui.dp(6)) })
             val bar = WatchBar(c).apply { visibility = View.GONE }
@@ -226,7 +226,7 @@ class SidePanel(private val a: Activity, private val tabs: List<Tab>, private va
         override fun onBindViewHolder(h: VH, position: Int) {
             val e = items[position]
             coil.util.CoilUtils.dispose(h.thumb); h.thumb.setImageDrawable(null)
-            if (e.thumb.isNotBlank()) h.thumb.load(e.thumb) { crossfade(false) }
+            if (e.thumb.isNotBlank()) h.thumb.load(e.thumb) { crossfade(false); fitTo(h.thumb, Ui.dp(112), Ui.dp(63)) }
             h.icon.text = e.icon; h.icon.visibility = if (e.thumb.isBlank() && e.icon.isNotBlank()) View.VISIBLE else View.GONE
             h.badge.text = e.badge; h.badge.visibility = if (e.badge.isBlank()) View.GONE else View.VISIBLE
             h.bar.fraction = e.progress ?: 0f; h.bar.visibility = if (e.progress != null && e.progress > 0f) View.VISIBLE else View.GONE

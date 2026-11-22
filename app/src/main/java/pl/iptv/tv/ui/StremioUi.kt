@@ -25,6 +25,10 @@ import pl.iptv.tv.data.StremioStore
 /** Wspólne elementy ekranów Stremio (widoki w stylu motywu – [Ui.style]: zaznaczenie, powiększenie, X25). */
 object StremioUi {
     const val POSTER_W = 150; const val POSTER_H = 222
+    /** (7.17) Wysokość plakatu (dp): „Obsidian Stream” – dokładnie 2:3 do szerokości, inne motywy – jak dotąd. */
+    val posterH: Int get() = if (pl.iptv.tv.ui.theme.ObsidianViews.active) POSTER_W * 3 / 2 else POSTER_H
+    /** Skala zaznaczonego plakatu (warstwa GPU – animacja właściwości widoku, bez przebudowy układu). */
+    const val POSTER_FOCUS_SCALE = 1.07f
 
     /** Odmiana liczebnika: 1 źródło, 2–4 źródła, 5+ źródeł (12–14 – „źródeł”). */
     fun plural(n: Int, one: String, few: String, many: String) = when {
@@ -122,15 +126,24 @@ class StremioPosterAdapter(val items: MutableList<StremioTile> = mutableListOf()
     var onFocus: (StremioTile) -> Unit = {}
 
     class VH(val root: LinearLayout, val poster: ImageView, val initials: TextView, val bar: View, val barBox: FrameLayout,
-             val title: TextView, val sub: TextView) : RecyclerView.ViewHolder(root)
+             val title: TextView, val sub: TextView, val rating: TextView? = null) : RecyclerView.ViewHolder(root)
+
+    /** (7.17) Stałe identyfikatory pozycji (typ + id tytułu) i jeden typ widoku „plakat” – odświeżenie rzędu bez gubienia fokusu. */
+    init { setHasStableIds(true) }
+    override fun getItemId(position: Int): Long = items.getOrNull(position)?.meta?.let { (it.type + "/" + it.id).hashCode().toLong() } ?: RecyclerView.NO_ID
+    override fun getItemViewType(position: Int) = VIEW_POSTER
+    companion object { const val VIEW_POSTER = 1 }
 
     override fun getItemCount() = items.size
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
         val c = parent.context
-        val w = Ui.dp(StremioUi.POSTER_W); val ph = Ui.dp(StremioUi.POSTER_H)
+        val obsidian = pl.iptv.tv.ui.theme.ObsidianViews.active
+        val O = pl.iptv.tv.ui.theme.ObsidianViews
+        val w = Ui.dp(StremioUi.POSTER_W); val ph = Ui.dp(StremioUi.posterH)
+        val radius = Ui.dp(if (obsidian) O.RADIUS_DP else 8).toFloat()
         val root = LinearLayout(c).apply {
-            orientation = LinearLayout.VERTICAL; tag = "item"; isFocusable = true; isClickable = true
+            orientation = LinearLayout.VERTICAL; tag = if (obsidian) "keepcolor nozoom" else "item"; isFocusable = true; isClickable = true
             setPadding(Ui.dp(5), Ui.dp(5), Ui.dp(5), Ui.dp(7))
             layoutParams = RecyclerView.LayoutParams(w + Ui.dp(10), ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = Ui.dp(12) }
         }
@@ -139,8 +152,25 @@ class StremioPosterAdapter(val items: MutableList<StremioTile> = mutableListOf()
         frame.addView(initials, FrameLayout.LayoutParams(w, ph))
         val poster = ImageView(c).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
         frame.addView(poster, FrameLayout.LayoutParams(w, ph))
-        frame.background = GradientDrawable().apply { setColor(Ui.withAlpha(Ui.text2, 0x26)); cornerRadius = Ui.dp(8).toFloat() }
-        Ui.roundClip(frame, Ui.dp(8).toFloat())
+        frame.background = if (obsidian) O.glass() else GradientDrawable().apply { setColor(Ui.withAlpha(Ui.text2, 0x26)); cornerRadius = radius }
+        Ui.roundClip(frame, radius)
+        // (7.17) „Obsidian Stream”: obwódka plakatu – zaznaczony: 2 dp w akcencie + poświata (cień w kolorze akcentu), zwykły: krawędź specular
+        var rating: TextView? = null
+        if (obsidian) {
+            frame.isDuplicateParentStateEnabled = true
+            if (android.os.Build.VERSION.SDK_INT >= 23) frame.foreground = android.graphics.drawable.StateListDrawable().apply {
+                addState(intArrayOf(android.R.attr.state_focused), GradientDrawable().apply { cornerRadius = radius; setStroke(Ui.dp(2), O.ACCENT) })
+                addState(intArrayOf(), GradientDrawable().apply { cornerRadius = radius; setStroke(Ui.dp(1), O.SPECULAR) })
+            }
+            if (android.os.Build.VERSION.SDK_INT >= 28) { frame.outlineSpotShadowColor = O.ACCENT; frame.outlineAmbientShadowColor = O.ACCENT }
+            // dyskretna pigułka z oceną w prawym górnym rogu
+            rating = TextView(c).apply {
+                tag = "keepcolor"; textSize = 11f; setTypeface(typeface, android.graphics.Typeface.BOLD); setTextColor(O.TEXT)
+                setPadding(Ui.dp(7), Ui.dp(2), Ui.dp(7), Ui.dp(2)); visibility = View.GONE
+                background = GradientDrawable().apply { setColor(0xCC080A0F.toInt()); cornerRadius = Ui.dp(8).toFloat() }
+            }
+            frame.addView(rating, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, Ui.dp(7), Ui.dp(7), 0) })
+        }
         // pasek obejrzenia na dole plakatu
         val barBox = FrameLayout(c).apply { setBackgroundColor(0x99000000.toInt()); visibility = View.GONE }
         val bar = View(c).apply { setBackgroundColor(Ui.accent) }
@@ -150,10 +180,22 @@ class StremioPosterAdapter(val items: MutableList<StremioTile> = mutableListOf()
         val title = StremioUi.text(c, size = 14f, lines = 1).apply { setPadding(Ui.dp(2), Ui.dp(6), Ui.dp(2), 0) }
         val sub = StremioUi.text(c, size = 12f, tag2 = "text2", lines = 1).apply { setPadding(Ui.dp(2), Ui.dp(1), Ui.dp(2), 0) }
         root.addView(title, LinearLayout.LayoutParams(-1, -2)); root.addView(sub, LinearLayout.LayoutParams(-1, -2))
-        val vh = VH(root, poster, initials, bar, barBox, title, sub)
+        if (obsidian) { title.setTextColor(O.TEXT); title.tag = "keepcolor"; sub.setTextColor(O.TEXT2); sub.tag = "keepcolor"; initials.setTextColor(O.TEXT2); initials.tag = "keepcolor" }
+        val vh = VH(root, poster, initials, bar, barBox, title, sub, rating)
         root.setOnClickListener { items.getOrNull(vh.bindingAdapterPosition)?.let(onClick) }
         root.setOnLongClickListener { items.getOrNull(vh.bindingAdapterPosition)?.let(onLongClick); true }
-        root.setOnFocusChangeListener { _, f -> if (f) items.getOrNull(vh.bindingAdapterPosition)?.let(onFocus) }
+        val focusAnim = android.view.animation.PathInterpolator(0.4f, 0f, 0.2f, 1f)
+        root.setOnFocusChangeListener { _, f ->
+            if (f) items.getOrNull(vh.bindingAdapterPosition)?.let(onFocus)
+            if (obsidian) {
+                // skala i poświata tylko we właściwościach widoku (RenderNode – GPU), bez ponownego pomiaru rzędu
+                val s = if (f) StremioUi.POSTER_FOCUS_SCALE else 1f
+                val ms = if (pl.iptv.tv.data.Prefs.lowPerf || Ui.anim == 0) 0L else 160L
+                root.animate().scaleX(s).scaleY(s).setDuration(ms).setInterpolator(focusAnim).start()
+                frame.elevation = if (f) Ui.dp(14).toFloat() else 0f
+            }
+        }
+        if (obsidian) root.pivotY = 0f
         Ui.style(root)
         return vh
     }
@@ -161,11 +203,23 @@ class StremioPosterAdapter(val items: MutableList<StremioTile> = mutableListOf()
     override fun onBindViewHolder(h: VH, position: Int) {
         val t = items[position]; val m = t.meta
         h.title.text = m.name
+        val obsidian = h.rating != null
         h.sub.text = t.note.ifBlank { null } ?: t.progress?.let { p -> listOfNotNull(p.videoLabel.ifBlank { null }, StremioUi.fmt(p.positionMs)).joinToString(" · ") }
-            ?: listOfNotNull(m.releaseInfo.ifBlank { null }, StremioUi.typeName(m.type)).joinToString(" · ")
+            // (7.17) Obsidian: pod plakatem czysty tytuł i rok produkcji
+            ?: if (obsidian) m.releaseInfo.take(4).ifBlank { StremioUi.typeName(m.type) }
+            else listOfNotNull(m.releaseInfo.ifBlank { null }, StremioUi.typeName(m.type)).joinToString(" · ")
+        h.rating?.let { r ->
+            val v = m.imdbRating.takeIf { it.isNotBlank() && it != "0" && it != "0.0" }
+            r.text = v?.let { "★ $it" } ?: ""; r.visibility = if (v != null) View.VISIBLE else View.GONE
+        }
         h.initials.text = m.name
+        coil.util.CoilUtils.dispose(h.poster)
         h.poster.setImageDrawable(null)
-        if (m.poster.isNotBlank()) h.poster.load(m.poster) { crossfade(false); size(Ui.dp(StremioUi.POSTER_W), Ui.dp(StremioUi.POSTER_H)) }
+        // dokładny rozmiar 2:3 kafelka (EXACT): plakat 2000×3000 px nie trafia do pamięci w pełnej rozdzielczości
+        if (m.poster.isNotBlank()) h.poster.load(m.poster) {
+            crossfade(false); size(Ui.dp(StremioUi.POSTER_W), Ui.dp(StremioUi.posterH))
+            scale(coil.size.Scale.FILL); precision(coil.size.Precision.EXACT)
+        }
         val f = t.fraction ?: t.progress?.fraction ?: 0f
         h.barBox.visibility = if (f > 0f) View.VISIBLE else View.GONE
         h.bar.layoutParams = (h.bar.layoutParams as FrameLayout.LayoutParams).apply { width = (Ui.dp(StremioUi.POSTER_W) * f).toInt() }
@@ -204,10 +258,11 @@ class StremioAddonAdapter(var items: List<Pair<StremioAddon, Boolean>>, private 
         h.name.text = a.name + (if (a.version.isNotBlank()) "  v${a.version}" else "")
         val res = a.resourceNames.joinToString(", ") { when (it) { "stream" -> "źródła"; "subtitles" -> "napisy"; "catalog" -> "katalogi"; "meta" -> "metadane"; else -> it } }
         h.desc.text = listOfNotNull(res.ifBlank { null }, a.description.ifBlank { null }).joinToString("  ·  ")
-        if (Ps5Theme.active) {
+        val obsidian = pl.iptv.tv.ui.theme.ObsidianViews.active
+        if (Ps5Theme.active || obsidian) {
             // PS5: przełącznik „switch” po prawej (jak w ustawieniach konsoli)
             h.state.text = if (on) "Włączona" else "Wyłączona"
-            h.state.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, Ps5Switch(on), null)
+            h.state.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, if (obsidian) pl.iptv.tv.ui.theme.ObsidianViews.Switch(on) else Ps5Switch(on), null)
             h.state.compoundDrawablePadding = Ui.dp(12)
         } else {
             h.state.text = if (on) "✔ Włączona" else "✖ Wyłączona"

@@ -203,7 +203,7 @@ class StremioPlayerActivity : AppCompatActivity() {
             tag = "item"; isFocusable = true; isClickable = true; textSize = if (narrow) 14f else 16f; setTextColor(Color.WHITE); visibility = View.GONE
             maxWidth = Ui.dp(if (narrow) 240 else 360); maxLines = 3; ellipsize = android.text.TextUtils.TruncateAt.END
             setPadding(Ui.dp(18), Ui.dp(12), Ui.dp(18), Ui.dp(12))
-            background = GradientDrawable().apply { setColor(0xE0101010.toInt()); cornerRadius = Ui.dp(10).toFloat(); setStroke(Ui.dp(2), Ui.accent) }
+            background = GradientDrawable().apply { setColor(pl.iptv.tv.ui.theme.ObsidianViews.overlay(0xE0101010.toInt())); cornerRadius = Ui.dp(10).toFloat(); setStroke(Ui.dp(2), Ui.accent) }
             setOnClickListener { playNext() }
         }
         root.addView(nextCard, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, Ui.dp(if (narrow) 56 else 24), Ui.dp(if (narrow) 16 else 40), 0) })
@@ -244,7 +244,7 @@ class StremioPlayerActivity : AppCompatActivity() {
         seekBadge = TextView(this).apply {
             setTextColor(Color.WHITE); textSize = 18f; setTypeface(typeface, android.graphics.Typeface.BOLD); visibility = View.GONE
             setPadding(Ui.dp(16), Ui.dp(6), Ui.dp(16), Ui.dp(6))
-            background = GradientDrawable().apply { cornerRadius = Ui.dp(18).toFloat(); setColor(0xCC000000.toInt()); setStroke(Ui.dp(2), PlayerChrome.STREMIO) }
+            background = GradientDrawable().apply { cornerRadius = Ui.dp(18).toFloat(); setColor(pl.iptv.tv.ui.theme.ObsidianViews.overlay(0xCC000000.toInt())); setStroke(Ui.dp(2), PlayerChrome.STREMIO) }
         }
         controls.addView(seekBadge, LinearLayout.LayoutParams(-2, -2).apply { gravity = Gravity.CENTER_HORIZONTAL; bottomMargin = Ui.dp(10) })
         // pasek postępu z czasem
@@ -308,7 +308,7 @@ class StremioPlayerActivity : AppCompatActivity() {
         TextView(this).apply {
             setTextColor(Color.WHITE); textSize = 14f; setTypeface(typeface, android.graphics.Typeface.BOLD); maxLines = 1; alpha = 0f
             setPadding(Ui.dp(12), Ui.dp(4), Ui.dp(12), Ui.dp(4))
-            background = GradientDrawable().apply { cornerRadius = Ui.dp(12).toFloat(); setColor(0xE6000000.toInt()); setStroke(Ui.dp(1), PlayerChrome.STREMIO) }
+            background = GradientDrawable().apply { cornerRadius = Ui.dp(12).toFloat(); setColor(pl.iptv.tv.ui.theme.ObsidianViews.overlay(0xE6000000.toInt())); setStroke(Ui.dp(1), PlayerChrome.STREMIO) }
         }
     }
 

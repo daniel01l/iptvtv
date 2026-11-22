@@ -67,6 +67,7 @@ class AppLibraryActivity : BaseActivity() {
     override val videoBackground = false
 
     /** Aplikacja w siatce; [intent] = null – Ustawienia systemu. */
+    @androidx.compose.runtime.Immutable
     data class Entry(val id: String, val label: String, val icon: ImageBitmap?, val intent: Intent)
 
     private var apps by mutableStateOf<List<Entry>>(emptyList())
@@ -148,7 +149,7 @@ class AppLibraryActivity : BaseActivity() {
                 LazyVerticalGrid(GridCells.Adaptive(if (compact) 110.dp else 150.dp), Modifier.weight(1f).fillMaxWidth(),
                     contentPadding = PaddingValues(start = side, end = side, top = 18.dp, bottom = 56.dp),
                     verticalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 18.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    itemsIndexed(apps, key = { _, e -> e.id }) { i, e -> AppItem(e, if (i == 0) first else null, compact) }
+                    itemsIndexed(apps, key = { _, e -> e.id }, contentType = { _, _ -> "app" }) { i, e -> AppItem(e, if (i == 0) first else null, compact) }
                 }
             }
             AndroidView({ Ps5Hints(it, LIBRARY_HINTS) }, Modifier.align(Alignment.BottomEnd).padding(end = side, bottom = 8.dp))

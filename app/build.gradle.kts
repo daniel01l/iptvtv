@@ -5,6 +5,8 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
     id("org.jetbrains.kotlin.plugin.compose")
+    // (7.17) profil bazowy z modułu :baselineprofile (zimny start, Start, Kanały/EPG, pasek nawigacji, STube, Stremio, Ustawienia)
+    id("androidx.baselineprofile")
 }
 
 android {
@@ -94,6 +96,25 @@ android {
 // schemat bazy STube w repozytorium (podstawa przyszłych migracji)
 ksp { arg("room.schemaLocation", "$projectDir/schemas") }
 
+// (7.17) Profil bazowy: generowany ręcznie (`./gradlew :app:generateFullReleaseBaselineProfile` z emulatorem / urządzeniem
+// Android TV, API 33+), zapisywany w repozytorium (src/fullRelease/generated/baselineProfiles) i dołączany do każdego
+// wydania obok ręcznego src/main/baseline-prof.txt. Zwykłe budowanie nie uruchamia generowania (bez urządzenia).
+baselineProfile {
+    saveInSrc = true
+    automaticGenerationDuringBuild = false
+    // profil startowy (startup-prof.txt) – kolejność klas w DEX pod zimny start
+    dexLayoutOptimization = true
+}
+
+// (7.17) Raport stabilności klas Compose (./gradlew -PcomposeReports :app:compileFullReleaseKotlin → build/compose_compiler).
+// Kotlin 2.0.21: tryb Strong Skipping włączony domyślnie (niestabilne parametry porównywane przez tożsamość, lambdy zapamiętywane).
+composeCompiler {
+    if (project.hasProperty("composeReports")) {
+        reportsDestination = layout.buildDirectory.dir("compose_compiler")
+        metricsDestination = layout.buildDirectory.dir("compose_compiler")
+    }
+}
+
 dependencies {
     // Media3 1.5.0 – wersja zgodna z prebudowanym dekoderem FFmpeg (Jellyfin publikuje go tylko dla wybranych wersji Media3)
     val media3 = "1.5.0"
@@ -132,6 +153,9 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.activity:activity-compose:1.9.2")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.5")
+    // (7.17) instalacja profilu bazowego przy pierwszym uruchomieniu APK spoza Sklepu Play (wydania z GitHuba)
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
+    baselineProfile(project(":baselineprofile"))
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("net.sf.kxml:kxml2:2.3.0")

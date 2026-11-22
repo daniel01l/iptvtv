@@ -21,6 +21,11 @@ object Fmt {
     private val time = SimpleDateFormat("HH:mm", Locale.getDefault())
     private val day = SimpleDateFormat("EEEE, d MMMM", Locale("pl"))
     fun time(ms: Long): String = time.format(Date(ms))
+    /** Czas trwania / pozycja: „m:ss” albo „g:mm:ss” (materiały, archiwum – OSD). */
+    fun duration(ms: Long): String {
+        val s = (ms / 1000).coerceAtLeast(0); val h = s / 3600; val m = s / 60 % 60; val sec = s % 60
+        return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%d:%02d".format(m, sec)
+    }
     fun day(ms: Long): String {
         val a = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 12) }
         val b = Calendar.getInstance().apply { timeInMillis = ms; set(Calendar.HOUR_OF_DAY, 12) }
@@ -78,6 +83,27 @@ class PiconView @JvmOverloads constructor(c: android.content.Context, a: android
 }
 
 private val piconSize = coil.size.Size(240, 144)
+
+/**
+ * Dokładny rozmiar docelowy obrazu: stałe wymiary widoku (layoutParams w px), a bez nich [fallbackW]×[fallbackH] px;
+ * skala wg `scaleType` (CENTER_CROP – wypełnienie, inaczej dopasowanie). Obraz dekodowany od razu w tym rozmiarze –
+ * bez czekania na pomiar widoku i bez pełnej rozdzielczości w pamięci.
+ */
+fun coil.request.ImageRequest.Builder.fitTo(iv: ImageView, fallbackW: Int, fallbackH: Int): coil.request.ImageRequest.Builder {
+    val lp = iv.layoutParams
+    val w = lp?.width?.takeIf { it > 0 } ?: fallbackW
+    val h = lp?.height?.takeIf { it > 0 } ?: fallbackH
+    return size(w.coerceAtLeast(1), h.coerceAtLeast(1))
+        .scale(if (iv.scaleType == ImageView.ScaleType.CENTER_CROP) coil.size.Scale.FILL else coil.size.Scale.FIT)
+        .precision(coil.size.Precision.INEXACT)
+}
+
+/** Rozmiar tła pełnoekranowego: ekran urządzenia, najwyżej 1280 px szerokości (tło jest przyciemnione / rozmyte). */
+fun backdropSize(c: android.content.Context): Pair<Int, Int> {
+    val dm = c.resources.displayMetrics
+    val w = dm.widthPixels.coerceIn(1, 1280)
+    return w to (w.toLong() * dm.heightPixels / dm.widthPixels.coerceAtLeast(1)).toInt().coerceAtLeast(1)
+}
 
 /** Zastępcze logo: inicjały kanału na kolorowym kafelku (kolor stały dla nazwy) – kanał bez logo nie zostaje pusty. */
 class MonogramDrawable(name: String) : android.graphics.drawable.Drawable() {
@@ -234,7 +260,17 @@ class GroupAdapter(
     }
 
     class VH(val tv: TextView) : RecyclerView.ViewHolder(tv)
-    override fun onCreateViewHolder(p: ViewGroup, t: Int) = VH(inflate(p, R.layout.item_group) as TextView)
+    /** (7.17) „Obsidian Stream”: kompaktowe pigułki kategorii (72 dp, bez prostokątnych ramek). */
+    var obsidian = false
+
+    override fun onCreateViewHolder(p: ViewGroup, t: Int) = VH((inflate(p, R.layout.item_group) as TextView).also { tv ->
+        if (!obsidian) return@also
+        tv.tag = "keepcolor nozoom"
+        tv.background = pl.iptv.tv.ui.theme.ObsidianViews.pill(Ui.dp(24).toFloat())
+        tv.setTextColor(pl.iptv.tv.ui.theme.ObsidianViews.pillText())
+        tv.textSize = 14f; tv.setTypeface(tv.typeface, android.graphics.Typeface.BOLD)
+        tv.layoutParams = RecyclerView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(48)).apply { bottomMargin = Ui.dp(6) }
+    })
     override fun getItemCount() = items.size
     override fun onBindViewHolder(h: VH, pos: Int) {
         val g = items[pos]
@@ -242,7 +278,8 @@ class GroupAdapter(
         h.tv.gravity = if (compact) android.view.Gravity.CENTER else android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
         val d = h.tv.resources.displayMetrics.density
         // zwinięte: małe marginesy, by zmieściły się 2 litery
-        if (compact) h.tv.setPadding((2 * d).toInt(), (12 * d).toInt(), (2 * d).toInt(), (12 * d).toInt())
+        if (obsidian) h.tv.setPadding(0, 0, 0, 0)
+        else if (compact) h.tv.setPadding((2 * d).toInt(), (12 * d).toInt(), (2 * d).toInt(), (12 * d).toInt())
         else h.tv.setPadding((12 * d).toInt(), (12 * d).toInt(), (12 * d).toInt(), (12 * d).toInt())
         h.tv.isActivated = g == selected
         h.tv.setOnFocusChangeListener { _, f -> if (f) onFocus(g) }
@@ -279,7 +316,17 @@ class ChannelAdapter(
         val catchup: TextView = v.findViewById(R.id.catchup)
         val fav: TextView = v.findViewById(R.id.fav)
     }
-    override fun onCreateViewHolder(p: ViewGroup, t: Int) = VH(inflate(p, R.layout.item_channel).also { if (cards) toCard(it) })
+    /** (7.17) „Obsidian Stream”: smukły pasek postępu programu (3 dp), wiersz 72 dp. */
+    var obsidian = false
+
+    override fun onCreateViewHolder(p: ViewGroup, t: Int) = VH(inflate(p, R.layout.item_channel).also {
+        if (cards) toCard(it)
+        else if (obsidian) {
+            it.layoutParams = it.layoutParams.apply { height = Ui.dp(72) }
+            it.findViewById<View>(R.id.progress).layoutParams.height = Ui.dp(3)
+            (it.findViewById<View>(R.id.progress).layoutParams as ViewGroup.MarginLayoutParams).topMargin = Ui.dp(5)
+        }
+    })
 
     private fun toCard(v: View) {
         val d = v.resources.displayMetrics.density; fun px(x: Int) = (x * d).toInt()
@@ -361,6 +408,9 @@ class ProgrammeAdapter(
         val title: TextView = v.findViewById(R.id.title)
         val badge: TextView = v.findViewById(R.id.badge)
     }
+    /** (7.17) „Obsidian Stream”: pigułka NA ŻYWO i wyraźne nagłówki dni. */
+    var obsidian = false
+
     override fun onCreateViewHolder(p: ViewGroup, t: Int) = VH(inflate(p, R.layout.item_programme))
     override fun getItemCount() = items.size
     override fun onBindViewHolder(h: VH, pos: Int) {
@@ -372,8 +422,16 @@ class ProgrammeAdapter(
         h.time.text = Fmt.time(p.start)
         h.title.text = p.fullTitle
         val ch = channel
+        if (obsidian) {
+            // widok z recyklingu: pigułka tylko na trwającym programie; nagłówek dnia („Jutro – …”) wyraźnie oddzielony
+            h.badge.background = null; h.badge.setPadding(0, 0, 0, 0)
+            h.day.setPadding(Ui.dp(4), Ui.dp(if (pos == 0) 2 else 14), 0, Ui.dp(4)); h.day.isAllCaps = true; h.day.letterSpacing = 0.06f
+        }
         when {
             // trwający mecz: wynik na żywo zamiast samego „NA ŻYWO” (program TV kanału, lista EPG)
+            // (7.17) „Obsidian Stream”: wyraźna czerwona pigułka NA ŻYWO (biały tekst)
+            p.isNow(now) && obsidian -> { h.badge.text = ch?.let { pl.iptv.tv.data.Scores.liveForProgramme(it, p, now) } ?: "NA ŻYWO"; h.badge.setTextColor(android.graphics.Color.WHITE)
+                h.badge.background = pl.iptv.tv.ui.theme.ObsidianViews.livePill(); h.badge.setPadding(Ui.dp(8), Ui.dp(2), Ui.dp(8), Ui.dp(2)); h.badge.textSize = 11f }
             p.isNow(now) -> { h.badge.text = ch?.let { pl.iptv.tv.data.Scores.liveForProgramme(it, p, now) } ?: "● NA ŻYWO"; h.badge.setTextColor(Ui.live) }
             p.start > now && ch != null && pl.iptv.tv.data.Reminders.isSet(ch, p) -> { h.badge.text = "🔔"; h.badge.setTextColor(Ui.accent) }
             p.end <= now && p.start >= catchupFrom -> { h.badge.text = "⟲"; h.badge.setTextColor(Ui.archive) }

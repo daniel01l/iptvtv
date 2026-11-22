@@ -7,4 +7,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "IptvTv"
-include(":app", ":admin")
+include(":app", ":admin", ":baselineprofile")

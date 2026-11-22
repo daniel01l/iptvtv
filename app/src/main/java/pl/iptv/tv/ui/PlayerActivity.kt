@@ -132,7 +132,7 @@ class PlayerActivity : BaseActivity() {
         onLongClick = { p -> ProgrammeActions.menu(this, list[pos], p, ::panelPlay) { infoProgAdapter.notifyDataSetChanged() } })
     private val quickAdapter = QuickAdapter()
 
-    private val hideOverlay = Runnable { Ui.fadeOut(overlay); Ui.fadeOut(touchBar) }
+    private val hideOverlay = Runnable { Ui.fadeOut(overlay); Ui.fadeOut(touchBar); osd?.hide() }
     private val closePanelsRunnable = Runnable { closePanels() }
     private val addRecent = Runnable { list.getOrNull(pos)?.let { Repository.addRecent(it) } }
 
@@ -148,6 +148,11 @@ class PlayerActivity : BaseActivity() {
         errorTv = findViewById(R.id.error)
         numberTv = findViewById(R.id.numberInput)
         scrim = findViewById(R.id.scrim)
+        // (7.17) „Obsidian Stream”: scrim 75 % pod panelami, komunikat błędu na panelu #0F141F 92 %
+        if (pl.iptv.tv.ui.theme.ObsidianViews.active) {
+            scrim.setBackgroundColor(pl.iptv.tv.ui.theme.ObsidianViews.scrim(0x66000000))
+            errorTv.background = pl.iptv.tv.ui.theme.ObsidianViews.dialogPanel()
+        }
         leftPanel = findViewById(R.id.leftPanel)
         rightPanel = findViewById(R.id.rightPanel)
         lpChannels = findViewById(R.id.lpChannels)
@@ -207,11 +212,15 @@ class PlayerActivity : BaseActivity() {
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
+                val o = osd
                 when {
                     miniOpen -> closeMini.run()
                     zapOpen -> { zapHide.run(); hideOverlay.run() }
                     leftOpen && quickOpen -> closeQuickBar()
                     leftOpen || rightOpen -> closePanels()
+                    // (7.17) OSD (pod panelami i listą kanałów): WSTECZ zamyka panel ścieżek, potem chowa OSD; dopiero kolejne wychodzi z pełnego ekranu
+                    o != null && o.panel != null -> o.closePanel()
+                    o != null && o.visible -> { o.hide(); Ui.fadeOut(touchBar) }
                     isCatchup && playerView.isControllerFullyVisible -> playerView.hideController()
                     overlay.visibility == View.VISIBLE && touchBar.visibility == View.VISIBLE -> hideOverlay.run()
                     else -> leaveScreen()
@@ -227,6 +236,134 @@ class PlayerActivity : BaseActivity() {
             if (isCatchup && vis != View.VISIBLE) setBarFull(true)
         })
         setupCatchupBar()
+        if (pl.iptv.tv.ui.theme.ObsidianViews.active && PlayerOsd.enabled) setupOsd()
+    }
+
+    // ---------------- (7.17) OSD „Obsidian Stream” ----------------
+
+    /** Stan nakładki OSD (null – inny motyw: dawny pasek informacji). */
+    var osd: OsdState? = null; private set
+    private var osdView: androidx.compose.ui.platform.ComposeView? = null
+    /** OSD zamiast paska informacji: motyw Nowoczesny, telewizja na żywo (archiwum ma własny pasek przewijania). */
+    private val osdOn get() = osd != null && !isCatchup
+
+    /**
+     * Nakładka OSD w Compose nad obrazem (ten sam [PlayerView] i wspólny odtwarzacz [Playback] – bez nowej instancji
+     * ExoPlayera). Pod panelami kanałów / listą kanałów, nad obrazem.
+     */
+    private fun setupOsd() {
+        val s = OsdState()
+        s.progress = ::osdProgress
+        s.scope = lifecycleScope            // pętle OSD na głównym wątku ekranu (koniec z ukryciem OSD lub zamknięciem ekranu)
+        s.actions = listOf(
+            OsdAction("tracks", "Audio / Napisy", pl.iptv.tv.data.X25Action.SUBS) { openTrackPanel() },
+            OsdAction("quality", "Jakość", X25Icons.MORE) { openQualityPanel() },
+            OsdAction("guide", "Program TV", pl.iptv.tv.data.X25Action.GUIDE) { s.hide(); openRight() },
+            OsdAction("channels", "Lista kanałów", pl.iptv.tv.data.X25Action.LIVE) { s.hide(); if (Prefs.channelPanel) openLeft() else { showOverlay(); openZap() } },
+        )
+        osd = s
+        val root = findViewById<android.widget.FrameLayout>(R.id.playerRoot)
+        osdView = androidx.compose.ui.platform.ComposeView(this).apply {
+            setViewCompositionStrategy(androidx.compose.ui.platform.ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            setContent { PlayerOsdOverlay(s, lowPerf = Prefs.lowPerf) }
+        }
+        root.addView(osdView, root.indexOfChild(overlay) + 1, android.widget.FrameLayout.LayoutParams(-1, -1))
+    }
+
+    /** Dane panelu OSD dla bieżącego kanału na żywo. */
+    private fun osdInfo(): OsdInfo {
+        val ch = list[pos]; val now = System.currentTimeMillis()
+        val cur = Repository.current(ch, now); val next = Repository.next(ch, now)
+        return OsdInfo(name = ch.name + if (Repository.isFav(ch)) "  ★" else "", number = if (Prefs.showNumbers) "${ch.number}." else "",
+            logo = Repository.piconCandidates(ch).firstOrNull() ?: "", live = true, title = cur?.fullTitle ?: "",
+            next = if (!Ui.infoNext) "" else next?.let { "Następnie: ${Fmt.time(it.start)}  ${it.title}" } ?: "")
+    }
+
+    /**
+     * Postęp na pasku OSD (wywoływany wyłącznie przy widocznym OSD, co 500 ms): na żywo – czas audycji (start – koniec),
+     * archiwum / materiał – pozycja odtwarzacza i czas trwania.
+     */
+    private fun osdProgress(): OsdProgress {
+        val ch = list.getOrNull(pos) ?: return OsdProgress()
+        if (isCatchup) {
+            val p = player ?: return OsdProgress()
+            val d = p.duration.takeIf { it > 0 } ?: return OsdProgress()
+            return OsdProgress(p.currentPosition.toFloat() / d, Fmt.duration(p.currentPosition), Fmt.duration(d))
+        }
+        val now = System.currentTimeMillis()
+        val cur = Repository.current(ch, now) ?: return OsdProgress()
+        return OsdProgress(pl.iptv.tv.ui.EpgClock.fraction(cur.start, cur.end, now), Fmt.time(cur.start), Fmt.time(cur.end))
+    }
+
+    private fun showOsd(interactive: Boolean) {
+        val s = osd ?: return
+        s.info = osdInfo()
+        overlay.visibility = View.GONE
+        s.show(interactive)
+    }
+
+    /** Audio / Napisy w panelu z prawej (obraz na środku odsłonięty). */
+    private fun openTrackPanel() {
+        val s = osd ?: return
+        val audio = trackOptions(androidx.media3.common.C.TRACK_TYPE_AUDIO)
+        val text = trackOptions(androidx.media3.common.C.TRACK_TYPE_TEXT)
+        if (audio.size <= 1 && text.size <= 1) { toast("Brak dodatkowych ścieżek audio i napisów"); return }
+        s.openPanel(OsdPanel("Audio / Napisy", listOfNotNull(
+            OsdSection("Audio", audio).takeIf { audio.isNotEmpty() },
+            OsdSection("Napisy", text).takeIf { text.size > 1 })))
+    }
+
+    /** Jakość obrazu (wariant strumienia) – automatyczna albo wybrana rozdzielczość. */
+    private fun openQualityPanel() {
+        val s = osd ?: return
+        val p = player ?: return
+        val type = androidx.media3.common.C.TRACK_TYPE_VIDEO
+        val overridden = p.trackSelectionParameters.overrides.keys.any { it.type == type }
+        val opts = mutableListOf(OsdOption("Automatyczna", !overridden) {
+            p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().clearOverridesOfType(type).build()
+        })
+        p.currentTracks.groups.filter { it.type == type }.forEach { g ->
+            for (i in 0 until g.length) {
+                if (!g.isTrackSupported(i)) continue
+                val f = g.getTrackFormat(i)
+                val label = listOfNotNull(f.height.takeIf { it > 0 }?.let { "${it}p" }, f.frameRate.takeIf { it > 0 }?.let { "${Math.round(it)} kl/s" },
+                    f.bitrate.takeIf { it > 0 }?.let { "%.1f Mb/s".format(java.util.Locale.US, it / 1_000_000f) }).joinToString(" • ").ifEmpty { "Wariant ${opts.size}" }
+                opts += OsdOption(label, overridden && g.isTrackSelected(i)) {
+                    p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
+                        .setOverrideForType(androidx.media3.common.TrackSelectionOverride(g.mediaTrackGroup, i)).build()
+                }
+            }
+        }
+        if (opts.size <= 1) { toast("Strumień ma jedną jakość obrazu"); return }
+        s.openPanel(OsdPanel("Jakość", listOf(OsdSection("", opts))))
+    }
+
+    /**
+     * Klawisze przy OSD z pigułkami / panelem ścieżek: ◄ ► OK (i ▲▼ w panelu) prowadzą fokus w nakładce (Compose),
+     * ▲▼ przy pigułkach – jak zwykle (zmiana kanału wg mapy klawiszy, OSD zostaje). Każdy klawisz zeruje auto-ukrywanie.
+     * null – zwykła obsługa odtwarzacza (OSD ukryty albo tylko podgląd informacji).
+     */
+    private fun osdKey(event: KeyEvent): Boolean? {
+        val s = osd ?: return null
+        if (!s.visible || !(s.interactive || s.panel != null)) return null
+        val code = event.keyCode
+        val nav = code in intArrayOf(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER)
+        if (!nav) return null
+        s.touch()
+        if (s.panel == null && (code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN)) {
+            if (event.action == KeyEvent.ACTION_DOWN) pl.iptv.tv.data.KeyMap.actionFor(code)?.let { perform(it) }
+            return true
+        }
+        // ◄ ► OK przy pigułkach, ▲ ▼ OK w panelu – zaznaczenie w stanie OSD (powtórzenia klawisza też przesuwają zaznaczenie;
+        // OK tylko pierwsze wciśnięcie – przytrzymanie nie powtarza akcji)
+        if (event.action == KeyEvent.ACTION_DOWN && !(event.repeatCount > 0 && (code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER))) s.onKey(code)
+        return true
+    }
+
+    /** Ścieżki typu [type] jako opcje panelu (te same, co w dawnym oknie – [trackItems]). */
+    private fun trackOptions(type: Int): List<OsdOption> = trackItems(type).map { (label, run) ->
+        OsdOption(label.removeSuffix(" ✔"), label.endsWith(" ✔"), run)
     }
 
     override fun applyTheme() {} // odtwarzacz nie używa tła menu
@@ -249,6 +386,7 @@ class PlayerActivity : BaseActivity() {
         super.onStop()
         handler.removeCallbacksAndMessages(null)
         recentScheduled = false
+        osd?.hide()                      // (7.17) ukryty OSD – pętla postępu zatrzymana
         // odtwarzacz zostaje (kanał gra dalej w menu/ustawieniach); odłączamy tylko obraz i słuchacza
         Playback.removeListener(listener)
         Playback.onFatal = null; Playback.onPlayerChanged = null; Playback.onDecoderFallback = null; ChannelEngineOptimizer.onStatus = null
@@ -630,6 +768,8 @@ class PlayerActivity : BaseActivity() {
     }
 
     private fun showOverlay(touch: Boolean = false) {
+        // (7.17) Obsidian: OSD zamiast paska informacji (samo podgląd – fokus bez zmian; auto-ukrywanie po 5 s)
+        if (osdOn) { showOsd(interactive = false); if (touch) Ui.fadeIn(touchBar); return }
         if (isCatchup) { setBarFull(true); fillCatchupBar(); playerView.showController(); if (touch) Ui.fadeIn(touchBar); return }
         val ch = list[pos]
         val now = System.currentTimeMillis()
@@ -1150,7 +1290,8 @@ class PlayerActivity : BaseActivity() {
             A.PANEL_CHANNELS -> if (Prefs.channelPanel) openLeft() else return false
             A.PANEL_RECENT -> if (Prefs.recentPanel) openRight() else return false
             A.QUICK_MENU -> openQuickBar()
-            A.INFO -> { showOverlay(); openZap() }
+            // (7.17) Obsidian: OK – OSD z pigułkami akcji (Audio / Napisy, Jakość, Program TV, Lista kanałów)
+            A.INFO -> if (osdOn) showOsd(interactive = true) else { showOverlay(); openZap() }
             A.GUIDE -> openGuide(list[pos].key)
             A.LAST -> prevKey?.let { k -> Repository.byKey(k) }?.let { zapTo(it, if (it in list) group else Repository.ALL) }
             A.FAV -> { val added = Repository.toggleFav(list[pos]); toast(if (added) "★ Dodano do ulubionych" else "Usunięto z ulubionych"); showOverlay() }
@@ -1159,8 +1300,8 @@ class PlayerActivity : BaseActivity() {
                 if (r != null) { pl.iptv.tv.rec.RecordingService.stop(this, r.id); toast("⏹ Zatrzymano nagrywanie") }
                 else { pl.iptv.tv.rec.RecordingService.recordProgramme(this, ch, Repository.current(ch)); toast("⏺ Nagrywanie: ${ch.name}") }
             }
-            A.AUDIO -> trackMenu(androidx.media3.common.C.TRACK_TYPE_AUDIO)
-            A.SUBS -> trackMenu(androidx.media3.common.C.TRACK_TYPE_TEXT)
+            A.AUDIO -> if (osdOn) openTrackPanel() else trackMenu(androidx.media3.common.C.TRACK_TYPE_AUDIO)
+            A.SUBS -> if (osdOn) openTrackPanel() else trackMenu(androidx.media3.common.C.TRACK_TYPE_TEXT)
             A.SKIP_AD -> skipAd()
             A.ASPECT -> { Prefs.aspectMode = (Prefs.aspectMode + 1) % ASPECTS.size; applyAspect(); toast("📐 ${ASPECTS[Prefs.aspectMode]}") }
         }
@@ -1191,6 +1332,7 @@ class PlayerActivity : BaseActivity() {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         // panel „Teraz w TV / Kolejka” prowadzi nawigację sam (fokus nie wychodzi do paneli i kontrolek pod spodem)
         sidePanel?.let { if (it.onKey(event)) return true; if (it.isOpen) return super.dispatchKeyEvent(event) }
+        osdKey(event)?.let { return it }
         if (event.action == KeyEvent.ACTION_UP && okPending && (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)) {
             okPending = false; handler.removeCallbacks(holdOkTimer)
             if (!okLong) { okReplay = true; try { dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, event.keyCode)) } finally { okReplay = false } }
@@ -1353,7 +1495,7 @@ class PlayerActivity : BaseActivity() {
                 if (live) setColor(Ui.live) else { setColor(android.graphics.Color.argb(60, 0, 0, 0)); setStroke(Ui.dp(1), Ui.accent) }
             }
             listOf(homeLogo to m.homeLogo, awayLogo to m.awayLogo).forEach { (iv, url) ->
-                if (url.isBlank()) iv.visibility = View.GONE else { iv.visibility = View.VISIBLE; iv.load(url) { crossfade(false) } }
+                if (url.isBlank()) iv.visibility = View.GONE else { iv.visibility = View.VISIBLE; iv.load(url) { crossfade(false); fitTo(iv, Ui.dp(24), Ui.dp(24)) } }
             }
             val goals = if (Prefs.scoreHideResults) emptyList() else m.events.filter { "⚽" in it }
             scorers.visibility = if (goals.isEmpty()) View.GONE else View.VISIBLE
@@ -1455,7 +1597,7 @@ class PlayerActivity : BaseActivity() {
         }
         t.setTextColor(Ui.text); t.typeface = Ui.typeface(android.graphics.Typeface.BOLD)
         listOf(findViewById<ImageView>(R.id.goalHome) to m.homeLogo, findViewById<ImageView>(R.id.goalAway) to m.awayLogo).forEach { (iv, url) ->
-            if (url.isBlank()) { iv.setImageDrawable(null); iv.visibility = View.GONE } else { iv.visibility = View.VISIBLE; iv.load(url) { crossfade(false) } }
+            if (url.isBlank()) { iv.setImageDrawable(null); iv.visibility = View.GONE } else { iv.visibility = View.VISIBLE; iv.load(url) { crossfade(false); fitTo(iv, Ui.dp(40), Ui.dp(40)) } }
         }
         box.background = Ui.surfaceBg(0xF0)
         box.elevation = Ui.dp(12).toFloat()                 // nad panelami i listą kanałów

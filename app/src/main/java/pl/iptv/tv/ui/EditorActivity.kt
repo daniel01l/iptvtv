@@ -9,6 +9,8 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -21,7 +23,7 @@ import pl.iptv.tv.data.Repository
  * zmiana grupy, mapowanie EPG. Zmiany zapisują się od razu.
  */
 class EditorActivity : BaseActivity() {
-    companion object { const val ALL = "Wszystkie kanały"; const val HIDDEN = "🚫 Ukryte" }
+    companion object { const val ALL = "Wszystkie kanały"; const val HIDDEN = "🚫 Ukryte"; const val SWITCH_TAG = "visibility_switch" }
 
     private lateinit var groupsRv: RecyclerView
     private lateinit var channelsRv: RecyclerView
@@ -47,7 +49,13 @@ class EditorActivity : BaseActivity() {
         // ukryta w menu kategoria oznaczona 🚫
         groupAdapter.label = { g -> (if (g in pl.iptv.tv.data.Prefs.groupHidden) "🚫 " else "") + "$g  (${channelsOf(g).size})" }
 
-        findViewById<View>(R.id.btnDone).setOnClickListener { finish() }
+        // (7.17) sesja edycji: zmiany w pamięci, zapis pliku jednym zbiorczym zapisem w tle (Gotowe / wyjście / aplikacja w tle)
+        Repository.editSession = true
+        if (obsidian) {
+            groupAdapter.obsidian = true
+            listOf(groupsRv, channelsRv).forEach { it.setPadding(Ui.dp(10), Ui.dp(10), Ui.dp(10), Ui.dp(10)) }
+        }
+        findViewById<View>(R.id.btnDone).setOnClickListener { lifecycleScope.launch { Repository.flushEdits(); finish() } }
         findViewById<View>(R.id.btnGroups).setOnClickListener { Dialogs.editGroups(this) { reload() } }
         findViewById<View>(R.id.btnReset).setOnClickListener {
             Dialogs.confirm(this, "Przywróć oryginał", "Usunąć wszystkie zmiany (nazwy, kolejność, grupy, ukrycie, mapowanie EPG)?") {
@@ -89,6 +97,24 @@ class EditorActivity : BaseActivity() {
         reload()
         groupsRv.post { groupsRv.getChildAt(0)?.requestFocus() }
         if (pl.iptv.tv.data.Prefs.parentalSettings) ParentalUi.require(this, onCancel = { finish() }) {}
+    }
+
+    private val obsidian by lazy { pl.iptv.tv.ui.theme.ObsidianViews.active }
+
+    /** Aplikacja w tle / inny ekran: buforowane zmiany zapisane (w tle, bez blokowania interfejsu). */
+    override fun onPause() { super.onPause(); if (moveKey != null) endMove(); Repository.flushEditsAsync() }
+
+    override fun onDestroy() {
+        if (isFinishing) { Repository.editSession = false; Repository.flushEditsAsync() }
+        super.onDestroy()
+    }
+
+    /** (7.17) Przełącznik widoczności kanału (wiersz → ► → OK): ukrycie od razu na liście, zapis zbiorczy na końcu. */
+    private fun toggleHidden(ch: Channel) {
+        Repository.edit(ch.key) { it.hidden = !ch.hidden }
+        reload()
+        val i = adapter.items.indexOfFirst { it.key == ch.key }
+        if (i >= 0) channelsRv.post { channelsRv.findViewHolderForAdapterPosition(i)?.itemView?.findViewWithTag<View>(SWITCH_TAG)?.requestFocus() }
     }
 
     private fun groupsList(): List<String> = buildList {
@@ -156,8 +182,26 @@ class EditorActivity : BaseActivity() {
     }
 
     // ---------- tryb przenoszenia (pilot) ----------
-    private fun startMove(ch: Channel) { moveKey = ch.key; adapter.notifyDataSetChanged(); updateHint(); refocus(ch.key) }
-    private fun endMove() { val k = moveKey; moveKey = null; adapter.notifyDataSetChanged(); updateHint(); refocus(k) }
+    /** Kolejność listy w chwili rozpoczęcia przenoszenia (cel zmiany kolejności przy zakończeniu). */
+    private var moveSnapshot: List<Channel> = emptyList()
+
+    private fun startMove(ch: Channel) { moveKey = ch.key; moveSnapshot = adapter.items.toList(); adapter.notifyDataSetChanged(); updateHint(); refocus(ch.key) }
+
+    /**
+     * (7.17) Koniec przenoszenia: kolejność zmieniana w pamięci krok po kroku (▲▼ bez przeliczania całej listy i bez zapisu),
+     * a do listy kanałów trafia jedną zmianą – kanał na miejsce, które zajmuje teraz na liście.
+     */
+    private fun endMove() {
+        val k = moveKey; moveKey = null
+        if (k != null) {
+            val j = adapter.items.indexOfFirst { it.key == k }
+            val target = moveSnapshot.getOrNull(j)
+            if (target != null && target.key != k) { Repository.moveChannel(k, target.key); adapter.items = channelsOf(group).toMutableList() }
+            else adapter.notifyDataSetChanged()
+        }
+        moveSnapshot = emptyList()
+        updateHint(); refocus(k)
+    }
 
     private fun moveBy(d: Int) {
         val key = moveKey ?: return
@@ -165,8 +209,7 @@ class EditorActivity : BaseActivity() {
         val i = list.indexOfFirst { it.key == key }
         val j = i + d
         if (i < 0 || j !in list.indices) return
-        Repository.moveChannel(key, list[j].key)
-        adapter.items = channelsOf(group).toMutableList()
+        adapter.swap(i, j)
         refocus(key)
     }
 
@@ -210,7 +253,24 @@ class EditorActivity : BaseActivity() {
         }
 
         override fun onCreateViewHolder(p: ViewGroup, t: Int): VH {
-            val v = layoutInflater.inflate(R.layout.item_editor, p, false); Ui.style(v); return VH(v)
+            val v = layoutInflater.inflate(R.layout.item_editor, p, false)
+            if (obsidian) {
+                // (7.17) „Obsidian Stream”: przełącznik widoczności (akcent) i uchwyt kolejności – oba osiągalne pilotem (► w wierszu)
+                val row = v as android.widget.LinearLayout
+                val sw = ImageView(this@EditorActivity).apply {
+                    tag = SWITCH_TAG; isFocusable = true; isClickable = true; contentDescription = "Widoczny na liście"
+                    setPadding(Ui.dp(8), Ui.dp(8), Ui.dp(8), Ui.dp(8)); scaleType = ImageView.ScaleType.CENTER
+                    background = pl.iptv.tv.ui.theme.ObsidianViews.pill(Ui.dp(20).toFloat())
+                }
+                row.addView(sw, row.indexOfChild(v.findViewById(R.id.handle)), android.widget.LinearLayout.LayoutParams(Ui.dp(64), Ui.dp(44)).apply { marginStart = Ui.dp(8) })
+                v.findViewById<View>(R.id.handle).apply {
+                    isFocusable = true; isClickable = true; contentDescription = "Zmień kolejność"
+                    background = pl.iptv.tv.ui.theme.ObsidianViews.pill(Ui.dp(20).toFloat())
+                    (layoutParams as ViewGroup.MarginLayoutParams).apply { height = Ui.dp(44); marginStart = Ui.dp(6); marginEnd = Ui.dp(6) }
+                }
+                v.layoutParams = v.layoutParams.apply { height = Ui.dp(64) }
+            }
+            Ui.style(v); return VH(v)
         }
         override fun getItemCount() = items.size
 
@@ -231,9 +291,15 @@ class EditorActivity : BaseActivity() {
             }
             h.flags.text = buildString {
                 if (Repository.isFav(ch)) append("★ ")
-                if (ch.hidden) append("🚫 ")
+                if (ch.hidden && !obsidian) append("🚫 ")
                 if (ch.key == moveKey) append("⇅")
             }
+            h.itemView.findViewWithTag<ImageView>(SWITCH_TAG)?.let { sw ->
+                sw.setImageDrawable(pl.iptv.tv.ui.theme.ObsidianViews.Switch(!ch.hidden).apply { setBounds(0, 0, intrinsicWidth, intrinsicHeight) })
+                sw.contentDescription = if (ch.hidden) "Ukryty – pokaż" else "Widoczny – ukryj"
+                sw.setOnClickListener { if (moveKey == null) toggleHidden(ch) }
+            }
+            if (obsidian) h.handle.setOnClickListener { if (moveKey == null) startMove(ch) else endMove() }
             h.itemView.alpha = if (ch.hidden) 0.55f else 1f
             h.itemView.isActivated = ch.key == moveKey
             h.picon.loadPicon(ch)

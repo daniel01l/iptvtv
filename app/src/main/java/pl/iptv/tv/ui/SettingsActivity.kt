@@ -59,7 +59,11 @@ class SettingsActivity : BaseActivity() {
         // telefon w pionie: karty w przewijanym pasku u góry, treść na pełną szerokość (TV i poziom – kolumna po lewej)
         val portrait = narrow && resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT
         val body = LinearLayout(this).apply { setPadding(0, Ui.dp(10), 0, 0); if (portrait) orientation = LinearLayout.VERTICAL }
-        val tabCol = LinearLayout(this).apply { orientation = if (portrait) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL; tag = "panel"; setPadding(Ui.dp(6), Ui.dp(6), Ui.dp(6), Ui.dp(6)) }
+        // (7.17) „Obsidian Stream” (Nowoczesny): kolumna kart i panel opcji kryjące w 90 % (#0F141F) – tekst czytelny nad kanałem w tle
+        val obsidian = pl.iptv.tv.ui.theme.ObsidianViews.active
+        val tabCol = LinearLayout(this).apply { orientation = if (portrait) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+            if (obsidian) background = pl.iptv.tv.ui.theme.ObsidianViews.panel90() else tag = "panel"
+            setPadding(Ui.dp(6), Ui.dp(6), Ui.dp(6), Ui.dp(6)) }
         TAB_NAMES.forEachIndexed { i, t ->
             val b = topButton(t) { switchTab(i) }
             b.setOnFocusChangeListener { _, f ->
@@ -87,7 +91,7 @@ class SettingsActivity : BaseActivity() {
         sticky = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(Ui.dp(if (portrait) 4 else 16), 0, Ui.dp(4), Ui.dp(8)) }
         val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL
             // (7.6) Nowoczesny: treść na lekkiej, zaokrąglonej powierzchni (sam kształt – bez bitmap i bez dodatkowego przerysowania tła)
-            if (ModernTheme.active) background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = Ui.dp(16).toFloat(); setColor(0x12FFFFFF) } }
+            if (obsidian) background = pl.iptv.tv.ui.theme.ObsidianViews.panel90() }
         right.addView(sticky, LinearLayout.LayoutParams(-1, -2))
         right.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         body.addView(right, if (portrait) LinearLayout.LayoutParams(-1, 0, 1f) else LinearLayout.LayoutParams(0, -1, 1f))
@@ -352,12 +356,13 @@ class SettingsActivity : BaseActivity() {
 
     private fun toggle(title: String, get: () -> Boolean, look: Boolean = false, set: (Boolean) -> Unit): View {
         val click = { set(!get()); if (look) lookChanged() else build(keepFocus = true) }
-        if (!Ps5Theme.active) return row(title, if (get()) "✔ Włączone" else "✖ Wyłączone") { click() }
-        // PS5: przełącznik „switch” po prawej stronie wiersza (jak w ustawieniach konsoli)
+        val obsidian = pl.iptv.tv.ui.theme.ObsidianViews.active
+        if (!Ps5Theme.active && !obsidian) return row(title, if (get()) "✔ Włączone" else "✖ Wyłączone") { click() }
+        // PS5 i „Obsidian Stream”: przełącznik po prawej stronie wiersza (Obsidian – tor w kolorze akcentu)
         val on = get()
         return (row(title) { click() } as LinearLayout).also { r ->
             r.contentDescription = clean(title) + if (on) ": włączone" else ": wyłączone"
-            r.addView(android.widget.ImageView(this).apply { setImageDrawable(Ps5Switch(on)); tag = "ps5switch"; isDuplicateParentStateEnabled = true },
+            r.addView(android.widget.ImageView(this).apply { setImageDrawable(if (obsidian) pl.iptv.tv.ui.theme.ObsidianViews.Switch(on) else Ps5Switch(on)); tag = "ps5switch"; isDuplicateParentStateEnabled = true },
                 LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(12) })
         }
     }

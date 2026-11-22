@@ -18,6 +18,8 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <queries>
+        <!-- (7.17) wyszukiwanie głosowe (Uniwersalna wyszukiwarka) – sprawdzenie, czy urządzenie ma rozpoznawanie mowy -->
+        <intent><action android:name="android.speech.action.RECOGNIZE_SPEECH" /></intent>
         <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent>
         <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LEANBACK_LAUNCHER" /></intent>
         <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.HOME" /></intent>
@@ -117,6 +119,8 @@
         <activity android:name=".ui.EpgSearchActivity" android:screenOrientation="behind"
             android:windowSoftInputMode="adjustResize|stateHidden" />
         <activity android:name=".ui.EditorActivity" android:screenOrientation="behind" />
+        <activity android:name=".ui.SearchActivity" android:screenOrientation="behind"
+            android:windowSoftInputMode="adjustResize|stateHidden" />
         <activity android:name=".ui.PlayerActivity" android:supportsPictureInPicture="true" android:resizeableActivity="true" android:screenOrientation="behind"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize"
             android:theme="@style/PlayerTheme" />

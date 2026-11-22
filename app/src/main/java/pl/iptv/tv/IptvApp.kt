@@ -28,20 +28,38 @@ class IptvApp : Application(), coil.ImageLoaderFactory {
             @Suppress("UNREACHABLE_CODE") error("")
         }.build()
 
-    /** Logo: pamięć RAM → dysk (160 MB, niezależnie od nagłówków serwera) → sieć z ponowieniami. */
-    override fun newImageLoader(): coil.ImageLoader {
-        val low = runCatching { pl.iptv.tv.data.Prefs.lowPerf }.getOrDefault(false)
-        return coil.ImageLoader.Builder(this)
-            .okHttpClient { piconHttp() }
-            .respectCacheHeaders(false)
-            .memoryCache { coil.memory.MemoryCache.Builder(this).maxSizePercent(if (low) 0.12 else 0.2).build() }
-            .diskCache { coil.disk.DiskCache.Builder().directory(cacheDir.resolve("picons")).maxSizeBytes(160L * 1024 * 1024).build() }
-            .crossfade(false)
-            .allowRgb565(false)                // pełne kolory logo (RGB565 zmieniał barwy i gradienty) także na słabszych urządzeniach
-            .build()
+    /**
+     * Obrazy (logo, miniatury, plakaty): pamięć RAM (≤ 12 % pamięci aplikacji – na urządzeniach 2 GB poniżej ~25 MB) →
+     * dysk (180 MB w `cacheDir/image_cache`, niezależnie od nagłówków serwera) → sieć z ponowieniami.
+     * Bitmapy sprzętowe (HARDWARE – piksele w pamięci GPU, nie na stercie Javy); wyjątki z dostępem do pikseli same
+     * wyłączają je przez `allowHardware(false)` (np. kolor tła z okładki w widoku muzycznym STube).
+     */
+    override fun newImageLoader(): coil.ImageLoader = coil.ImageLoader.Builder(this)
+        .okHttpClient { piconHttp() }
+        .respectCacheHeaders(false)
+        .memoryCache { coil.memory.MemoryCache.Builder(this).maxSizePercent(IMAGE_MEMORY_PERCENT).build() }
+        .diskCache { coil.disk.DiskCache.Builder().directory(cacheDir.resolve(IMAGE_CACHE_DIR)).maxSizeBytes(IMAGE_DISK_BYTES).build() }
+        .allowHardware(true)
+        // HARDWARE od Androida 8 (API 26); starsze – ARGB_8888 (Coil i tak nie tworzy tam bitmap sprzętowych)
+        .bitmapConfig(if (android.os.Build.VERSION.SDK_INT >= 26) android.graphics.Bitmap.Config.HARDWARE else android.graphics.Bitmap.Config.ARGB_8888)
+        .crossfade(IMAGE_CROSSFADE_MS)
+        .allowRgb565(false)                // pełne kolory logo (RGB565 zmieniał barwy i gradienty) także na słabszych urządzeniach
+        .build()
+
+    /** Dawny katalog pamięci obrazów (do 6.x / 7.16: „picons”, 160 MB) – usuwany raz w tle, żeby nie zajmował miejsca obok nowego. */
+    private fun dropOldImageCache() {
+        val old = cacheDir.resolve("picons")
+        if (old.exists()) Thread({ runCatching { old.deleteRecursively() } }, "ImageCacheCleanup").apply { priority = Thread.MIN_PRIORITY }.start()
     }
 
     companion object {
+        /** Pamięć RAM obrazów: część pamięci aplikacji (Coil `maxSizePercent`). */
+        const val IMAGE_MEMORY_PERCENT = 0.12
+        /** Pamięć dyskowa obrazów: katalog w `cacheDir` i limit. */
+        const val IMAGE_CACHE_DIR = "image_cache"
+        const val IMAGE_DISK_BYTES = 180L * 1024 * 1024
+        /** Domyślne przenikanie obrazu po wczytaniu (ms); listy przewijane pilotem wyłączają je same (`crossfade(false)`). */
+        const val IMAGE_CROSSFADE_MS = 150
         /** Limity czasu pobierania logo (s) i liczba ponowień jednego żądania – wolne serwery picon. */
         const val PICON_CONNECT_S = 40L
         const val PICON_READ_S = 75L
@@ -75,6 +93,7 @@ class IptvApp : Application(), coil.ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         started = 0
+        if (android.os.Build.FINGERPRINT != "robolectric") dropOldImageCache()
         Repository.init(this)
         pl.iptv.tv.data.YouTubeTokens.init(this)
         pl.iptv.tv.data.StubeHistory.init(this)

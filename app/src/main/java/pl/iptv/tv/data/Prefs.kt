@@ -171,6 +171,8 @@ object Prefs {
     var stremioSync: Int get() = int("stremio_sync", -1); set(v) = putInt("stremio_sync", v)
     /** Przeglądanie bez konta (pominięty ekran logowania). */
     var stremioGuest: Boolean get() = bool("stremio_guest", false); set(v) = putBool("stremio_guest", v)
+    /** (7.17) Biblioteka Stremio (tytuły dodane przyciskiem „Dodaj do biblioteki”) – JSON, [StremioLibrary]. */
+    var stremioLibrary: String get() = str("stremio_library"); set(v) = put("stremio_library", v)
     /** Odtwarzacz: rozmiar napisów (indeks), kolor (indeks), opóźnienie (ms), dopasowanie obrazu, preferowany język napisów. */
     var stremioSubSize: Int get() = int("stremio_sub_size", 1); set(v) = putInt("stremio_sub_size", v)
     var stremioSubColor: Int get() = int("stremio_sub_color", 0); set(v) = putInt("stremio_sub_color", v)

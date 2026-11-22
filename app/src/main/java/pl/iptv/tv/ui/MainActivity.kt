@@ -129,6 +129,66 @@ class MainActivity : BaseActivity() {
         findViewById<TextView>(R.id.epgDesc).maxLines = 3
     }
 
+    /** (7.17) Układ „Obsidian Stream” włączony (pasek nawigacji nad treścią, kolumny 72 dp / 42 % / reszta). */
+    private var obsidianMode = false
+    private var navRail: pl.iptv.tv.ui.theme.AppNavigationRailViews? = null
+    private fun railButtons() = (0 until sideNav.childCount).mapNotNull { sideNav.getChildAt(it) as? TextView }
+
+    /**
+     * Kanały / EPG w stylu „Obsidian Stream” na tle `#080A0F`:
+     * - pasek nawigacji ([pl.iptv.tv.ui.theme.AppNavigationRailViews]) NAD treścią – 72 dp, z fokusem 240 dp z podpisami
+     *   i scrimem nad kolumnami (podpisy nie nachodzą na listę);
+     * - kolumna 1 (72 dp): pigułki kategorii (skróty AL, MU, …), bez rozsuwania;
+     * - kolumna 2 (42 % szerokości): lista kanałów (numer, logo, nazwa, program, postęp 3 dp, fokus w akcencie);
+     * - kolumna 3 (reszta): podgląd PiP 16:9 zaokrąglony 16 dp z subtelną ramką, pod nim program z pigułką NA ŻYWO.
+     * Nawigacja pilotem bez zmian ([dispatchKeyEvent]: pasek ↔ kategorie ↔ kanały ↔ program).
+     */
+    private fun obsidianLayout(content: android.widget.LinearLayout, info: android.widget.LinearLayout) {
+        obsidianMode = true
+        val O = pl.iptv.tv.ui.theme.ObsidianViews
+        val host = content.parent as android.widget.FrameLayout
+        // pasek nad treścią: w kolumnach zostaje tylko miejsce na zwinięty pasek
+        content.removeView(sideNav)
+        content.addView(View(this), 0, android.widget.LinearLayout.LayoutParams(Ui.dp(72), -1).apply { marginEnd = Ui.dp(12) })
+        val scrim = View(this)
+        host.addView(scrim, android.widget.FrameLayout.LayoutParams(-1, -1))
+        sideNav.tag = null
+        sideNav.background = android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
+            intArrayOf(0xF5080A0F.toInt(), 0xEB121722.toInt())).apply { cornerRadius = Ui.dp(16).toFloat(); setStroke(Ui.dp(1), O.SPECULAR) }
+        sideNav.setPadding(Ui.dp(12), Ui.dp(12), Ui.dp(12), Ui.dp(12))
+        sideNav.clipChildren = true; sideNav.clipToPadding = true
+        host.addView(sideNav, android.widget.FrameLayout.LayoutParams(Ui.dp(72), -1))
+        navRail = pl.iptv.tv.ui.theme.AppNavigationRailViews(sideNav, scrim, ::railButtons, { it.contentDescription?.toString() ?: "" },
+            lowPerf = { Prefs.lowPerf }).also { it.attach() }
+        // kolumna 1: pigułki kategorii
+        groupsRv.tag = null; groupsRv.background = null
+        groupsRv.layoutParams = (groupsRv.layoutParams as android.widget.LinearLayout.LayoutParams).apply { width = Ui.dp(72) }
+        groupsRv.setPadding(0, Ui.dp(4), 0, Ui.dp(4))
+        groupAdapter.obsidian = true; groupAdapter.compact = true
+        // kolumna 2: 42 % szerokości ekranu
+        channelsRv.tag = null; channelsRv.background = null
+        channelsRv.layoutParams = android.widget.LinearLayout.LayoutParams((resources.displayMetrics.widthPixels * 0.42f).toInt(), -1).apply { marginStart = Ui.dp(12) }
+        channelAdapter.obsidian = true
+        // kolumna 3: podgląd PiP i program
+        info.tag = null; info.background = null
+        info.layoutParams = android.widget.LinearLayout.LayoutParams(0, -1, 1f).apply { marginStart = Ui.dp(20) }
+        info.setPadding(0, 0, 0, 0)
+        val box = findViewById<android.widget.FrameLayout>(R.id.previewBox)
+        box.background = O.previewFrame()
+        if (android.os.Build.VERSION.SDK_INT >= 23) box.foreground = android.graphics.drawable.GradientDrawable().apply {
+            cornerRadius = Ui.dp(O.RADIUS_DP).toFloat(); setStroke(Ui.dp(1), 0x40FFFFFF); setColor(0) }
+        Ui.roundClip(box, Ui.dp(O.RADIUS_DP).toFloat())
+        progAdapter.obsidian = true
+        epgChannel.gravity = android.view.Gravity.START; epgDesc.gravity = android.view.Gravity.START
+        epgChannel.textSize = 22f; epgDesc.textSize = 14f; epgDesc.setTextColor(O.TEXT); epgDesc.tag = "keepcolor"
+        (epgChannel.layoutParams as ViewGroup.MarginLayoutParams).topMargin = Ui.dp(12)
+        // podgląd 16:9 na szerokość kolumny (najwyżej 55 % wysokości)
+        info.post {
+            val w = info.width
+            if (w > 0) { box.layoutParams.height = minOf(w * 9 / 16, (info.height * 0.55f).toInt()); box.requestLayout() }
+        }
+    }
+
     private var layoutApplied = -1
     /** Układ menu głównego (Ustawienia → Wygląd → Układ menu). */
     private fun applyMainLayout() {
@@ -166,6 +226,8 @@ class MainActivity : BaseActivity() {
             findViewById<View>(R.id.status).visibility = View.GONE
             wideBox(); return
         }
+        // (7.17) „Obsidian Stream” (motyw Nowoczesny, poziomo, poza układem kart): pasek nawigacji + 3 kolumny
+        if (pl.iptv.tv.ui.theme.ObsidianViews.active && mode != Ui.LAYOUT_CARDS) { obsidianLayout(content, info); return }
         when (mode) {
             1 -> {
                 // kanały | podgląd + opis | program
@@ -332,7 +394,7 @@ class MainActivity : BaseActivity() {
     private var groupsExpanded = false
     private var portraitGroups = false
     private fun setGroupsExpanded(e: Boolean) {
-        if (portraitGroups) return
+        if (portraitGroups || obsidianMode) return          // (7.17) Obsidian: stała kolumna pigułek 72 dp
         if (e == groupsExpanded) return
         groupsExpanded = e
         groupAdapter.compact = !e
@@ -458,6 +520,9 @@ class MainActivity : BaseActivity() {
         Playback.attach(preview)
     }
 
+    /** Podgląd kanału odpięty od wspólnego odtwarzacza (odtwarzanie trwa dalej na innym widoku albo bez obrazu). */
+    override fun onDestroy() { navRail?.detach(); if (::preview.isInitialized) Playback.detach(preview); super.onDestroy() }
+
     override fun onPause() { super.onPause(); isResumedNow = false; handler.removeCallbacksAndMessages(null); pl.iptv.tv.remote.RemoteServer.listener = null }
 
     /** Skróty aplikacji z menu bocznego odtwarzacza – także w kolumnie przycisków menu głównego. */
@@ -476,6 +541,19 @@ class MainActivity : BaseActivity() {
                 else android.widget.LinearLayout.LayoutParams(Ui.dp(78), -2).apply { bottomMargin = Ui.dp(6) })
             Ui.style(b)
         }
+        navRail?.styleItems()
+    }
+
+    /**
+     * (7.17) Pasek „Obsidian Stream”: pigułki 48 dp – skróty aplikacji, które nie mieszczą się w wysokości paska, są ukrywane
+     * (dostępne w ◄◄ odtwarzacza i w Aplikacjach); podpisy zostają (pasek rozwija się z fokusem).
+     */
+    private fun fitObsidianRail() = sideNav.post {
+        val avail = sideNav.height - sideNav.paddingTop - sideNav.paddingBottom
+        if (avail <= 0) return@post
+        fun visible() = (0 until sideNav.childCount).map { sideNav.getChildAt(it) }.filter { it.visibility == View.VISIBLE }
+        val step = Ui.dp(pl.iptv.tv.ui.theme.AppNavRail.ITEM_H.value.toInt() + 6)
+        while (visible().size * step > avail) visible().lastOrNull { it.getTag(R.id.row_key) == "app" }?.let { it.visibility = View.GONE } ?: break
     }
 
     /**
@@ -483,6 +561,7 @@ class MainActivity : BaseActivity() {
      * w opisie dostępności), a skróty aplikacji, które dalej się nie mieszczą, są ukrywane. Na TV kolumna mieści wszystko – bez zmian.
      */
     private fun fitSideNav() {
+        if (obsidianMode) { fitObsidianRail(); return }
         if (sideNav.orientation != android.widget.LinearLayout.VERTICAL) return
         sideNav.post {
             val avail = sideNav.height - sideNav.paddingTop - sideNav.paddingBottom
@@ -514,6 +593,7 @@ class MainActivity : BaseActivity() {
     override fun applyTheme() {
         super.applyTheme()
         styleSideNav()
+        navRail?.styleItems()                  // (7.17) ikony po lewej, pigułki paska nawigacji
         if (::btnSearch.isInitialized) {
             groupAdapter.notifyDataSetChanged(); channelAdapter.notifyDataSetChanged(); progAdapter.notifyDataSetChanged()
             // widoki w RecyclerView są stylowane przy tworzeniu – wymuś ponowne utworzenie

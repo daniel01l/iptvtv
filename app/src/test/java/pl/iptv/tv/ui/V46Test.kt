@@ -76,7 +76,8 @@ class V46Test {
         c.pause().stop().destroy()
     }
 
-    @Test @Config(qualifiers = "w400dp-h800dp-port-xhdpi") fun phoneTapShowsChannelListAndCompactButtons() {
+    /** Dawny pasek informacji pod dotknięciem (7.17: w Nowoczesnym – OSD „Obsidian Stream”). */
+    @Test @Config(qualifiers = "w400dp-h800dp-port-xhdpi") fun phoneTapShowsChannelListAndCompactButtons() = classicTheme {
         Prefs.orientation = 2
         val c = player(); val a = c.get()
         val root = a.window.decorView

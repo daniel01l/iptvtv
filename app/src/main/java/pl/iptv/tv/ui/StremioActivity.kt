@@ -40,6 +40,10 @@ class StremioActivity : BaseActivity() {
         /** Wyszukiwanie od razu po otwarciu (pole wyszukiwania na ekranie głównym PS5). */
         const val EXTRA_QUERY = "query"
         const val IN_CINEMAS = "Obecnie w kinach"
+        /** (7.17) Filtry tablicy (pigułki u góry w „Obsidian Stream”). */
+        const val FILTER_MOVIES = 0; const val FILTER_SERIES = 1; const val FILTER_ALL = 2; const val FILTER_LIBRARY = 3
+        val FILTER_NAMES = listOf("Filmy", "Seriale", "Odkrywaj", "Biblioteka")
+        const val LIBRARY_ROW = "Moja biblioteka"
         /** Katalogi usługowych wtyczek, których nie pokazujemy na tablicy (AIOStreams, ElfHosted, Store RD, Store PM). */
         val HIDDEN_CATALOGS = Regex("(?i)aiostreams|elfhosted|store[\\s_-]*(rd|pm)\\b")
     }
@@ -71,9 +75,69 @@ class StremioActivity : BaseActivity() {
     val rowTitles = mutableListOf<String>()
     var loginShown = false; private set
 
+    // ---------------- (7.17) „Obsidian Stream” ----------------
+
+    /** Filtr tablicy: [FILTER_MOVIES] Filmy, [FILTER_SERIES] Seriale, [FILTER_ALL] Odkrywaj (wszystkie katalogi), [FILTER_LIBRARY] Biblioteka. */
+    var filter = FILTER_ALL; private set
+    private val obsidian by lazy { pl.iptv.tv.ui.theme.ObsidianViews.active }
+    private var filterBar: LinearLayout? = null
+    private val filterPills = mutableListOf<TextView>()
+    private var navRail: pl.iptv.tv.ui.theme.AppNavigationRailViews? = null
+    private lateinit var railBox: LinearLayout
+    /** Pigułki filtrów (testy). */
+    val filterViews: List<TextView> get() = filterPills
+
+    /** Zmiana filtru: tablica od nowa, kursor na wybranej pigułce. */
+    fun setFilter(f: Int) {
+        if (filter == f && searchQuery == null) return
+        filter = f
+        filterPills.forEachIndexed { i, p -> p.isSelected = i == f }
+        if (searchQuery != null) { searchQuery = null; query.setText("") }
+        build(null)
+    }
+
+    /** Pigułki filtrów z fokusem (akcent przy zaznaczeniu, wybrany filtr – obwódka). */
+    private fun buildFilterBar(): LinearLayout {
+        val O = pl.iptv.tv.ui.theme.ObsidianViews
+        val bar = LinearLayout(this).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
+        FILTER_NAMES.forEachIndexed { i, name ->
+            val p = TextView(this).apply {
+                text = name; textSize = 15f; tag = "keepcolor nozoom"; isFocusable = true; isClickable = true; gravity = android.view.Gravity.CENTER
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setPadding(Ui.dp(20), Ui.dp(9), Ui.dp(20), Ui.dp(9))
+                background = O.pill(rest = 0x1FFFFFFF); setTextColor(O.pillText()); isSelected = i == filter
+                setOnClickListener { setFilter(i) }
+            }
+            filterPills += p
+            bar.addView(p, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = Ui.dp(10) })
+        }
+        return bar
+    }
+
+    /**
+     * Wspólny pasek nawigacji nad treścią (72 → 240 dp ze scrimem): konto, szukaj, wtyczki, odśwież, zamknij – te same przyciski,
+     * co dawniej w nagłówku (podpisy w opisie dostępności, widoczne po rozwinięciu paska).
+     */
+    private fun installRail() {
+        val scrim = View(this)
+        val at = rootFrame.childCount
+        rootFrame.addView(scrim, at, android.widget.FrameLayout.LayoutParams(-1, -1))
+        railBox.background = android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
+            intArrayOf(0xF5080A0F.toInt(), 0xE0121722.toInt()))
+        railBox.setPadding(Ui.dp(12), Ui.dp(18), Ui.dp(12), Ui.dp(18))
+        rootFrame.addView(railBox, at + 1, android.widget.FrameLayout.LayoutParams(Ui.dp(72), -1))
+        navRail = pl.iptv.tv.ui.theme.AppNavigationRailViews(railBox, scrim,
+            items = { (0 until railBox.childCount).mapNotNull { railBox.getChildAt(it) as? TextView } },
+            label = { (it.contentDescription ?: "").toString() }, lowPerf = { Prefs.lowPerf }).also { it.attach() }
+    }
+
+    override fun onDestroy() { navRail?.detach(); super.onDestroy() }
+    private var resumedOnce = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setThemedContent(build())
+        if (obsidian) installRail()
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() { if (searchQuery != null) { query.setText(""); search("") } else leaveScreen() }
         })
@@ -87,6 +151,12 @@ class StremioActivity : BaseActivity() {
         super.onResume()
         // powrót z odtwarzacza / wtyczek: nowy postęp i stan wtyczek
         if (::rowsBox.isInitialized && !loginShown && rowsBox.childCount > 0) refreshContinue()
+        // (7.17) biblioteka zmieniona na ekranie szczegółów – rząd „Moja biblioteka” od razu aktualny
+        if (resumedOnce && ::rowsBox.isInitialized && !loginShown && filter == FILTER_LIBRARY && searchQuery == null) {
+            val r = rows.firstOrNull { it.title == LIBRARY_ROW }
+            if (r != null) fillLibrary(r) else if (pl.iptv.tv.data.StremioLibrary.all().isNotEmpty()) build(null)
+        }
+        resumedOnce = true
     }
 
     private fun build(): View {
@@ -109,10 +179,37 @@ class StremioActivity : BaseActivity() {
         // (7.8) odświeżenie wtyczek (zmiany na koncie) i ponowne wczytanie tablicy
         searchBar.addView(StremioUi.button(this, "", PlayerIcon.REFRESH) { refreshAddons() }.apply { contentDescription = "Odśwież wtyczki" },
             LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
-        header.addView(searchBar, LinearLayout.LayoutParams(0, -2, 1f))
         account = StremioUi.button(this, "", PlayerIcon.USER) { accountMenu() }
-        header.addView(account, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
-        header.addView(StremioUi.button(this, "", PlayerIcon.CLOSE) { leaveScreen() }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
+        if (obsidian) {
+            // (7.17) „Obsidian Stream”: przyciski nagłówka w pasku nawigacji (nad treścią), u góry pigułki filtrów i wyszukiwarka
+            val O = pl.iptv.tv.ui.theme.ObsidianViews
+            root.setPadding(Ui.dp(96), Ui.dp(22), Ui.dp(40), Ui.dp(8))
+            header.removeAllViews()
+            val buttons = (0 until searchBar.childCount).map { searchBar.getChildAt(it) }.filter { it !== query }
+            buttons.forEach { searchBar.removeView(it) }
+            railBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            account.contentDescription = "Konto"
+            railBox.addView(account, LinearLayout.LayoutParams(-1, -2))
+            railBox.addView(StremioUi.button(this, "", PlayerIcon.SEARCH) { query.requestFocus(); showKeyboard() }.apply { contentDescription = "Szukaj" }, LinearLayout.LayoutParams(-1, -2))
+            buttons.getOrNull(1)?.let { (it as TextView).text = ""; it.contentDescription = "Wtyczki"; railBox.addView(it, LinearLayout.LayoutParams(-1, -2)) }
+            buttons.getOrNull(2)?.let { railBox.addView(it, LinearLayout.LayoutParams(-1, -2)) }
+            railBox.addView(View(this), LinearLayout.LayoutParams(0, 0, 1f))
+            railBox.addView(StremioUi.button(this, "", PlayerIcon.CLOSE) { leaveScreen() }.apply { contentDescription = "Zamknij" }, LinearLayout.LayoutParams(-1, -2))
+            filterBar = buildFilterBar()
+            header.addView(filterBar, LinearLayout.LayoutParams(0, -2, 1f))
+            query.tag = "keepcolor"; query.setTextColor(O.TEXT); query.setHintTextColor(O.TEXT2); query.hint = "Szukaj filmów i seriali…"
+            query.background = android.graphics.drawable.StateListDrawable().apply {
+                fun f(stroke: Int, color: Int, w: Int) = android.graphics.drawable.GradientDrawable().apply { cornerRadius = Ui.dp(28).toFloat(); setColor(color); setStroke(Ui.dp(w), stroke) }
+                addState(intArrayOf(android.R.attr.state_focused), f(O.ACCENT, O.SURFACE_ELEVATED, 2))
+                addState(intArrayOf(), f(O.SPECULAR, O.SURFACE_GLASS, 1))
+            }
+            query.setPadding(Ui.dp(20), Ui.dp(10), Ui.dp(20), Ui.dp(10))
+            header.addView(searchBar, LinearLayout.LayoutParams(Ui.dp(360), -2).apply { marginStart = Ui.dp(12) })
+        } else {
+            header.addView(searchBar, LinearLayout.LayoutParams(0, -2, 1f))
+            header.addView(account, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
+            header.addView(StremioUi.button(this, "", PlayerIcon.CLOSE) { leaveScreen() }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
+        }
         root.addView(header)
         // opis zaznaczonego tytułu (jak podgląd po najechaniu w Stremio)
         infoBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(Ui.dp(4), Ui.dp(10), Ui.dp(4), Ui.dp(4)); minimumHeight = Ui.dp(96) }
@@ -130,6 +227,8 @@ class StremioActivity : BaseActivity() {
     }
 
     private fun setAccountText(t: String) {
+        // (7.17) pasek nawigacji: nazwa konta jako podpis (widoczny po rozwinięciu paska)
+        if (obsidian) { account.contentDescription = if (!StremioAccount.loggedIn) "Zaloguj" else if (t.isEmpty()) "Konto" else "Konto: $t"; navRail?.refreshLabels(); return }
         account.text = t; account.compoundDrawablePadding = if (t.isEmpty()) 0 else Ui.dp(8)
         account.setPadding(Ui.dp(if (t.isEmpty()) 12 else 16), Ui.dp(10), Ui.dp(if (t.isEmpty()) 12 else 16), Ui.dp(10))
     }
@@ -143,7 +242,7 @@ class StremioActivity : BaseActivity() {
 
     private fun showLogin() {
         loginShown = true; scroll.auto = true
-        searchBar.visibility = View.GONE; infoBox.visibility = View.GONE
+        searchBar.visibility = View.GONE; infoBox.visibility = View.GONE; filterBar?.visibility = View.GONE
         setAccountText("")
         rowsBox.removeAllViews(); rowTitles.clear()
         val card = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; tag = "panel"; setPadding(Ui.dp(28), Ui.dp(22), Ui.dp(28), Ui.dp(22)) }
@@ -215,7 +314,7 @@ class StremioActivity : BaseActivity() {
                     linkText.text = "Kod QR niedostępny: ${res.exceptionOrNull()?.message ?: "brak połączenia"}"; kotlinx.coroutines.delay(15_000); continue
                 }
                 linkCode = l.code
-                img.load(l.qr) { crossfade(false) }
+                img.load(l.qr) { crossfade(false); fitTo(img, Ui.dp(220), Ui.dp(220)) }
                 linkText.text = "${l.link.removePrefix("https://")}\nkod: ${l.code}"
                 // kod ważny kilka minut – odpytywanie co 3 s (tylko na wierzchu), potem nowy kod
                 val until = android.os.SystemClock.elapsedRealtime() + LINK_TTL_MS
@@ -280,7 +379,9 @@ class StremioActivity : BaseActivity() {
 
     private fun showBoard() {
         loginShown = false; linkJob?.cancel(); linkJob = null; linkCode = null; scroll.auto = false
-        searchBar.visibility = View.VISIBLE; infoBox.visibility = View.VISIBLE
+        searchBar.visibility = View.VISIBLE; infoBox.visibility = View.VISIBLE; filterBar?.visibility = View.VISIBLE
+        // (7.17) fokus startowy na wybranym filtrze (nie na pasku nawigacji – pasek nie rozwija się sam); pierwszy rząd przejmie go po wczytaniu
+        if (obsidian) filterPills.getOrNull(filter)?.let { p -> p.post { if (window.decorView.findFocus().let { it == null || inRail(it) }) p.requestFocus() } }
         setAccountText(if (StremioAccount.loggedIn) StremioAccount.email.substringBefore('@') else "Zaloguj")
         build(searchQuery)
     }
@@ -322,8 +423,53 @@ class StremioActivity : BaseActivity() {
     /** Po wczytaniu / usunięciu rzędu nad kursorem zaznaczony rząd zostaje u góry widoku (nic nie „ucieka” spod kursora). */
     private fun anchorFocusedRow() { focusedRow()?.let { box -> scroll.post { scroll.scrollTo(0, (box.top - Ui.dp(4)).coerceAtLeast(0)) } } }
 
+    /**
+     * Kursor może zostać przeniesiony na pierwszy rząd plakatów: nic nie jest zaznaczone albo zaznaczenie jest tylko startowe
+     * (wyszukiwarka, a w „Obsidian Stream” – pierwszy element paska nawigacji / pigułka filtru, zanim użytkownik ruszył pilotem).
+     */
+    private fun autoFocusAllowed(): Boolean {
+        val f = window.decorView.findFocus() ?: return true
+        return f === query || (obsidian && !userMoved && (inRail(f) || f in filterPills))
+    }
+
+    /** (7.17) Element treści, z którego kursor wszedł na pasek nawigacji (► wraca dokładnie tam). */
+    private var railReturn: java.lang.ref.WeakReference<View>? = null
+    private fun railItems() = (0 until railBox.childCount).map { railBox.getChildAt(it) }.filter { it.isFocusable && it.visibility == View.VISIBLE }
+    private fun inRail(v: View?): Boolean { var x = v; while (x != null) { if (x === railBox) return true; x = x.parent as? View }; return false }
+
+    /**
+     * Pasek nawigacji „Obsidian Stream”: ◄ z pierwszego plakatu rzędu albo z pierwszej pigułki filtrów – pasek (rozwinięty);
+     * ▲▼ w pasku – kolejne pozycje (na końcach zostaje); ► z paska – element, z którego przyszedł kursor (albo wybrany filtr).
+     */
+    private fun railKey(event: KeyEvent): Boolean {
+        if (!obsidian || !::railBox.isInitialized) return false
+        val f = window.decorView.findFocus() ?: return false
+        val down = event.action == KeyEvent.ACTION_DOWN
+        when (event.keyCode) {
+            KeyEvent.KEYCODE_DPAD_LEFT -> {
+                if (inRail(f)) return true
+                val firstPoster = rows.any { r -> rowRv(r).findContainingViewHolder(f)?.bindingAdapterPosition == 0 }
+                if (firstPoster || f === filterPills.firstOrNull() || (loginShown && !inRail(f) && f.focusSearch(View.FOCUS_LEFT).let { it == null || inRail(it) })) {
+                    if (down) { railReturn = java.lang.ref.WeakReference(f); railItems().firstOrNull()?.requestFocus() }
+                    return true
+                }
+            }
+            KeyEvent.KEYCODE_DPAD_RIGHT -> if (inRail(f)) {
+                if (down) (railReturn?.get()?.takeIf { it.isShown && it.isAttachedToWindow } ?: filterPills.getOrNull(filter)?.takeIf { it.isShown }
+                    ?: rows.firstOrNull { it.adapter.items.isNotEmpty() }?.let { rowRv(it).getChildAt(0) })?.requestFocus()
+                return true
+            }
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> if (inRail(f)) {
+                if (down) { val items = railItems(); val i = items.indexOf(f) + if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN) 1 else -1; items.getOrNull(i)?.requestFocus() }
+                return true
+            }
+        }
+        return false
+    }
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.action == KeyEvent.ACTION_DOWN && event.keyCode in DPAD_KEYS) userMoved = true
+        if (railKey(event)) return true
         if (!loginShown && rowsVerticalKey(event)) return true
         return super.dispatchKeyEvent(event)
     }
@@ -336,27 +482,37 @@ class StremioActivity : BaseActivity() {
         rowsBox.removeAllViews(); rows.clear(); rowTitles.clear()
         userMoved = false
         var first = true
+        // (7.17) filtr tablicy: Filmy / Seriale – tylko katalogi i rzędy tego typu, Biblioteka – rzędy z urządzenia (bez katalogów)
+        val f = filter
+        val type = typeFilter
         jobs += lifecycleScope.launch {
             val continueRow = addRow("Kontynuuj oglądanie")
             fillContinue(continueRow)
-            if (q == null) fillWatched(addRow("Obejrzane"))
+            if (q == null && f == FILTER_LIBRARY) fillLibrary(addRow(LIBRARY_ROW))
+            if (q == null && (f == FILTER_ALL || f == FILTER_LIBRARY)) fillWatched(addRow("Obejrzane"))
+            if (q == null && f == FILTER_LIBRARY) {
+                if (rows.isEmpty()) rowsBox.addView(StremioUi.text(this@StremioActivity, "Biblioteka jest pusta – dodaj tytuł przyciskiem „Dodaj do biblioteki” w jego opisie.", 16f, "text2")
+                    .apply { setPadding(Ui.dp(6), Ui.dp(20), 0, 0) })
+                return@launch
+            }
             val addons = StremioStore.enabledAddons()
             // (7.12) „Obecnie w kinach” – pierwszy rząd katalogów (Cinemeta, nowe premiery)
-            if (q == null) addons.firstOrNull { a -> a.catalogs.any { it.type == "movie" && it.id == "year" } }?.let { a ->
+            if (q == null && (type == null || type == "movie")) addons.firstOrNull { a -> a.catalogs.any { it.type == "movie" && it.id == "year" } }?.let { a ->
                 val r = addRow(IN_CINEMAS)
                 jobs += lifecycleScope.launch {
                     val list = runCatching { StremioApi.inCinemas(a) }.getOrDefault(emptyList())
                     if (list.isEmpty()) { removeRow(r); return@launch }
                     r.adapter.items += list.map { StremioTile(it) }; r.adapter.notifyItemRangeInserted(0, list.size); r.status.visibility = View.GONE
                     if (rowsHaveFocus()) anchorFocusedRow()
-                    if (first && !userMoved && window.decorView.findFocus().let { it == null || it === query }) { first = false; focusRow(r) }
+                    if (first && !userMoved && autoFocusAllowed()) { first = false; focusRow(r) }
                 }
             }
             // (7.12) katalogi usługowych wtyczek (AIOStreams / ElfHosted, Store RD / PM) nie są pokazywane na tablicy
             fun hidden(a: StremioAddon, c: StremioAddon.Catalog) = HIDDEN_CATALOGS.containsMatchIn(a.name + " " + c.name)
+            fun wanted(c: StremioAddon.Catalog) = type == null || c.type == type
             val catalogs: List<Pair<StremioAddon, StremioAddon.Catalog>> = if (q != null)
-                addons.flatMap { a -> a.searchCatalogs.filterNot { hidden(a, it) }.map { a to it } }.sortedBy { (_, c) -> when (c.type) { "movie" -> 0; "series" -> 1; else -> 2 } }
-            else addons.flatMap { a -> a.boardCatalogs.filterNot { hidden(a, it) }.map { a to it } }.take(8)
+                addons.flatMap { a -> a.searchCatalogs.filterNot { hidden(a, it) }.filter(::wanted).map { a to it } }.sortedBy { (_, c) -> when (c.type) { "movie" -> 0; "series" -> 1; else -> 2 } }
+            else addons.flatMap { a -> a.boardCatalogs.filterNot { hidden(a, it) }.filter(::wanted).map { a to it } }.take(8)
             if (catalogs.isEmpty()) {
                 rowsBox.addView(StremioUi.text(this@StremioActivity, if (addons.isEmpty()) "Brak włączonych wtyczek – włącz je w „🧩 Wtyczki”." else "Włączone wtyczki nie mają katalogów.", 16f, "text2")
                     .apply { setPadding(Ui.dp(6), Ui.dp(20), 0, 0) })
@@ -374,7 +530,7 @@ class StremioActivity : BaseActivity() {
                         if (rowsHaveFocus()) anchorFocusedRow()
                         // fokus na pierwszym rzędzie tylko, dopóki użytkownik niczego nie zaznaczył pilotem – wcześniej każdy
                         // doładowany katalog mógł przenieść kursor (np. gdy fokus był na przycisku u góry albo chwilowo zniknął)
-                        if (first && !userMoved && window.decorView.findFocus().let { it == null || it === query }) { first = false; focusRow(r) }
+                        if (first && !userMoved && autoFocusAllowed()) { first = false; focusRow(r) }
                     }.onFailure { removeRow(r) }   // (7.11) wtyczka, która zawiodła, jest pomijana po cichu (bez komunikatów o błędach)
                 }
             }
@@ -456,8 +612,21 @@ class StremioActivity : BaseActivity() {
 
     private fun focusRow(r: Row) { (r.view as LinearLayout).getChildAt(2).let { it as RecyclerView }.focusPosition(0) }
 
+    /** (7.17) Typ katalogów dla filtru (Filmy – „movie”, Seriale – „series”, inne – wszystkie). */
+    private val typeFilter: String? get() = when (filter) { FILTER_MOVIES -> "movie"; FILTER_SERIES -> "series"; else -> null }
+
+    /** (7.17) „Moja biblioteka”: tytuły dodane na ekranie szczegółów ([pl.iptv.tv.data.StremioLibrary]), najnowsze pierwsze. */
+    private fun fillLibrary(r: Row) {
+        val tiles = pl.iptv.tv.data.StremioLibrary.all().map { StremioTile(it) }
+        if (tiles.isEmpty()) { removeRow(r); return }
+        if (tiles == r.adapter.items) return
+        r.adapter.items.clear(); r.adapter.items += tiles; r.adapter.notifyDataSetChanged(); r.status.visibility = View.GONE
+        if (!userMoved && autoFocusAllowed()) focusRow(r)
+    }
+
     private suspend fun fillContinue(r: Row) {
-        val list = StremioStore.progress().filter { !it.finished }
+        val type = typeFilter
+        val list = StremioStore.progress().filter { !it.finished && (type == null || it.type == type) }
         if (list.isEmpty()) { removeRow(r); return }
         val tiles = list.map { p -> StremioTile(StremioMetaPreview(p.metaId, p.type, p.name, p.poster), p) }
         if (tiles == r.adapter.items) return                         // bez zmian – bez przebudowy (zaznaczenie zostaje)

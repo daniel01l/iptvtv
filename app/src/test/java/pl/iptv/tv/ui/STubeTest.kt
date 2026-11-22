@@ -270,7 +270,8 @@ class STubeTest {
         Repository.resetAllEdits(); runBlocking { Repository.loadPlaylist(f.absolutePath) }
         val m = Robolectric.buildActivity(MainActivity::class.java).setup().get(); idle()
         val b = m.findViewById<TextView>(R.id.btnSTube)
-        assertEquals(View.VISIBLE, b.visibility); assertTrue(b.isFocusable); assertEquals("STube", b.text.toString())
+        // (7.17) pasek „Obsidian Stream”: zwinięty – sama ikona, podpis w opisie dostępności (widoczny po rozwinięciu)
+        assertEquals(View.VISIBLE, b.visibility); assertTrue(b.isFocusable); assertEquals("STube", b.text.ifEmpty { b.contentDescription }.toString())
         b.performClick(); idle()
         assertEquals(STubeActivity::class.java.name, shadowOf(m).nextStartedActivity.component?.className)
     }

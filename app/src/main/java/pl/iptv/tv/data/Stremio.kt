@@ -113,6 +113,8 @@ data class StremioMeta(
     val id: String, val type: String, val name: String, val poster: String = "", val background: String = "", val logo: String = "",
     val description: String = "", val releaseInfo: String = "", val imdbRating: String = "", val genres: List<String> = emptyList(),
     val runtime: String = "", val videos: List<StremioVideo> = emptyList(),
+    /** (7.17) Zwiastuny – identyfikatory filmów YouTube (Cinemeta: `trailers[].source`, `trailerStreams[].ytId`). */
+    val trailers: List<String> = emptyList(),
 ) {
     val isSeries get() = type == "series" || videos.size > 1
     /** Sezony (najpierw zwykłe, „0” – dodatki – na końcu). */
@@ -523,7 +525,16 @@ object StremioApi {
         } }.orEmpty()
         return StremioMeta(m.optString("id", id), m.optString("type", type), m.optString("name"), m.optString("poster"), m.optString("background"),
             m.optString("logo"), m.optString("description"), m.optString("releaseInfo").ifBlank { m.optString("year") }, m.optString("imdbRating"),
-            m.optJSONArray("genres")?.let { g -> (0 until g.length()).map { g.optString(it) } }.orEmpty(), m.optString("runtime"), videos)
+            m.optJSONArray("genres")?.let { g -> (0 until g.length()).map { g.optString(it) } }.orEmpty(), m.optString("runtime"), videos, trailers(m))
+    }
+
+    /** (7.17) Zwiastuny z metadanych: `trailers[].source` (typ „Trailer” najpierw) i `trailerStreams[].ytId`; tylko identyfikatory YouTube. */
+    fun trailers(m: org.json.JSONObject): List<String> {
+        val ids = mutableListOf<Pair<String, Boolean>>()
+        m.optJSONArray("trailers")?.let { a -> for (i in 0 until a.length()) a.optJSONObject(i)?.let { t -> ids += t.optString("source") to (t.optString("type").equals("Trailer", true)) } }
+        m.optJSONArray("trailerStreams")?.let { a -> for (i in 0 until a.length()) a.optJSONObject(i)?.let { t -> ids += t.optString("ytId") to true } }
+        val yt = Regex("^[A-Za-z0-9_-]{11}$")
+        return ids.filter { yt.matches(it.first) }.sortedByDescending { it.second }.map { it.first }.distinct()
     }
 
     /** (7.8) Limit czasu odpowiedzi jednej wtyczki ze źródłami. */

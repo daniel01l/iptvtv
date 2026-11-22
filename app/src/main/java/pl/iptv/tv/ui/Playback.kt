@@ -24,7 +24,14 @@ object Playback {
     var player: ExoPlayer? = null; private set
     var url: String? = null; private set
     var channelKey: String? = null; private set
-    private var target: PlayerView? = null
+    /**
+     * Widok, na którym jest obraz (podgląd w menu / przewodniku, tło ekranów, pełny ekran). Słaba referencja: singleton nie
+     * trzyma zniszczonego ekranu (PlayerView → Activity), gdy ekran nie odpiął obrazu ([detach]).
+     */
+    private var targetRef: java.lang.ref.WeakReference<PlayerView>? = null
+    private var target: PlayerView?
+        get() = targetRef?.get()
+        set(v) { targetRef = v?.let { java.lang.ref.WeakReference(it) } }
 
     private const val TAG = "Playback"
     private val main = android.os.Handler(android.os.Looper.getMainLooper())
@@ -426,7 +433,7 @@ object Playback {
             if (engine == ENGINE_TUNNELING && P.hwAccel && !sessionSoftware && profile == null) b.setTunnelingEnabled(true)
             setParameters(b)
         }
-        val start = if (P.lowLatency) 800 else START_BUFFER_MS
+        val start = if (P.lowLatency) 800 else LIVE_START_BUFFER_MS
         val load = if (profile?.buffer == 1) {
             // (7.5) profil kanału „duży bufor” (ręczne dopasowanie zacinającego się kanału): więcej zapasu przed startem i po przycięciu
             DefaultLoadControl.Builder().setBufferDurationsMs(30_000, 90_000, BIG_START_BUFFER_MS, BIG_REBUFFER_MS)
@@ -437,9 +444,15 @@ object Playback {
             DefaultLoadControl.Builder().setBufferDurationsMs(min, max, start, REBUFFER_MS)
                 .setTargetBufferBytes(P.lowBufMb.coerceIn(8, 256) * 1024 * 1024).setPrioritizeTimeOverSizeThresholds(false).build()
         }
-        // start po 2 s zapasu (1 s dawał przycięcia zaraz po przełączeniu na niestabilnych strumieniach),
-        // po przycięciu 5 s zapasu (bez serii krótkich zatrzymań), bufor 30–60 s
-        else DefaultLoadControl.Builder().setBufferDurationsMs(30_000, 60_000, start, REBUFFER_MS).setPrioritizeTimeOverSizeThresholds(true).build()
+        // (7.17) kanały na żywo: start po 1 s zapasu, po przycięciu 2 s (szybkie przełączanie), bufor 30–60 s ograniczony
+        // pamięcią urządzenia ([liveBufferBytes]); na urządzeniach do ~2 GB RAM limit bajtów ma pierwszeństwo przed czasem.
+        // Zacinający się kanał dostaje profil „duży bufor” (ręczne dopasowanie silnika – 3 s / 8 s).
+        else {
+            val total = totalMemBytes(c)
+            DefaultLoadControl.Builder().setBufferDurationsMs(30_000, 60_000, start, LIVE_REBUFFER_MS)
+                .setTargetBufferBytes(liveBufferBytes(total))
+                .setPrioritizeTimeOverSizeThresholds(!isLowRam(total)).build()
+        }
         val probe = looper != null
         return ExoPlayer.Builder(c.applicationContext, renderers)
             .setTrackSelector(selector)
@@ -486,9 +499,36 @@ object Playback {
 
     val active get() = player != null && url != null
 
-    /** Zapas przed startem i po przycięciu (ms). */
+    /** (7.17) Liczba rzeczywistych startów strumienia (nowe źródło + prepare) – diagnostyka i testy płynnego przejścia PiP → pełny ekran. */
+    @Volatile var starts = 0; private set
+
+    /**
+     * Zapas (ms), od którego kontrola startu ([startDecision]) uznaje dekoder za zawieszony; także bufor po przycięciu
+     * w trybie słabszych urządzeń (ustawienia użytkownika).
+     */
     const val START_BUFFER_MS = 2_000
     const val REBUFFER_MS = 5_000
+    /** (7.17) Kanały na żywo: zapas przed startem i po przycięciu (ms) – `bufferForPlaybackMs` / `…AfterRebufferMs`. */
+    const val LIVE_START_BUFFER_MS = 1_000
+    const val LIVE_REBUFFER_MS = 2_000
+    /** Urządzenie „2 GB” (z zapasem na pamięć zarezerwowaną przez system – raportowane ~1,8–2,0 GB). */
+    const val LOW_RAM_BYTES = 2_600L * 1024 * 1024
+    /** Limit bufora strumienia w pamięci: urządzenia do ~2 GB RAM / pozostałe. */
+    const val LIVE_BUFFER_LOW_BYTES = 24 * 1024 * 1024
+    const val LIVE_BUFFER_BYTES = 64 * 1024 * 1024
+
+    fun isLowRam(totalMem: Long) = totalMem in 1..LOW_RAM_BYTES
+    /** Limit bajtów bufora dla urządzenia z [totalMem] bajtów RAM (0 – nieznane: limit dla słabszych). */
+    fun liveBufferBytes(totalMem: Long) = if (totalMem <= 0 || isLowRam(totalMem)) LIVE_BUFFER_LOW_BYTES else LIVE_BUFFER_BYTES
+
+    @Volatile private var totalMem = 0L
+    private fun totalMemBytes(c: Context): Long {
+        if (totalMem == 0L) totalMem = runCatching {
+            val am = c.applicationContext.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            android.app.ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }.totalMem
+        }.getOrDefault(0L)
+        return totalMem
+    }
     /** Profil „duży bufor” ([pl.iptv.tv.data.EngineProfile.buffer]). */
     const val BIG_START_BUFFER_MS = 3_000
     const val BIG_REBUFFER_MS = 8_000
@@ -636,6 +676,7 @@ object Playback {
         // nie zgłosi błędu) – nowy kanał nie czeka, aż dostawca zwolni miejsce po poprzednim
         previousCalls?.close()
         android.util.Log.i(TAG, "start ${ch.name}${if (clean) " (czysty start)" else ""}")
+        starts++
         if (streamUrl != url) {
             recoveries = 0; recoveryWindow = 0                                // nowy kanał – licznik odwieszeń od zera
             closeStats(); stats = ChannelStats(ch.name, engineLabel())

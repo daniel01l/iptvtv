@@ -115,7 +115,7 @@ class MiniPlayerBar(private val a: Activity) : FrameLayout(a) {
         val p: YtPlayable? = YtEngine.playable
         title.text = p?.title?.ifBlank { null } ?: v!!.title.ifBlank { "Film STube" }
         sub.text = p?.channel?.ifBlank { null } ?: v!!.channel
-        if (thumb.tag != v!!.thumb) { thumb.tag = v.thumb; if (v.thumb.isNotBlank()) thumb.load(v.thumb) { crossfade(false) } else thumb.setImageDrawable(null) }
+        if (thumb.tag != v!!.thumb) { thumb.tag = v.thumb; if (v.thumb.isNotBlank()) thumb.load(v.thumb) { crossfade(false); fitTo(thumb, Ui.dp(96), Ui.dp(54)) } else thumb.setImageDrawable(null) }
         playBtn.text = if (YtEngine.player?.playWhenReady == true) "⏸" else "▶"
         val pl = YtEngine.player
         bar.fraction = pl?.let { if (it.duration > 0) it.currentPosition.toFloat() / it.duration else 0f } ?: 0f

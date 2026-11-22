@@ -100,7 +100,7 @@ fun DrawScope.ps5Switch(on: Boolean, accent: Color) {
  */
 @Composable
 fun TileImage(url: String, fallback: String, modifier: Modifier, contentScale: androidx.compose.ui.layout.ContentScale,
-              fallbackStyle: TextStyle, sizePx: Int = 0) {
+              fallbackStyle: TextStyle, sizePx: Int = 0, heightPx: Int = 0) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var failed by androidx.compose.runtime.remember(url) { androidx.compose.runtime.mutableStateOf(url.isBlank()) }
     // (7.12) tekstura nigdy nie wychodzi poza kafelek (clip w warstwie – także przy skali fokusu i przejściach)
@@ -108,11 +108,14 @@ fun TileImage(url: String, fallback: String, modifier: Modifier, contentScale: a
         if (failed) androidx.compose.foundation.text.BasicText(fallback, style = fallbackStyle, maxLines = 2,
             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         else {
-            val req = androidx.compose.runtime.remember(url, sizePx) {
+            val req = androidx.compose.runtime.remember(url, sizePx, heightPx, contentScale) {
                 coil.request.ImageRequest.Builder(ctx).data(url).crossfade(false)
                     // (7.12) stały rozmiar docelowy + stały klucz w pamięci: bez ponownego dekodowania i migotania przy animacjach
-                    .precision(coil.size.Precision.INEXACT).memoryCacheKey("$url@$sizePx")
-                    .apply { if (sizePx > 0) size(sizePx) }.build()
+                    .precision(coil.size.Precision.INEXACT).memoryCacheKey("$url@$sizePx×$heightPx")
+                    // skala dekodowania jak skala wyświetlania (Crop – wypełnienie, Fit – całe logo w kafelku)
+                    .scale(if (contentScale == androidx.compose.ui.layout.ContentScale.Crop) coil.size.Scale.FILL else coil.size.Scale.FIT)
+                    // (7.17) [heightPx] – dokładny prostokąt kafelka (np. plakat 2:3), bez dekodowania pełnej rozdzielczości
+                    .apply { if (sizePx > 0 && heightPx > 0) size(sizePx, heightPx) else if (sizePx > 0) size(sizePx) }.build()
             }
             coil.compose.AsyncImage(req, null, androidx.compose.ui.Modifier.matchParentSize(), contentScale = contentScale, onError = { failed = true })
         }
@@ -151,6 +154,7 @@ fun SmoothScrolling(content: @Composable () -> Unit) =
 fun initialsOf(s: String) = s.split(' ').filter { it.isNotBlank() }.take(2).joinToString("") { it.take(1) }.uppercase()
 
 /** Pozycja panelu opcji PS5 ([switch] = przełącznik po prawej, null – zwykła pozycja). */
+@androidx.compose.runtime.Immutable
 class Ps5Option(val label: String, val sub: String = "", val switch: Boolean? = null, val action: () -> Unit)
 
 /** (7.3) Sztywność sprężyny przewijania list na pulpitach (ok. 250–300 ms do zatrzymania, bez odbicia). */

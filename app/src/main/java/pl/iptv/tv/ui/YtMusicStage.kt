@@ -88,7 +88,7 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
     var syncMode = false; private set
     private val syncHint = TextView(c).apply {
         textSize = 13f; setTextColor(Color.WHITE); setPadding(dp(14), dp(7), dp(14), dp(7)); visibility = View.GONE; isClickable = true
-        background = GradientDrawable().apply { setColor(0xB0000000.toInt()); cornerRadius = dp(18).toFloat() }
+        background = GradientDrawable().apply { setColor(pl.iptv.tv.ui.theme.ObsidianViews.overlay(0xB0000000.toInt())); cornerRadius = dp(18).toFloat() }
         setOnClickListener { toggleSync() }
     }
     val hasSyncedLyrics get() = lyricLines.isNotEmpty()

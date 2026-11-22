@@ -34,8 +34,10 @@ class PlayerIcon(private val kind: String, private val tint: ColorStateList = Co
         // (7.11) kategorie STube na pasku bocznym
         const val PLUG = "plug"; const val CINEMA = "cinema"; const val CHECK = "check"; const val STAR = "star"; const val TVSET = "tvset"; const val FILM = "film"; const val EYE = "eye"; const val PLUS = "plus"; const val EDIT = "edit"
         const val NEWS = "news"; const val TRENDING = "trending"; const val SPORT = "sport"; const val KIDS = "kids"; const val HEADLINES = "headlines"; const val GAMES = "games"
+        // (7.17) wyszukiwanie głosowe
+        const val MIC = "mic"
         val ALL = listOf(SPEED, QUALITY, AUDIO, CC, EQ, CHAPTERS, QUEUE, PIP, AUTOPLAY, NEXT, DELAY, STYLE, ASPECT, INFO, RELATED,
-            PLAY, PAUSE, PREV, REW, FWD, AUDIO_ONLY, SHUFFLE, REPEAT, REPEAT_ONE, LYRICS, VIDEO, MUSIC, STOP, SEARCH, HOME, PHONE, REFRESH, CLOSE, USER, NEWS, TRENDING, SPORT, KIDS, HEADLINES, GAMES, PLUG, CINEMA, CHECK, STAR, TVSET, FILM, EYE, PLUS, EDIT)
+            PLAY, PAUSE, PREV, REW, FWD, AUDIO_ONLY, SHUFFLE, REPEAT, REPEAT_ONE, LYRICS, VIDEO, MUSIC, STOP, SEARCH, HOME, PHONE, REFRESH, CLOSE, USER, NEWS, TRENDING, SPORT, KIDS, HEADLINES, GAMES, PLUG, CINEMA, CHECK, STAR, TVSET, FILM, EYE, PLUS, EDIT, MIC)
     }
 
     private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
@@ -94,6 +96,7 @@ class PlayerIcon(private val kind: String, private val tint: ColorStateList = Co
             LYRICS -> { line(0.1f, 0.2f, 0.9f, 0.2f); line(0.1f, 0.42f, 0.9f, 0.42f); line(0.1f, 0.64f, 0.66f, 0.64f); line(0.1f, 0.86f, 0.48f, 0.86f) }
             VIDEO -> { rect(0.06f, 0.2f, 0.94f, 0.8f, 0.1f); tri(0.42f, 0.34f, 0.42f, 0.66f, 0.7f, 0.5f) }
             SEARCH -> { c.drawCircle(x(0.42f), y(0.42f), s * 0.28f, p); line(0.63f, 0.63f, 0.9f, 0.9f) }
+            MIC -> { rect(0.36f, 0.06f, 0.64f, 0.58f, 0.14f); r.set(x(0.22f), y(0.26f), x(0.78f), y(0.72f)); c.drawArc(r, 0f, 180f, false, p); line(0.5f, 0.72f, 0.5f, 0.9f); line(0.34f, 0.9f, 0.66f, 0.9f) }
             HOME -> { line(0.08f, 0.5f, 0.5f, 0.12f); line(0.5f, 0.12f, 0.92f, 0.5f); line(0.2f, 0.42f, 0.2f, 0.88f); line(0.8f, 0.42f, 0.8f, 0.88f); line(0.2f, 0.88f, 0.8f, 0.88f); line(0.42f, 0.88f, 0.42f, 0.62f); line(0.42f, 0.62f, 0.58f, 0.62f); line(0.58f, 0.62f, 0.58f, 0.88f) }
             PHONE -> { rect(0.28f, 0.06f, 0.72f, 0.94f, 0.1f); line(0.44f, 0.82f, 0.56f, 0.82f) }
             REFRESH -> { r.set(x(0.14f), y(0.14f), x(0.86f), y(0.86f)); c.drawArc(r, 40f, 290f, false, p); tri(0.78f, 0.04f, 0.78f, 0.36f, 0.5f, 0.2f) }

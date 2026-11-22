@@ -54,7 +54,8 @@ class V35Test {
         runBlocking { Repository.loadEpg(x.absolutePath) }
     }
 
-    @Test fun mainSideButtonsDateNoPlayButton() {
+    /** Stary układ (7.17: Nowoczesny – V717ObsidianNavTest). */
+    @Test fun mainSideButtonsDateNoPlayButton() = classicTheme {
         val c = Robolectric.buildActivity(MainActivity::class.java).setup(); idle(500)
         val a = c.get()
         assertEquals(0, a.resources.getIdentifier("btnPlay", "id", a.packageName).let { if (it == 0) 0 else if (a.findViewById<View>(it) == null) 0 else 1 })
@@ -77,7 +78,8 @@ class V35Test {
         c.pause().stop().destroy()
     }
 
-    @Test fun layoutsMovePanels() {
+    /** Układy menu 0–3 (7.17: w Nowoczesnym zastąpione układem „Obsidian Stream”). */
+    @Test fun layoutsMovePanels() = classicTheme {
         for (m in 0..3) {
             Prefs.mainLayout = m
             val c = Robolectric.buildActivity(MainActivity::class.java).setup(); idle(500)

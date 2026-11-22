@@ -33,11 +33,11 @@ import pl.iptv.tv.data.Prefs
 object ModernTheme {
     const val ID = "modern"
     /** Niebieski akcent (przycisk „Odtwórz”, zaznaczenie list). */
-    val ACCENT = Color.parseColor("#2F6BFF")
+    val ACCENT = Color.parseColor("#3B82F6")
     /** Jasnoniebieska obwódka zaznaczonego kafelka. */
     val RING = Color.parseColor("#D8E8FF")
     /** Czerwona kropka nagłówków i znacznik „na żywo”. */
-    val LIVE = Color.parseColor("#E5233A")
+    val LIVE = Color.parseColor("#EF4444")
 
     val active: Boolean get() = runCatching { Ui.surface == Ui.S_MODERN }.getOrDefault(false)
 
@@ -63,9 +63,9 @@ object ModernTheme {
         return lv != null && (lv.adapter?.count ?: 0) > 0
     }
 
-    /** Półprzezroczysta czerń (obraz pod spodem lekko prześwituje przy lewej krawędzi panelu), cienka jasna krawędź. */
-    fun overlayBg(): Drawable = TexturedDrawable(Ui.withAlpha(Ui.shade(Ui.bg, -0.2f), 0xE8), Ui.withAlpha(Ui.shade(Ui.bg, -0.5f), 0xF4), 0f,
-        stroke = Ui.withAlpha(Color.WHITE, 0x12), strokeW = Ui.dp(1).toFloat())
+    /** (7.17) „Obsidian Stream”: panel `#0F141F` 92 % z krawędzią specular (bez zaokrągleń – przylega do prawej krawędzi). */
+    fun overlayBg(): Drawable = TexturedDrawable(pl.iptv.tv.ui.theme.ObsidianViews.PANEL_92, pl.iptv.tv.ui.theme.ObsidianViews.PANEL_92, 0f,
+        stroke = pl.iptv.tv.ui.theme.ObsidianViews.SPECULAR, strokeW = Ui.dp(1).toFloat())
 
     /** Panel przy prawej krawędzi: TV – 36% szerokości, telefon – do 88% (najwyżej 440 dp). */
     fun layoutOverlay(w: Window, wide: Boolean) {

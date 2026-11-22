@@ -67,7 +67,8 @@ class V56Test {
         c.pause().stop().destroy()
     }
 
-    @Test fun zapListSwitchesCategoryAndFocusesFirstChannel() {
+    /** Dawny pasek informacji i lista kanałów pod OK (7.17: w Nowoczesnym – OSD „Obsidian Stream”, V717OsdTest). */
+    @Test fun zapListSwitchesCategoryAndFocusesFirstChannel() = classicTheme {
         Prefs.zapListEnabled = true; Prefs.miniMenuEnabled = false; Prefs.channelPanel = true
         val g = Repository.groups()
         val start = Repository.channelsFor(g[0])[2]

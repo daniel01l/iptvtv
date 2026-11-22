@@ -181,9 +181,48 @@ object Repository {
         return allChannels.size
     }
 
+    /**
+     * (7.17) Sesja edycji (Edytor listy): zmiany nazw, ukrycia, grup i kolejności trafiają od razu do pamięci (lista działa
+     * na bieżąco), a do pliku – jednym zbiorczym zapisem w tle ([flushEdits]) przy zatwierdzeniu lub wyjściu z edytora.
+     * Poza sesją każda zmiana zapisuje się jak dotąd od razu.
+     */
+    @Volatile var editSession = false
+    /** Zmiany od ostatniego zapisu pliku (sesja edycji). */
+    @Volatile var editsDirty = false; private set
+    /** Liczba zapisów pliku edycji (diagnostyka i testy). */
+    @Volatile var editWrites = 0; private set
+    private val editWriteLock = Any()
+
     private fun commitEdits() {
-        runCatching { editsFile.writeText(edits.toJson()) }
+        if (editSession) editsDirty = true else writeEdits(edits.toJson())
         rebuild()
+    }
+
+    /** Zapis pliku edycji: plik tymczasowy + zamiana (przerwany zapis nie psuje poprzedniej wersji). */
+    private fun writeEdits(json: String) = synchronized(editWriteLock) {
+        runCatching {
+            val tmp = File(editsFile.path + ".tmp")
+            tmp.writeText(json)
+            if (!tmp.renameTo(editsFile)) { editsFile.writeText(json); tmp.delete() }
+            editWrites++
+        }
+    }
+
+    /**
+     * Zbiorczy zapis buforowanych zmian (koniec sesji edycji): stan zrzucony na wątku wywołującym, zapis na [Dispatchers.IO].
+     * Nic nie zmieniono – bez zapisu.
+     */
+    suspend fun flushEdits() {
+        if (!editsDirty) return
+        val json = edits.toJson(); editsDirty = false
+        withContext(Dispatchers.IO) { writeEdits(json) }
+    }
+
+    /** Wersja bez korutyn (zamknięcie ekranu): zapis w tle na wątku roboczym. */
+    fun flushEditsAsync() {
+        if (!editsDirty) return
+        val json = edits.toJson(); editsDirty = false
+        Thread({ writeEdits(json) }, "EditsFlush").start()
     }
 
     /** Przełącza aktywną listę: wczytuje jej kopię (lub pobiera) i EPG. */
@@ -381,7 +420,7 @@ object Repository {
         var i = urls.size; while (epgCacheFile(i).exists()) { epgCacheFile(i).delete(); i++ }
         val data = merge(parts)
         Prefs.lastEpgUpdate = System.currentTimeMillis()
-        epg = data
+        epg = data.deduped()          // (7.17) wspólne teksty powtórek i seriali – mniej pamięci
         mapEpg()
         runCatching { EpgBinary.write(epgBin, data, EpgBinary.signature(allChannels)) }
         data.programmes.values.sumOf { it.size }
@@ -395,7 +434,7 @@ object Repository {
         val files = generateSequence(0) { it + 1 }.map { epgCacheFile(it) }.takeWhile { it.exists() }.toList()
         val data = runCatching { merge(files.map { f -> guardedParse { f.inputStream().use { XmltvParser.parse(it, allChannels, from, to, maxDesc()) } } }) }
             .getOrNull() ?: return@withContext false
-        epg = data
+        epg = data.deduped()
         mapEpg()
         runCatching { EpgBinary.write(epgBin, data, EpgBinary.signature(allChannels)) }
         true

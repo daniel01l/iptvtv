@@ -116,7 +116,9 @@ fun Modifier.x25Clickable(onClick: () -> Unit, onLong: (() -> Unit)? = null, onK
 }
 
 /** Pozycja panelu (Flyout / Guide). */
+@androidx.compose.runtime.Immutable
 class FlyItem(val label: String, val sub: String = "", val icon: String? = null, val action: () -> Unit)
 
 /** Strona panelu; [loading] – pozycje dopiero się wczytują. */
+@androidx.compose.runtime.Immutable
 data class FlyPage(val title: String, val items: List<FlyItem>, val loading: Boolean = false, val subtitle: String = "")

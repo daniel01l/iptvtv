@@ -43,7 +43,8 @@ class V23Test {
         Prefs.lastChannel = Repository.channels[0].key
     }
 
-    @Test fun mainRemoteNavigationGroupsAndPreview() {
+    /** Stary układ listy (motyw inny niż Nowoczesny – 7.17: w Nowoczesnym układ „Obsidian Stream”, test V717ObsidianNavTest). */
+    @Test fun mainRemoteNavigationGroupsAndPreview() = classicTheme {
         val c = Robolectric.buildActivity(MainActivity::class.java).setup(); idle(500)
         val a = c.get()
         val groups = a.findViewById<RecyclerView>(R.id.groups)
@@ -201,4 +202,10 @@ class V23Test {
         c2.pause().stop().destroy()
         Ui.fontScaleIndex = 1; Ui.resetColors(); Prefs.settingsOpen = emptyList()
     }
+}
+
+/** (7.17) Test w motywie Klasyczny (układ menu sprzed „Obsidian Stream”), po nim z powrotem Nowoczesny. */
+internal inline fun classicTheme(body: () -> Unit) {
+    Ui.applyPreset("classic"); Ui.changed()
+    try { body() } finally { Ui.applyPreset(ModernTheme.ID); Ui.changed(); X25Theme.justEnabled = false }
 }

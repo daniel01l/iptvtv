@@ -61,7 +61,8 @@ class V36Test {
         c.pause().stop().destroy()
     }
 
-    @Test fun longOkOpensMiniMenuShortOkInfo() {
+    /** Dawny pasek informacji i lista kanałów pod OK (7.17: w Nowoczesnym – OSD „Obsidian Stream”, V717OsdTest). */
+    @Test fun longOkOpensMiniMenuShortOkInfo() = classicTheme {
         val c = player(); val a = c.get()
         val mini = a.findViewById<LinearLayout>(R.id.miniMenu)
         idle(6000)

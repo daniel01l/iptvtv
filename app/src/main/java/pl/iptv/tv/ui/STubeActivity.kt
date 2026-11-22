@@ -114,6 +114,7 @@ class STubeActivity : BaseActivity() {
         }
 
         applyRailLayout()
+        if (obsidianRail) installObsidianRail()
         findViewById<View>(R.id.stEdit).setOnClickListener { editRail() }
         findViewById<View>(R.id.stClose).setOnClickListener { finish() }
         findViewById<View>(R.id.stRefresh).setOnClickListener { YouTubeRepository.clearCache(); pl.iptv.tv.data.YtKeyless.clearCache(); build(force = true) }
@@ -335,11 +336,13 @@ class STubeActivity : BaseActivity() {
         jobs.forEach { it.cancel() }; jobs.clear()
         builtFor = stateKey()
         // konto: pierwsza litera nazwy po zalogowaniu, inaczej rysowana ikona użytkownika
-        val initial = if (YouTubeTokens.loggedIn) YouTubeTokens.accountName.trim().take(1).uppercase() else ""
+        // (7.17) pasek „Obsidian Stream”: zawsze ikona (podpis z nazwą konta w rozwiniętym pasku)
+        val initial = if (YouTubeTokens.loggedIn && !obsidianRail) YouTubeTokens.accountName.trim().take(1).uppercase() else ""
         account.text = initial; account.textSize = 20f; account.typeface = android.graphics.Typeface.DEFAULT_BOLD
         if (initial.isNotEmpty()) { account.setCompoundDrawables(null, null, null, null); account.setPadding(0, 0, 0, 0); account.gravity = Gravity.CENTER }
         else account.setCompoundDrawables(PlayerIcon(PlayerIcon.USER, account.textColors).apply { setBounds(0, 0, Ui.dp(24), Ui.dp(24)) }, null, null, null)
         account.contentDescription = if (YouTubeTokens.loggedIn) "Konto YouTube: " + YouTubeTokens.accountName.ifBlank { "Konto" } else "Zaloguj do YouTube"
+        navRail?.let { it.styleItems(); it.refreshLabels() }
         info.visibility = View.GONE
         rows = STubeScreen.rows(searchQuery)
         rowViews.clear(); rowsBox.removeAllViews(); playlistParent = null
@@ -607,6 +610,12 @@ class STubeActivity : BaseActivity() {
         val foc = intArrayOf(android.R.attr.state_focused); val pr = intArrayOf(android.R.attr.state_pressed)
         for (i in 0 until rail.childCount) (rail.getChildAt(i) as? TextView)?.let { b ->
             b.tag = "keepcolor nozoom"
+            // (7.17) „Obsidian Stream”: ikony jako pigułki wspólnego paska ([obsidianRail] – układ i podpisy ustawia AppNavigationRailViews)
+            if (obsidianRail) {
+                b.setTextColor(pl.iptv.tv.ui.theme.ObsidianViews.pillText())
+                RAIL_ICONS[b.id]?.let { kind -> b.text = ""; b.setCompoundDrawables(PlayerIcon(kind, b.textColors).apply { setBounds(0, 0, Ui.dp(24), Ui.dp(24)) }, null, null, null) }
+                return@let
+            }
             b.setTextColor(android.content.res.ColorStateList(arrayOf(foc, pr, intArrayOf(android.R.attr.state_selected), intArrayOf()), intArrayOf(Ui.focusText, Ui.focusText, Ui.accent or 0xFF000000.toInt(), Ui.text)))
             // ikona rysowana (jak w odtwarzaczach) zamiast emoji: spójna z motywem, ostra w każdym rozmiarze, wyśrodkowana
             RAIL_ICONS[b.id]?.let { kind ->
@@ -623,6 +632,47 @@ class STubeActivity : BaseActivity() {
             }
         }
     }
+
+    /** (7.17) „Obsidian Stream” (motyw Nowoczesny, szeroki ekran): wspólny pasek nawigacji nad treścią. */
+    private val obsidianRail by lazy { !narrowHeader && pl.iptv.tv.ui.theme.ObsidianViews.active }
+    private var navRail: pl.iptv.tv.ui.theme.AppNavigationRailViews? = null
+
+    /**
+     * Pasek ikon wyjęty z układu poziomego i położony NAD treścią (w treści zostaje 72 dp): z fokusem rozwija się do 240 dp
+     * z podpisami, a scrim przyciemnia rzędy – podpisy nie nachodzą na tytuły filmów. Pozycje, kolejność (edytor paska),
+     * klawisze i przewijanie ([RailScrollView]) bez zmian. Wyszukiwarka – pigułka na szkle.
+     */
+    private fun installObsidianRail() {
+        val O = pl.iptv.tv.ui.theme.ObsidianViews
+        val vs = findViewById<android.view.ViewGroup>(R.id.stRailScroll)
+        val root = findViewById<LinearLayout>(R.id.stRoot)
+        root.removeView(vs)
+        root.addView(View(this), 0, LinearLayout.LayoutParams(Ui.dp(72), -1))
+        val at = rootFrame.indexOfChild(root) + 1
+        val scrim = View(this)
+        rootFrame.addView(scrim, at, android.widget.FrameLayout.LayoutParams(-1, -1))
+        rootFrame.addView(vs, at + 1, android.widget.FrameLayout.LayoutParams(Ui.dp(72), -1))
+        vs.background = android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
+            intArrayOf(0xF5080A0F.toInt(), 0xE0121722.toInt()))
+        rail.layoutParams = android.widget.FrameLayout.LayoutParams(-1, -2)
+        rail.setPadding(Ui.dp(12), Ui.dp(16), Ui.dp(12), Ui.dp(16))
+        val accountLabel = { (account.contentDescription ?: "Konto").toString() }
+        navRail = pl.iptv.tv.ui.theme.AppNavigationRailViews(vs, scrim,
+            items = { (0 until rail.childCount).mapNotNull { rail.getChildAt(it) as? TextView } },
+            label = { b -> if (b === account) accountLabel() else (b.contentDescription ?: "").toString().removePrefix("Kategoria: ") },
+            lowPerf = { pl.iptv.tv.data.Prefs.lowPerf }).also { it.attach() }
+        // wyszukiwarka: pigułka na szkle, zaznaczona – obwódka w akcencie
+        query.tag = "keepcolor"
+        query.setTextColor(O.TEXT); query.setHintTextColor(O.TEXT2)
+        query.background = android.graphics.drawable.StateListDrawable().apply {
+            fun field(stroke: Int, color: Int, w: Int) = android.graphics.drawable.GradientDrawable().apply { cornerRadius = Ui.dp(28).toFloat(); setColor(color); setStroke(Ui.dp(w), stroke) }
+            addState(intArrayOf(android.R.attr.state_focused), field(O.ACCENT, O.SURFACE_ELEVATED, 2))
+            addState(intArrayOf(), field(O.SPECULAR, O.SURFACE_GLASS, 1))
+        }
+        query.setPadding(Ui.dp(22), Ui.dp(11), Ui.dp(22), Ui.dp(11))
+    }
+
+    override fun onDestroy() { navRail?.detach(); super.onDestroy() }
 
     private class Chip(val label: String, val icon: String = PlayerIcon.MUSIC, val onFocus: (() -> Unit)? = null, val action: () -> Unit)
 
@@ -652,15 +702,19 @@ class STubeActivity : BaseActivity() {
             chips.addView(TextView(this).apply {
                 text = c.label; textSize = 15f; maxLines = 1; isFocusable = true; isClickable = true; gravity = Gravity.CENTER
                 setPadding(Ui.dp(18), Ui.dp(8), Ui.dp(18), Ui.dp(8))
-                setTextColor(android.content.res.ColorStateList(arrayOf(sel, foc, pr, intArrayOf()), intArrayOf(Ui.focusText, Ui.focusText, Ui.focusText, Ui.text)))
+                val obsidian = pl.iptv.tv.ui.theme.ObsidianViews.active
+                // (7.17) „Obsidian Stream”: pigułki na szkle (zwykła – biel 12 %), zaznaczona – akcent, tekst biały
+                val colors = if (obsidian) pl.iptv.tv.ui.theme.ObsidianViews.pillText()
+                    else android.content.res.ColorStateList(arrayOf(sel, foc, pr, intArrayOf()), intArrayOf(Ui.focusText, Ui.focusText, Ui.focusText, Ui.text))
+                setTextColor(colors)
                 val pill = { color: Int -> android.graphics.drawable.GradientDrawable().apply { setColor(color); cornerRadius = Ui.dp(40).toFloat() } }
-                background = android.graphics.drawable.StateListDrawable().apply {
+                background = if (obsidian) pl.iptv.tv.ui.theme.ObsidianViews.pill(rest = 0x1FFFFFFF) else android.graphics.drawable.StateListDrawable().apply {
                     val on = pill(Ui.focus or 0xFF000000.toInt())
                     addState(sel, on); addState(foc, on); addState(pr, on)
                     addState(intArrayOf(), pill(Ui.withAlpha(Ui.text2, 0x38)))
                 }
                 if (c.icon.isNotEmpty()) {
-                    setCompoundDrawables(PlayerIcon(c.icon, android.content.res.ColorStateList(arrayOf(foc, pr, sel, intArrayOf()), intArrayOf(Ui.focusText, Ui.focusText, Ui.focusText, Ui.text))).apply { setBounds(0, 0, Ui.dp(18), Ui.dp(18)) }, null, null, null)
+                    setCompoundDrawables(PlayerIcon(c.icon, if (obsidian) colors else android.content.res.ColorStateList(arrayOf(foc, pr, sel, intArrayOf()), intArrayOf(Ui.focusText, Ui.focusText, Ui.focusText, Ui.text))).apply { setBounds(0, 0, Ui.dp(18), Ui.dp(18)) }, null, null, null)
                     compoundDrawablePadding = Ui.dp(8)
                 }
                 setOnClickListener { c.action() }

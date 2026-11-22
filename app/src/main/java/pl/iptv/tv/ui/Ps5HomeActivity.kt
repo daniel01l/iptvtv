@@ -99,13 +99,16 @@ class Ps5HomeActivity : BaseActivity() {
      * Kafelek rzędu aplikacji. [image] – logo / miniatura / plakat, [bitmap] – ikona aplikacji z urządzenia
      * (puste = ikona rysowana); [onLong] – przytrzymanie OK.
      */
+    @androidx.compose.runtime.Immutable
     data class App(val key: String, val title: String, val sub: String, val icon: String, val image: String = "",
                    val bitmap: androidx.compose.ui.graphics.ImageBitmap? = null, val onLong: (() -> Unit)? = null, val run: () -> Unit)
 
     /** Aplikacja z urządzenia dodana do ekranu głównego ([Prefs.ps5Apps]). */
+    @androidx.compose.runtime.Immutable
     data class DeviceApp(val id: String, val label: String, val icon: androidx.compose.ui.graphics.ImageBitmap?, val intent: Intent)
 
     /** Pamięć: wolne / całkowite miejsce (bajty) i pamięć podręczna aplikacji. */
+    @androidx.compose.runtime.Immutable
     data class Storage(val free: Long, val total: Long, val cache: Long) {
         val used get() = if (total > 0) 1f - free.toFloat() / total else 0f
     }
@@ -393,6 +396,7 @@ class Ps5HomeActivity : BaseActivity() {
     /**
      * (7.6) [portrait] – telefon w pionie: karty jedna pod drugą na całą szerokość ([availW]), mniejsze kafelki aplikacji.
      */
+    @androidx.compose.runtime.Immutable
     data class Dims(val compact: Boolean, val narrow: Boolean, val portrait: Boolean = false, val availW: Dp = 0.dp) {
         val side get() = if (narrow) 16.dp else if (compact) 28.dp else 56.dp
         val topH get() = if (compact) 44.dp else 56.dp
@@ -485,7 +489,7 @@ class Ps5HomeActivity : BaseActivity() {
         val list = remember(t, channels, videos, titles, deviceApps) { apps(t) }
         LazyRow(Modifier.fillMaxWidth().rowEntry("a:").focusGroup(),
             contentPadding = PaddingValues(horizontal = dims.side, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(if (dims.compact) 10.dp else 14.dp)) {
-            itemsIndexed(list, key = { _, a -> a.key }) { i, a -> AppTile(a, i == 0) }
+            itemsIndexed(list, key = { _, a -> a.key }, contentType = { _, _ -> "app" }) { i, a -> AppTile(a, i == 0) }
         }
     }
 
@@ -837,7 +841,7 @@ class Ps5HomeActivity : BaseActivity() {
                 BasicText("Ekran główny", Modifier.padding(start = 28.dp, top = 26.dp, bottom = 14.dp), style = Ps5Type.display.copy(fontSize = 26.sp))
                 LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(opts, key = { it.label }) { o -> OptionRow(o, if (o === opts.first()) first else null) }
+                    items(opts, key = { it.label }, contentType = { "option" }) { o -> OptionRow(o, if (o === opts.first()) first else null) }
                 }
                 AndroidView({ Ps5Hints(it, Ps5Hints.LIST) }, Modifier.fillMaxWidth().padding(bottom = 12.dp))
             }

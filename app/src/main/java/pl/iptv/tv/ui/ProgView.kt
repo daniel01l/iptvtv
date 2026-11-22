@@ -6,6 +6,7 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
+import kotlinx.coroutines.launch
 import pl.iptv.tv.data.Programme
 
 /** Pasek postępu programu rysowany w stylu wybranym w ustawieniach. */
@@ -16,11 +17,31 @@ class ProgView @JvmOverloads constructor(ctx: Context, attrs: AttributeSet? = nu
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val r = RectF()
 
+    /** Pokazywany program (czasy) – pasek przesuwa się sam z [EpgClock], bez ponownego wiązania wiersza listy. */
+    private var start = 0L
+    private var end = 0L
+    private var clockJob: kotlinx.coroutines.Job? = null
+
     fun show(p: Programme?, now: Long) {
-        if (p == null || Ui.progressStyle == 4) { visibility = GONE; return }
+        if (p == null || Ui.progressStyle == 4) { start = 0; end = 0; visibility = GONE; stopClock(); return }
         visibility = VISIBLE
+        start = p.start; end = p.end
         fraction = (now - p.start).toFloat() / (p.end - p.start).coerceAtLeast(1)
+        if (isAttachedToWindow) startClock()
     }
+
+    override fun onAttachedToWindow() { super.onAttachedToWindow(); if (end > start) startClock() }
+    override fun onDetachedFromWindow() { stopClock(); super.onDetachedFromWindow() }
+
+    /** Wspólny zegar EPG słuchany tylko, gdy pasek jest na ekranie (widoki z recyklingu poza ekranem nie słuchają). */
+    private fun startClock() {
+        if (clockJob?.isActive == true) return
+        clockJob = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main.immediate).launch {
+            // tyknięcie = tylko sygnał (pierwsza wartość StateFlow może być sprzed zatrzymania zegara) – czas bieżący
+            EpgClock.ticks.collect { if (end > start) EpgClock.fraction(start, end, System.currentTimeMillis()).let { if (it != fraction) fraction = it } }
+        }
+    }
+    private fun stopClock() { clockJob?.cancel(); clockJob = null }
 
     /** Wypełnienie kolorem albo gradientem akcentu (na całej szerokości paska). */
     private fun fillPaint(c1: Int, c2: Int?, w: Float) {

@@ -6,6 +6,26 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
 
+/**
+ * (7.17) Współdzielenie identycznych tekstów EPG w obrębie jednego wczytania: tytuły powtórek i seriali, opisy powtarzane
+ * na wielu kanałach / dniach, kategorie, numery odcinków – jeden obiekt String zamiast setek kopii (EPG całej listy to
+ * dziesiątki MB w pamięci). Słownik żyje tylko w trakcie wczytywania.
+ */
+class Dedup {
+    private val map = HashMap<String, String>(1 shl 15)
+    operator fun invoke(s: String): String = if (s.isEmpty()) "" else map.getOrPut(s) { s }
+}
+
+/** Kopia EPG ze współdzielonymi tekstami (po parsowaniu XML – to samo, co daje [EpgBinary.read]). */
+fun EpgData.deduped(): EpgData {
+    val d = Dedup()
+    val progs = HashMap<String, List<Programme>>(programmes.size * 2)
+    programmes.forEach { (id, l) ->
+        progs[id] = l.mapTo(ArrayList(l.size)) { p -> p.copy(title = d(p.title), desc = d(p.desc), category = d(p.category), subTitle = d(p.subTitle), episode = d(p.episode)) }
+    }
+    return EpgData(progs, idByLower, idByName, icons, channelNames)
+}
+
 /** Przetworzone EPG w formacie binarnym – wczytywanie przy starcie wielokrotnie szybsze niż XML. */
 object EpgBinary {
     private const val MAGIC = 0x45504732   // "EPG2"
@@ -41,12 +61,16 @@ object EpgBinary {
                 val a = i.map(); val b = i.map(); val c = i.map(); val n = i.map()
                 val cnt = i.readInt()
                 val progs = HashMap<String, List<Programme>>(cnt * 2)
+                val d = Dedup()
                 repeat(cnt) {
                     val id = i.readUTF(); val k = i.readInt(); val l = ArrayList<Programme>(k)
                     repeat(k) {
-                        val p = Programme(i.readLong(), i.readLong(), i.readUTF(), i.readUTF(), i.readUTF().intern(), i.readUTF(), i.readUTF())
-                        if (p.end >= from && p.start <= to) l += p
+                        val s = i.readLong(); val e = i.readLong()
+                        val t = i.readUTF(); val ds = i.readUTF(); val cat = i.readUTF(); val st = i.readUTF(); val ep = i.readUTF()
+                        // poza oknem – bez obiektu programu; w oknie – teksty współdzielone (powtórki, seriale, te same opisy)
+                        if (e >= from && s <= to) l += Programme(s, e, d(t), d(ds), d(cat), d(st), d(ep))
                     }
+                    l.trimToSize()
                     progs[id] = l
                 }
                 EpgData(progs, a, b, c, n)
