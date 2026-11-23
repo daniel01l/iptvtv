@@ -102,12 +102,11 @@ class V66Test {
     }
 
     @Test fun dashboardsScrollOnlyWhenTileLeavesView() {
-        val m = Ui.dp(28).toFloat()
-        // kafelek w widoku – bez przesuwania rzędu (wcześniej rząd przesuwał się przy każdym ruchu)
-        assertEquals(0f, SmoothScroll.calculateScrollDistance(300f, 200f, 1600f))
-        // wystaje w prawo – tylko o tyle, ile trzeba (+ margines na obwódkę)
-        assertEquals(1500f + 200f - 1600f + m, SmoothScroll.calculateScrollDistance(1500f, 200f, 1600f))
-        // wystaje w lewo
-        assertEquals(-50f - m, SmoothScroll.calculateScrollDistance(-50f, 200f, 1600f))
+        // (7.17) strefa spokoju 25–75 %: kafelek w niej – bez przesuwania rzędu (wcześniej rząd przesuwał się przy każdym ruchu)
+        assertEquals(0f, SmoothScroll.calculateScrollDistance(500f, 200f, 1600f))
+        // wychodzi za 75 % – do granicy strefy
+        assertEquals(1500f + 200f - 1200f, SmoothScroll.calculateScrollDistance(1500f, 200f, 1600f))
+        // przed 25 %
+        assertEquals(-50f - 400f, SmoothScroll.calculateScrollDistance(-50f, 200f, 1600f))
     }
 }

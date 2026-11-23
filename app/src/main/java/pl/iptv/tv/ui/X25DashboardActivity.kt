@@ -47,6 +47,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -535,7 +536,7 @@ class X25DashboardActivity : BaseActivity() {
         LazyRow(Modifier.fillMaxWidth().rowEntry("r:").focusGroup(), contentPadding = PaddingValues(start = side, end = side, top = 4.dp, bottom = dims.rowPad),
             horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             itemsIndexed(recents, key = { _, g -> g.id }, contentType = { _, _ -> "recent" }) { i, g ->
-                Row(verticalAlignment = Alignment.Bottom) {
+                Row(Modifier.raiseOnFocus(), verticalAlignment = Alignment.Bottom) {
                     if (i > 0) Box(Modifier.padding(end = 14.dp, bottom = 8.dp).width(1.dp).height(dims.recent - 8.dp).background(c.text2.copy(alpha = 0.25f)))
                     Column {
                         BasicText("Ostatnio · " + g.title, Modifier.padding(bottom = if (dims.compact) 4.dp else 8.dp), style = X25Type.label.copy(color = c.text2), maxLines = 1)
@@ -560,6 +561,7 @@ class X25DashboardActivity : BaseActivity() {
         }
         // Stremio: plakat pionowy; kanały i filmy – kwadrat
         Box(Modifier.size(if (r is X25Recent.St) dims.recent * 0.68f else dims.recent, dims.recent)
+            .zIndex(if (focused) 1f else 0f)
             .focusRequester(requester(key))
             .onFocusChanged { if (it.isFocused != focused) { focused = it.isFocused; if (it.isFocused) onFocused(key, title, sub) } }
             .x25Clickable(onClick = { openRecent(r) }, onLong = { recentMenu(r) })
@@ -652,6 +654,7 @@ class X25DashboardActivity : BaseActivity() {
         val dim = editingId != null && !editing
         val base = if (t.type == X25Action.LIVE || t.big) c.accent.copy(alpha = 0.30f) else c.panel.copy(alpha = 0.88f)
         Box((if (fill) m.fillMaxWidth().height(dims.tileH) else m.size(if (t.big) dims.tileBigW else dims.tileW, dims.tileH))
+            .zIndex(if (focused || editing) 1f else 0f)
             .focusRequester(requester(key))
             .onFocusChanged { if (it.isFocused != focused) { focused = it.isFocused; if (it.isFocused) onFocused(key, title, sub) } }
             .x25Clickable(onClick = { if (editingId != null) stopEditing() else runTile(t) }, onLong = { if (editingId == null) tileMenu(t) }, onKey = { e -> tileKey(t, e) })

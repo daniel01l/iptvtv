@@ -41,11 +41,21 @@ class StremioActivity : BaseActivity() {
         const val EXTRA_QUERY = "query"
         const val IN_CINEMAS = "Obecnie w kinach"
         /** (7.17) Filtry tablicy (pigułki u góry w „Obsidian Stream”). */
-        const val FILTER_MOVIES = 0; const val FILTER_SERIES = 1; const val FILTER_ALL = 2; const val FILTER_LIBRARY = 3
-        val FILTER_NAMES = listOf("Filmy", "Seriale", "Odkrywaj", "Biblioteka")
+        // (7.17) kolejność zakładek: Odkrywaj (domyślna), Filmy, Seriale, Biblioteka
+        const val FILTER_ALL = 0; const val FILTER_MOVIES = 1; const val FILTER_SERIES = 2; const val FILTER_LIBRARY = 3
+        val FILTER_NAMES = listOf("Odkrywaj", "Filmy", "Seriale", "Biblioteka")
         const val LIBRARY_ROW = "Moja biblioteka"
+        const val CONTINUE_ROW = "Kontynuuj oglądanie"
+        const val WATCHED_ROW = "Obejrzane"
+        /** (7.17) Katalog techniczny wtyczki (nazwa, id wtyczki i katalogu, adres) – bez rzędu na tablicy. */
+        fun isHiddenCatalog(a: StremioAddon, c: StremioAddon.Catalog): Boolean =
+            HIDDEN_CATALOGS.containsMatchIn(listOf(a.name, a.id, c.name, c.id, a.transportUrl.substringBefore("?").substringAfter("://").substringBefore("/")).joinToString(" "))
         /** Katalogi usługowych wtyczek, których nie pokazujemy na tablicy (AIOStreams, ElfHosted, Store RD, Store PM). */
-        val HIDDEN_CATALOGS = Regex("(?i)aiostreams|elfhosted|store[\\s_-]*(rd|pm)\\b")
+        /**
+         * Katalogi usługowych wtyczek pomijane na tablicy (Odkrywaj / Filmy / Seriale) i w wynikach wyszukiwania – wtyczki
+         * dalej podają źródła (`stream`) w opisie tytułu. (7.17) także Torrentio i debrid (RealDebrid, „RD”).
+         */
+        val HIDDEN_CATALOGS = Regex("(?i)aiostreams|elfhosted|store[\\s_-]*(rd|pm)\\b|torrentio|real[\\s_-]?debrid|(?<![a-z0-9])rd(?![a-z0-9])")
     }
     override val x25Root = true
     override val miniPlayer = true
@@ -415,7 +425,11 @@ class StremioActivity : BaseActivity() {
         val step = if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN) 1 else -1
         var j = ri + step
         while (j in rows.indices && rows[j].adapter.items.isEmpty()) j += step
-        if (j !in rows.indices) return step > 0            // ▼ na końcu – zostaje; ▲ z pierwszego rzędu – zwykła nawigacja do paska
+        if (j !in rows.indices) {
+            // (7.17) ▲ z pierwszego rzędu – z powrotem na wybraną zakładkę (np. „Filmy”), nie na pierwszą
+            if (step < 0 && obsidian) filterPills.getOrNull(filter)?.takeIf { it.isShown }?.let { p -> if (event.action == KeyEvent.ACTION_DOWN) p.requestFocus(); return true }
+            return step > 0                                 // ▼ na końcu – zostaje; ▲ z pierwszego rzędu – zwykła nawigacja do paska
+        }
         if (event.action == KeyEvent.ACTION_DOWN) rowRv(rows[j]).focusPosition(pos.coerceAtMost(rows[j].adapter.items.size - 1))
         return true
     }
@@ -428,8 +442,12 @@ class StremioActivity : BaseActivity() {
      * (wyszukiwarka, a w „Obsidian Stream” – pierwszy element paska nawigacji / pigułka filtru, zanim użytkownik ruszył pilotem).
      */
     private fun autoFocusAllowed(): Boolean {
-        val f = window.decorView.findFocus() ?: return true
-        return f === query || (obsidian && !userMoved && (inRail(f) || f in filterPills))
+        // (7.17) „Obsidian Stream”: na tablicy kursor startowy zostaje na wybranej zakładce (Odkrywaj) – ▼ przenosi go do plakatów;
+        // wyniki wyszukiwania – jak dawniej (pierwszy rząd przejmuje fokus startowy)
+        val board = obsidian && filterPills.isNotEmpty() && searchQuery == null
+        val f = window.decorView.findFocus() ?: return !board
+        if (f === query) return true
+        return obsidian && !userMoved && !board && (inRail(f) || f in filterPills)
     }
 
     /** (7.17) Element treści, z którego kursor wszedł na pasek nawigacji (► wraca dokładnie tam). */
@@ -459,7 +477,15 @@ class StremioActivity : BaseActivity() {
                     ?: rows.firstOrNull { it.adapter.items.isNotEmpty() }?.let { rowRv(it).getChildAt(0) })?.requestFocus()
                 return true
             }
-            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> if (inRail(f)) {
+            // (7.17) ▼ z zakładek – pierwszy plakat pierwszego rzędu (nigdy pasek nawigacji); brak rzędów – zostaje na zakładce
+            KeyEvent.KEYCODE_DPAD_DOWN -> if (f in filterPills) {
+                if (down) rows.firstOrNull { it.adapter.items.isNotEmpty() }?.let { r -> rowRv(r).focusPosition(0) }
+                return true
+            } else if (inRail(f)) {
+                if (down) { val items = railItems(); items.getOrNull(items.indexOf(f) + 1)?.requestFocus() }
+                return true
+            }
+            KeyEvent.KEYCODE_DPAD_UP -> if (inRail(f)) {
                 if (down) { val items = railItems(); val i = items.indexOf(f) + if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN) 1 else -1; items.getOrNull(i)?.requestFocus() }
                 return true
             }
@@ -486,11 +512,11 @@ class StremioActivity : BaseActivity() {
         val f = filter
         val type = typeFilter
         jobs += lifecycleScope.launch {
-            val continueRow = addRow("Kontynuuj oglądanie")
-            fillContinue(continueRow)
-            if (q == null && f == FILTER_LIBRARY) fillLibrary(addRow(LIBRARY_ROW))
-            if (q == null && (f == FILTER_ALL || f == FILTER_LIBRARY)) fillWatched(addRow("Obejrzane"))
+            // (7.17) historia i postęp tylko w Bibliotece: Odkrywaj / Filmy / Seriale zaczynają się od katalogów
             if (q == null && f == FILTER_LIBRARY) {
+                fillContinue(addRow(CONTINUE_ROW))
+                fillLibrary(addRow(LIBRARY_ROW))
+                fillWatched(addRow(WATCHED_ROW))
                 if (rows.isEmpty()) rowsBox.addView(StremioUi.text(this@StremioActivity, "Biblioteka jest pusta – dodaj tytuł przyciskiem „Dodaj do biblioteki” w jego opisie.", 16f, "text2")
                     .apply { setPadding(Ui.dp(6), Ui.dp(20), 0, 0) })
                 return@launch
@@ -508,7 +534,7 @@ class StremioActivity : BaseActivity() {
                 }
             }
             // (7.12) katalogi usługowych wtyczek (AIOStreams / ElfHosted, Store RD / PM) nie są pokazywane na tablicy
-            fun hidden(a: StremioAddon, c: StremioAddon.Catalog) = HIDDEN_CATALOGS.containsMatchIn(a.name + " " + c.name)
+            fun hidden(a: StremioAddon, c: StremioAddon.Catalog) = isHiddenCatalog(a, c)
             fun wanted(c: StremioAddon.Catalog) = type == null || c.type == type
             val catalogs: List<Pair<StremioAddon, StremioAddon.Catalog>> = if (q != null)
                 addons.flatMap { a -> a.searchCatalogs.filterNot { hidden(a, it) }.filter(::wanted).map { a to it } }.sortedBy { (_, c) -> when (c.type) { "movie" -> 0; "series" -> 1; else -> 2 } }
@@ -670,11 +696,13 @@ class StremioActivity : BaseActivity() {
     }
 
     private fun refreshContinue() {
-        val r = rows.firstOrNull { it.title == "Kontynuuj oglądanie" }
+        // (7.17) rzędy historii są tylko w Bibliotece – inne zakładki bez przebudowy po powrocie z odtwarzacza
+        if (filter != FILTER_LIBRARY || searchQuery != null) return
+        val r = rows.firstOrNull { it.title == CONTINUE_ROW }
         lifecycleScope.launch {
             if (r != null) fillContinue(r)
             else if (StremioStore.progress().any { !it.finished }) build(searchQuery)
-            rows.firstOrNull { it.title == "Obejrzane" }?.let { fillWatched(it) }
+            rows.firstOrNull { it.title == WATCHED_ROW }?.let { fillWatched(it) }
         }
     }
 

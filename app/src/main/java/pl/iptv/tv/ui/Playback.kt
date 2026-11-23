@@ -187,7 +187,11 @@ object Playback {
         }
         override fun onPlaybackStateChanged(s: Int) {
             // przycięcie = buforowanie prosto z odtwarzania (nie stop → przygotowanie przy przełączeniu)
-            if (s == androidx.media3.common.Player.STATE_BUFFERING && lastState == androidx.media3.common.Player.STATE_READY && reachedReady) stats?.let { it.rebuffers++ }
+            if (s == androidx.media3.common.Player.STATE_BUFFERING && lastState == androidx.media3.common.Player.STATE_READY && reachedReady) {
+                stats?.let { it.rebuffers++ }
+                // (7.17) kolejne przycięcia przy niskim buforze – próg wznowienia podniesiony do końca sesji
+                liveLoad?.takeIf { it.onRebuffer(android.os.SystemClock.uptimeMillis()) }?.let { sessionRebufferBoostMs = it.boostMs; android.util.Log.i("Playback", "bufor po przycięciu: ${it.rebufferMs} ms (adaptacja)") }
+            }
             lastState = s
             if (s == androidx.media3.common.Player.STATE_READY) { retries = 0; reachedReady = true }
             // początek buforowania liczony tylko przy przejściu do niego (READY→BUFFERING→BUFFERING nie zeruje licznika)
@@ -333,6 +337,9 @@ object Playback {
      * zerowane przez [stop] (zamknięcie aplikacji, ręczna zmiana silnika lub akceleracji).
      */
     @Volatile var sessionSoftware = false; private set
+    /** (7.17) Podniesienie progu wznowienia po przycięciach w tej sesji (ms) i kontrola ładowania bieżącego odtwarzacza. */
+    @Volatile var sessionRebufferBoostMs = 0; private set
+    @Volatile var liveLoad: AdaptiveLiveLoadControl? = null; private set
     /**
      * (7.3) Kanał, na którym obraz zamarzł – dekoder programowy tylko dla niego. Dawniej do końca sesji dla wszystkich
      * kanałów: fałszywy alarm (np. obraz bez powierzchni przy przebudowie ekranów po zmianie motywu albo zaraz po zimnym
@@ -411,6 +418,12 @@ object Playback {
                     }
                 }
             }
+            // (7.17) FFmpeg tylko dla dźwięku: obraz zawsze na MediaCodec (bez programowego dekodera obrazu z rozszerzenia –
+            // kłopot z samym dźwiękiem AC3 / E-AC3 / DTS / MP2 nie przenosi całego obrazu na procesor)
+            override fun buildVideoRenderers(context: Context, extensionRendererMode: Int, mediaCodecSelector: androidx.media3.exoplayer.mediacodec.MediaCodecSelector,
+                                             enableDecoderFallback: Boolean, eventHandler: android.os.Handler, eventListener: androidx.media3.exoplayer.video.VideoRendererEventListener,
+                                             allowedVideoJoiningTimeMs: Long, out: java.util.ArrayList<androidx.media3.exoplayer.Renderer>) =
+                super.buildVideoRenderers(context, EXTENSION_RENDERER_MODE_OFF, mediaCodecSelector, enableDecoderFallback, eventHandler, eventListener, allowedVideoJoiningTimeMs, out)
         }
         val P = pl.iptv.tv.data.Prefs
         val engine = P.playerEngine
@@ -423,7 +436,12 @@ object Playback {
             2 -> renderers.forceDisableMediaCodecAsynchronousQueueing()
         }
         // profil kanału: dekoder dźwięku FFmpeg przed systemowym (formaty, których dekoder urządzenia nie obsługuje)
-        if (profile?.ffmpeg == true) renderers.setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+        // (7.17) inaczej FFmpeg za dekoderami systemu (ON) – formaty dźwięku, których urządzenie nie dekoduje, grają bez zmiany silnika obrazu
+        renderers.setExtensionRendererMode(when {
+            profile?.ffmpeg == true -> androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
+            StremioDecoders.ffmpegAvailable -> androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
+            else -> androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF
+        })
         val low = P.lowPerf
         // słabsze urządzenia: ograniczona rozdzielczość (domyślnie 1080p – bez 4K, którego dekoder nie nadąża) i mniejszy bufor w pamięci
         val selector = androidx.media3.exoplayer.trackselection.DefaultTrackSelector(c.applicationContext).apply {
@@ -434,19 +452,32 @@ object Playback {
             setParameters(b)
         }
         val start = if (P.lowLatency) 800 else LIVE_START_BUFFER_MS
+        var rebuffer = LIVE_REBUFFER_MS
         val load = if (profile?.buffer == 1) {
             // (7.5) profil kanału „duży bufor” (ręczne dopasowanie zacinającego się kanału): więcej zapasu przed startem i po przycięciu
+            rebuffer = BIG_REBUFFER_MS
             DefaultLoadControl.Builder().setBufferDurationsMs(30_000, 90_000, BIG_START_BUFFER_MS, BIG_REBUFFER_MS)
                 .apply { if (low) setTargetBufferBytes(P.lowBufMb.coerceIn(8, 256) * 1024 * 1024) }
                 .setPrioritizeTimeOverSizeThresholds(!low).build()
         } else if (low) {
-            val min = P.lowBufMinS.coerceIn(2, 60) * 1000; val max = (P.lowBufMaxS.coerceIn(2, 120) * 1000).coerceAtLeast(min)
-            DefaultLoadControl.Builder().setBufferDurationsMs(min, max, start, REBUFFER_MS)
+            // (7.17) bezpieczne proporcje (LiveBuffer.safe): „Bufor – minimum = 2 s” przy progu po przycięciu 5 s łamało wymagania
+            // DefaultLoadControl (próg ≤ minimum) – budowa odtwarzacza kończyła się błędem i Live TV się wyłączało
+            val d = LiveBuffer.safe(P.lowBufMinS.coerceIn(1, 60) * 1000, P.lowBufMaxS.coerceIn(2, 120) * 1000)
+            rebuffer = d.rebufferMs
+            DefaultLoadControl.Builder().setBufferDurationsMs(d.minMs, d.maxMs, minOf(start, d.playMs).takeIf { P.lowLatency } ?: d.playMs, d.rebufferMs)
                 .setTargetBufferBytes(P.lowBufMb.coerceIn(8, 256) * 1024 * 1024).setPrioritizeTimeOverSizeThresholds(false).build()
         }
         // (7.17) kanały na żywo: start po 1 s zapasu, po przycięciu 2 s (szybkie przełączanie), bufor 30–60 s ograniczony
         // pamięcią urządzenia ([liveBufferBytes]); na urządzeniach do ~2 GB RAM limit bajtów ma pierwszeństwo przed czasem.
         // Zacinający się kanał dostaje profil „duży bufor” (ręczne dopasowanie silnika – 3 s / 8 s).
+        else if (P.bufMinS > 0) {
+            // (7.17) „Bufor – minimum” dla każdego urządzenia (profile Szybkie przełączanie / Maksymalna stabilność) – bezpieczne proporcje
+            val total = totalMemBytes(c)
+            val d = LiveBuffer.safe(P.bufMinS * 1000, 60_000)
+            rebuffer = d.rebufferMs
+            DefaultLoadControl.Builder().setBufferDurationsMs(d.minMs, d.maxMs, if (P.lowLatency) minOf(800, d.playMs) else d.playMs, d.rebufferMs)
+                .setTargetBufferBytes(liveBufferBytes(total)).setPrioritizeTimeOverSizeThresholds(!isLowRam(total)).build()
+        }
         else {
             val total = totalMemBytes(c)
             DefaultLoadControl.Builder().setBufferDurationsMs(30_000, 60_000, start, LIVE_REBUFFER_MS)
@@ -454,9 +485,12 @@ object Playback {
                 .setPrioritizeTimeOverSizeThresholds(!isLowRam(total)).build()
         }
         val probe = looper != null
+        // (7.17) adaptacja w trakcie sesji: częste przycięcia przy niskim progu → większy zapas wznowienia (bez błędu i bez restartu)
+        val adaptive = AdaptiveLiveLoadControl(load, rebuffer, if (probe) 0 else sessionRebufferBoostMs)
+        if (!probe) liveLoad = adaptive
         return ExoPlayer.Builder(c.applicationContext, renderers)
             .setTrackSelector(selector)
-            .setLoadControl(load)
+            .setLoadControl(adaptive)
             .apply { if (looper != null) setLooper(looper) }
             .apply {
                 // odtwarzacz testowy: bez blokady Wi-Fi i bez przejmowania dźwięku (nie przerywa niczego, co gra)
@@ -552,18 +586,43 @@ object Playback {
             .connectTimeout(STREAM_CONNECT_S, java.util.concurrent.TimeUnit.SECONDS)
             .readTimeout(STREAM_READ_S, java.util.concurrent.TimeUnit.SECONDS)
             .callTimeout(0, java.util.concurrent.TimeUnit.SECONDS)
-            .connectionPool(okhttp3.ConnectionPool(8, 5, java.util.concurrent.TimeUnit.MINUTES))
+            // (7.17) pula dla IPTV: do 5 bezczynnych połączeń przez 30 s (segmenty HLS na tym samym połączeniu, martwe szybko zamykane)
+            .connectionPool(okhttp3.ConnectionPool(STREAM_POOL_IDLE, STREAM_POOL_KEEP_S, java.util.concurrent.TimeUnit.SECONDS))
             .dispatcher(okhttp3.Dispatcher())        // własny – strumień nie dzieli kolejki z EPG, logo i aktualizacjami
             .retryOnConnectionFailure(true)
+            .addInterceptor(StreamRetry)
             .build()
     }
+
+    /**
+     * (7.17) Ponowienie odpowiedzi serwera IPTV [RETRY_CODES] (przeciążenie, limit połączeń, brama) po [RETRY_DELAY_MS] –
+     * do [RETRY_MAX] razy; strumień startuje zamiast błędu odtwarzacza i doboru silnika. Przerwane wywołanie nie czeka.
+     */
+    object StreamRetry : okhttp3.Interceptor {
+        override fun intercept(chain: okhttp3.Interceptor.Chain): okhttp3.Response {
+            var r = chain.proceed(chain.request())
+            var n = 0
+            while (r.code in RETRY_CODES && n < RETRY_MAX && !chain.call().isCanceled()) {
+                r.close(); n++
+                try { Thread.sleep(RETRY_DELAY_MS) } catch (e: InterruptedException) { throw java.io.InterruptedIOException("przerwane") }
+                r = chain.proceed(chain.request())
+            }
+            return r
+        }
+    }
+    val RETRY_CODES = setOf(403, 429, 502, 503, 504)
+    const val RETRY_DELAY_MS = 400L
+    const val RETRY_MAX = 2
+    const val STREAM_POOL_IDLE = 5
+    const val STREAM_POOL_KEEP_S = 30L
     /**
      * Limit nawiązania połączenia z jednym adresem serwera. Serwery IPTV mają wiele adresów (DNS z rotacją), a część z nich
      * bywa martwa – połączenie wisi. Przy 12 s każde trafienie na taki adres zatrzymywało strumień na 12 s (zamrożony obraz,
      * wypadnięcie z okna na żywo); przy 4 s klient od razu próbuje następnego adresu, a martwy odkłada na koniec kolejki.
      */
     const val STREAM_CONNECT_S = 4L
-    const val STREAM_READ_S = 20L
+    /** (7.17) Odczyt: zawieszony strumień wykryty po 10 s (wcześniej 20 s) – szybsze odnowienie połączenia. */
+    const val STREAM_READ_S = 10L
 
     /** Typ strumienia z adresu (null = rozpoznanie po treści). */
     fun guessMime(streamUrl: String): String? {
@@ -663,7 +722,7 @@ object Playback {
         val wasHeadless = headless; headless = false
         // czysty start (zwolnione dekodery + nowa powierzchnia obrazu): po błędzie, po kanale, który nie zdążył ruszyć
         // (np. wadliwy strumień), i zawsze na słabszych urządzeniach – inaczej następny kanał potrafi zaciąć obraz
-        val clean = hadError || wasHeadless || p.playerError != null || !reachedReady || (pl.iptv.tv.data.Prefs.lowPerf && pl.iptv.tv.data.Prefs.lowCleanDecoder)
+        val clean = hadError || wasHeadless || p.playerError != null || !reachedReady || pl.iptv.tv.data.Prefs.cleanDecoderOnZap   // (7.17) opcja dla każdego urządzenia
         if (clean) { p.stop(); p.clearMediaItems() }
         // osobna grupa połączeń dla nowego strumienia; poprzednia zamykana po podmianie źródła (niżej)
         val previousCalls = calls
@@ -842,6 +901,7 @@ object Playback {
         profile = null
         hadError = false; retries = 0; recoveries = 0; recoveryWindow = 0
         sessionSoftware = false; softwareChannel = null; frozenChannels.clear()          // ręczna zmiana silnika / wyjście – znowu ustawienia użytkownika
+        sessionRebufferBoostMs = 0; liveLoad = null                                         // (7.17) adaptacja bufora – od nowa
         url = null; channelKey = null; target = null; lastMime = null
     }
 }

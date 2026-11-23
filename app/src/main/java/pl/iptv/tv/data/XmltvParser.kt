@@ -112,7 +112,7 @@ object XmltvParser {
         var curNames = ArrayList<String>()
         var pChannel: String? = null
         var pStart = 0L; var pEnd = 0L
-        var pTitle = ""; var pDesc = ""; var pCat = ""; var pSub = ""; var pEp = ""; var epSystem = ""
+        var pTitle = ""; var pDesc = ""; var pCat = ""; var pSub = ""; var pEp = ""; var epSystem = ""; var pLive = false
         var textTarget = 0 // 1 display-name, 2 title, 3 desc, 4 category
 
         var ev = parser.eventType
@@ -132,7 +132,7 @@ object XmltvParser {
                         val keep = ch != null && en >= from && st <= to &&
                             (!filter || ch in matched || ch.lowercase() in wantIds)
                         if (keep) {
-                            pChannel = ch; pStart = st; pEnd = en; pTitle = ""; pDesc = ""; pCat = ""; pSub = ""; pEp = ""
+                            pChannel = ch; pStart = st; pEnd = en; pTitle = ""; pDesc = ""; pCat = ""; pSub = ""; pEp = ""; pLive = false
                         } else {
                             skipElement(parser)
                         }
@@ -141,6 +141,7 @@ object XmltvParser {
                     "desc" -> if (pChannel != null && pDesc.isEmpty()) textTarget = 3
                     "category" -> if (pChannel != null && pCat.isEmpty()) textTarget = 4
                     "sub-title" -> if (pChannel != null && pSub.isEmpty()) textTarget = 5
+                    "live" -> if (pChannel != null) pLive = true
                     "episode-num" -> if (pChannel != null) {
                         epSystem = parser.getAttributeValue(null, "system") ?: ""
                         // xmltv_ns ma pierwszeństwo przed onscreen
@@ -169,7 +170,7 @@ object XmltvParser {
                             curChannelId = null
                         }
                         "programme" -> pChannel?.let { ch ->
-                            progs.getOrPut(ch) { ArrayList() }.add(Programme(pStart, pEnd, pTitle, pDesc, pCat, pSub, pEp))
+                            progs.getOrPut(ch) { ArrayList() }.add(Programme(pStart, pEnd, pTitle, pDesc, pCat, pSub, pEp, pLive))
                             idByLower.putIfAbsent(ch.lowercase(), ch)
                             pChannel = null
                         }

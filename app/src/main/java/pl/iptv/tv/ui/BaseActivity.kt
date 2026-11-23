@@ -83,7 +83,7 @@ open class BaseActivity : AppCompatActivity() {
         recreate()
     }
 
-    override fun onStart() { super.onStart(); miniBar?.start() }
+    override fun onStart() { super.onStart(); miniBar?.let { b -> b.start(); if (b.shown) if (::content.isInitialized) content.let { insetScrollers(it, Ui.dp(MiniPlayerBar.CONTENT_INSET_DP)) } } }
     override fun onStop() { miniBar?.stop(); super.onStop() }
 
     /** Obraz kanału w tle tego ekranu odpięty od wspólnego odtwarzacza (singleton nie trzyma zniszczonego ekranu). */
@@ -192,12 +192,32 @@ open class BaseActivity : AppCompatActivity() {
         content = view
         if (miniPlayer) miniBar = MiniPlayerBar(this).also { bar ->
             bar.attachTo(rootFrame)
-            val base = view.paddingBottom
-            // miejsce pod treścią na pasek – nic nie chowa się pod nim
-            bar.onVisibilityChanged = { on -> view.setPadding(view.paddingLeft, view.paddingTop, view.paddingRight, base + if (on) Ui.dp(84) else 0) }
+            // (7.17) kapsuła pływa nad treścią – ekran się nie zmniejsza; tylko przewijane listy dostają dolny odstęp,
+            // żeby ostatni rząd dało się przewinąć ponad kapsułę
+            bar.onVisibilityChanged = { on -> insetScrollers(view, if (on) Ui.dp(MiniPlayerBar.CONTENT_INSET_DP) else 0) }
         }
         setContentView(rootFrame)
         applyTheme()
+    }
+
+    /**
+     * (7.17) Dolny odstęp [inset] (0 – zdjęty) na przewijanych w pionie listach ekranu pod pływającym mini-odtwarzaczem:
+     * treść przewija się ponad kapsułę zamiast się kurczyć. Pierwotny odstęp listy zapamiętany w tagu (bez narastania);
+     * zagnieżdżone listy (rzędy w rzędzie) bez zmian.
+     */
+    fun insetScrollers(root: View, inset: Int) {
+        val vertical = when (root) {
+            is android.widget.ScrollView, is androidx.core.widget.NestedScrollView -> true
+            is androidx.recyclerview.widget.RecyclerView -> root.layoutManager?.canScrollVertically() == true
+            else -> false
+        }
+        if (vertical) {
+            val base = (root.getTag(pl.iptv.tv.R.id.mini_inset) as? Int) ?: root.paddingBottom.also { root.setTag(pl.iptv.tv.R.id.mini_inset, it) }
+            if (root.paddingBottom != base + inset) root.setPadding(root.paddingLeft, root.paddingTop, root.paddingRight, base + inset)
+            (root as ViewGroup).clipToPadding = false
+            return
+        }
+        if (root is ViewGroup && root !is MiniPlayerBar) for (i in 0 until root.childCount) insetScrollers(root.getChildAt(i), inset)
     }
 
     /** Ponownie nakłada motyw na cały ekran (np. po zmianie ustawień). */

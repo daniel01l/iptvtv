@@ -49,8 +49,12 @@ class V52Test {
         assertFalse(ChannelEngineOptimizer.running)
     }
 
-    @Test fun fastZapStartsOnlyLastChannel() {
-        pl.iptv.tv.data.Prefs.permissionsAsked = true; pl.iptv.tv.data.Prefs.setupDone = true; pl.iptv.tv.data.Prefs.keyMapJson = ""
+    // logika zmiany kanałów niezależnie od motywu z poprzednich testów (ograniczanie powtórzeń klawiszy); motyw przywracany po teście
+    @Test fun fastZapStartsOnlyLastChannel() = classicTheme {
+        pl.iptv.tv.data.Prefs.permissionsAsked = true; pl.iptv.tv.data.Prefs.setupDone = true; pl.iptv.tv.data.Prefs.keyMapJson = ""; pl.iptv.tv.data.Prefs.lowPerf = false; pl.iptv.tv.data.Prefs.zapDelayMs = 250
+        // stan z innych testów: tryb słabszych urządzeń (krótsze opóźnienie) i kontrola rodzicielska (kanał z PIN-em startuje od razu)
+        pl.iptv.tv.data.Prefs.parentalOn = false; pl.iptv.tv.data.Prefs.parentalPin = ""; pl.iptv.tv.data.Parental.unlocked = false
+        pl.iptv.tv.data.Prefs.lockedChannels = emptyList(); pl.iptv.tv.data.Prefs.lockedGroups = emptyList()
         val f = java.io.File(ctx.filesDir, "v52.m3u").apply { writeText((1..10).joinToString("", "#EXTM3U\n") { "#EXTINF:-1,K$it\nhttp://v52/$it\n" }) }
         pl.iptv.tv.data.Repository.resetAllEdits(); kotlinx.coroutines.runBlocking { pl.iptv.tv.data.Repository.loadPlaylist(f.absolutePath) }
         val chs = pl.iptv.tv.data.Repository.channels
@@ -58,7 +62,8 @@ class V52Test {
             .putExtra(PlayerActivity.EXTRA_CHANNEL, chs[5].key).putExtra(PlayerActivity.EXTRA_GROUP, pl.iptv.tv.data.Repository.ALL)).setup()
         val l = org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()); l.idleFor(java.time.Duration.ofMillis(300))
         val a = c.get()
-        fun up() { a.dispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_UP)); a.dispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_DPAD_UP)); l.idleFor(java.time.Duration.ofMillis(100)) }
+        // klawisze z czasem zdarzenia (bez niego motyw z ograniczaniem powtórzeń – np. Nowoczesny z innego testu – brał kolejne ▲ za powtórzenia)
+        fun up() { val t = android.os.SystemClock.uptimeMillis(); a.dispatchKeyEvent(android.view.KeyEvent(t, t, android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_UP, 0)); a.dispatchKeyEvent(android.view.KeyEvent(t, t + 20, android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_DPAD_UP, 0)); l.idleFor(java.time.Duration.ofMillis(100)) }
         up(); up(); up()
         assertEquals(chs[5].key, Playback.channelKey)                    // kanały pośrednie nie są uruchamiane
         l.idleFor(java.time.Duration.ofMillis(600))

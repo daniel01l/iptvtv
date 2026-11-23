@@ -33,7 +33,7 @@ class MiniPlayerBar(private val a: Activity) : FrameLayout(a) {
     private var started = false
 
     init {
-        tag = "panel"; visibility = View.GONE; isClickable = true
+        visibility = View.GONE; isClickable = true
         val row = LinearLayout(a).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(Ui.dp(10), Ui.dp(8), Ui.dp(10), Ui.dp(10)) }
         thumb.scaleType = ImageView.ScaleType.CENTER_CROP
         thumb.background = GradientDrawable().apply { setColor(Ui.withAlpha(Ui.text2, 0x30)); cornerRadius = Ui.dp(6).toFloat() }
@@ -49,7 +49,7 @@ class MiniPlayerBar(private val a: Activity) : FrameLayout(a) {
             text = t; tag = "item"; textSize = 18f; isFocusable = true; isClickable = true; gravity = Gravity.CENTER; contentDescription = desc
             setPadding(Ui.dp(14), Ui.dp(8), Ui.dp(14), Ui.dp(8)); setOnClickListener { click() }
         }.also { row.addView(it, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(6) }) }
-        playBtn = btn("⏸", "Pauza / wznowienie") { toggle() }
+        playBtn = playButton().also { row.addView(it, LinearLayout.LayoutParams(Ui.dp(PLAY_BUTTON_DP), Ui.dp(PLAY_BUTTON_DP)).apply { marginStart = Ui.dp(10); marginEnd = Ui.dp(4) }) }
         val narrow = a.resources.displayMetrics.widthPixels < Ui.dp(560)
         openBtn = btn(if (narrow) "⛶" else "⛶ Odtwarzacz", "Otwórz odtwarzacz") { open() }
         stopBtn = btn("✖", "Zatrzymaj odtwarzanie") { (client?.stop() ?: YtEngine.stop()); refresh() }
@@ -57,18 +57,72 @@ class MiniPlayerBar(private val a: Activity) : FrameLayout(a) {
         bar.fraction = 0f
         addView(bar, LayoutParams(-1, Ui.dp(3), Gravity.BOTTOM))
         Ui.style(this)
+        // (7.17) pływająca kapsuła: półprzezroczyste szkło (treść pod spodem prześwituje), krawędź specular 1 dp, miękki cień
+        background = glassBg()
         // równe granice w każdym motywie (pasek postępu i miniatura nie wychodzą poza zaokrąglenie), cień; dotknięcie paska = pełny odtwarzacz
-        Ui.roundClip(this, Ui.dp(16).toFloat()); elevation = Ui.dp(8).toFloat(); clipChildren = true
+        Ui.roundClip(this, Ui.dp(RADIUS_DP).toFloat()); elevation = Ui.dp(10).toFloat(); clipChildren = true
+        if (android.os.Build.VERSION.SDK_INT >= 28) { outlineAmbientShadowColor = 0x66000000; outlineSpotShadowColor = 0x99000000.toInt() }
         setOnClickListener { open() }
     }
 
     /** Pełny widok odtwarzacza (muzyczny / wideo) bez przewijania ekranu – też skrót „Teraz odtwarzane” z paska ikon STube. */
     fun open() { a.startActivity(YtPlayerActivity.resumeIntent(a)) }
 
-    /** Dodanie na dół ekranu [root] (nad treścią, przy prawej krawędzi). */
+    /**
+     * Dodanie na dół ekranu [root] – (7.17) kapsuła PŁYWA nad treścią w prawym dolnym rogu (szerokość ≤ [MAX_WIDTH_DP],
+     * [MARGIN_DP] od krawędzi); treść ekranu nie jest zmniejszana – przewijane listy dostają tylko dolny odstęp
+     * ([CONTENT_INSET_DP], [BaseActivity]), żeby ostatni rząd dało się przewinąć ponad kapsułę.
+     */
     fun attachTo(root: FrameLayout) {
-        val w = minOf(Ui.dp(620), (a.resources.displayMetrics.widthPixels * 0.94).toInt())
-        root.addView(this, FrameLayout.LayoutParams(w, -2, Gravity.BOTTOM or Gravity.END).apply { setMargins(Ui.dp(12), 0, Ui.dp(16), Ui.dp(12)) })
+        val w = minOf(Ui.dp(MAX_WIDTH_DP), a.resources.displayMetrics.widthPixels - Ui.dp(MARGIN_DP * 2))
+        root.addView(this, FrameLayout.LayoutParams(w, -2, Gravity.BOTTOM or Gravity.END).apply { setMargins(Ui.dp(MARGIN_DP), 0, Ui.dp(MARGIN_DP), Ui.dp(MARGIN_DP)) })
+    }
+
+    /** Szkło 72 %: Obsidian – `SurfaceGlass`, inne motywy – kolor paneli motywu; krawędź specular 1 dp. */
+    private fun glassBg() = GradientDrawable().apply {
+        val base = if (pl.iptv.tv.ui.theme.ObsidianViews.active) pl.iptv.tv.ui.theme.ObsidianViews.SURFACE_GLASS else Ui.panel
+        setColor((base and 0x00FFFFFF) or (GLASS_ALPHA shl 24)); cornerRadius = Ui.dp(RADIUS_DP).toFloat()
+        setStroke(Ui.dp(1), pl.iptv.tv.ui.theme.ObsidianViews.SPECULAR)
+    }
+
+    /**
+     * (7.17) Pauza / wznowienie: okrągły przycisk [PLAY_BUTTON_DP] w kolorze akcentu z rysowaną (wektorową) ikoną
+     * [PLAY_ICON_DP] – bez znaków emoji; zaznaczony – biała obwódka wewnątrz koła i powiększenie ([Ui.focusZoom]).
+     */
+    private fun playButton() = TextView(a).apply {
+        tag = "keepcolor nozoom"; isFocusable = true; isClickable = true; contentDescription = "Pauza / wznowienie"
+        val accent = if (pl.iptv.tv.ui.theme.ObsidianViews.active) pl.iptv.tv.ui.theme.ObsidianViews.ACCENT else Ui.accent
+        background = android.graphics.drawable.StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_focused), GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(accent); setStroke(Ui.dp(2), android.graphics.Color.WHITE) })
+            addState(intArrayOf(), GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(accent) })
+        }
+        gravity = Gravity.CENTER_VERTICAL
+        setOnClickListener { toggle() }
+        setOnFocusChangeListener { v, has -> Ui.focusZoom(v, has, 1.1f) }
+        setPlayIcon(this, playing = true)
+    }
+
+    /** Ikona przycisku: grające – pauza, wstrzymane – odtwarzanie (podmieniana tylko przy zmianie stanu). */
+    private fun setPlayIcon(v: TextView, playing: Boolean) {
+        if (v.getTag(pl.iptv.tv.R.id.mini_play) == playing) return
+        v.setTag(pl.iptv.tv.R.id.mini_play, playing)
+        val s = Ui.dp(PLAY_ICON_DP); val inset = (Ui.dp(PLAY_BUTTON_DP) - s) / 2
+        val d = PlayerIcon(if (playing) PlayerIcon.PAUSE else PlayerIcon.PLAY).apply { setBounds(0, 0, s, s) }
+        v.setCompoundDrawables(d, null, null, null); v.compoundDrawablePadding = 0; v.setPadding(inset, 0, 0, 0)
+    }
+    /** Bieżąca ikona przycisku (true – pauza; testy). */
+    val playingIcon: Boolean? get() = playBtn.getTag(pl.iptv.tv.R.id.mini_play) as? Boolean
+
+    companion object {
+        const val MAX_WIDTH_DP = 520
+        const val MARGIN_DP = 20
+        const val RADIUS_DP = 16
+        /** Przezroczystość tła kapsuły: 72 % (0xB8). */
+        const val GLASS_ALPHA = 0xB8
+        const val PLAY_BUTTON_DP = 36
+        const val PLAY_ICON_DP = 20
+        /** Dolny odstęp przewijanych list pod pływającą kapsułą (wysokość kapsuły + margines). */
+        const val CONTENT_INSET_DP = 104
     }
 
     val shown get() = visibility == View.VISIBLE
@@ -116,7 +170,7 @@ class MiniPlayerBar(private val a: Activity) : FrameLayout(a) {
         title.text = p?.title?.ifBlank { null } ?: v!!.title.ifBlank { "Film STube" }
         sub.text = p?.channel?.ifBlank { null } ?: v!!.channel
         if (thumb.tag != v!!.thumb) { thumb.tag = v.thumb; if (v.thumb.isNotBlank()) thumb.load(v.thumb) { crossfade(false); fitTo(thumb, Ui.dp(96), Ui.dp(54)) } else thumb.setImageDrawable(null) }
-        playBtn.text = if (YtEngine.player?.playWhenReady == true) "⏸" else "▶"
+        setPlayIcon(playBtn, YtEngine.player?.playWhenReady == true)
         val pl = YtEngine.player
         bar.fraction = pl?.let { if (it.duration > 0) it.currentPosition.toFloat() / it.duration else 0f } ?: 0f
         if (visibility != View.VISIBLE) { visibility = View.VISIBLE; onVisibilityChanged?.invoke(true) }

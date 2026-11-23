@@ -570,7 +570,7 @@ class YtPlayerActivity : AppCompatActivity() {
                 addState(intArrayOf(), GradientDrawable().apply { cornerRadius = Ui.dp(12).toFloat(); setColor(Color.TRANSPARENT) })
             }
             setOnClickListener { cancelAutoplay(); playNow(v) }
-            setOnFocusChangeListener { x, has -> x.animate().scaleX(if (has) 1.07f else 1f).scaleY(if (has) 1.07f else 1f).setDuration(120).start() }
+            setOnFocusChangeListener { x, has -> Ui.focusZoom(x, has, 1.07f) }
             contentDescription = v.title
         }
         val img = android.widget.ImageView(this).apply { scaleType = android.widget.ImageView.ScaleType.CENTER_CROP; setBackgroundColor(0x33FFFFFF) }

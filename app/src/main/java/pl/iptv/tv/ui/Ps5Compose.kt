@@ -23,6 +23,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.focus.onFocusChanged
 import pl.iptv.tv.data.Prefs
 
 /** Kolory PS5 dla Compose – z [Ui] (preset PS5 + ewentualne kolory własne z Ustawień → Wygląd). */
@@ -123,9 +125,10 @@ fun TileImage(url: String, fallback: String, modifier: Modifier, contentScale: a
 }
 
 /**
- * Płynne przewijanie list na pulpitach (X25, PS5, biblioteka aplikacji). Domyślnie na TV Compose trzyma zaznaczony element
- * w ~30% szerokości – każdy ruch pilotem przesuwał cały rząd („przeskakiwanie”). Tu lista przesuwa się tylko o tyle,
- * ile element wystaje poza widok (z marginesem na obwódkę), łagodną animacją.
+ * Płynne przewijanie list na pulpitach (X25, PS5, Nowoczesny, biblioteka aplikacji). Domyślnie na TV Compose trzyma zaznaczony
+ * element w ~30% szerokości – każdy ruch pilotem przesuwał cały rząd („przeskakiwanie”). (7.17) Tu fokus ma strefę spokoju
+ * 25–75 % ([pivotScrollDistance]): w niej lista stoi, poza nią przesuwa się łagodnie do granicy strefy – przy przytrzymanej
+ * strzałce zaznaczenie zostaje w stałym miejscu ekranu, a rząd płynie pod nim (bez skoku przy krawędzi).
  */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 object SmoothScroll : androidx.compose.foundation.gestures.BringIntoViewSpec {
@@ -133,15 +136,8 @@ object SmoothScroll : androidx.compose.foundation.gestures.BringIntoViewSpec {
         // (7.3) sprężyna bez odbicia: kolejny krok przejmuje prędkość poprzedniego – ciągły, płynny ruch przy przytrzymaniu strzałki
         androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = SCROLL_STIFFNESS)
 
-    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
-        val margin = Ui.dp(28).toFloat()
-        val end = offset + size
-        return when {
-            offset >= margin && end <= containerSize - margin -> 0f
-            size + 2 * margin >= containerSize || offset < margin -> offset - margin
-            else -> end - containerSize + margin
-        }
-    }
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float =
+        pivotScrollDistance(offset, size, containerSize, Ui.dp(28).toFloat())
 }
 
 /** Pulpit z płynnym przewijaniem list ([SmoothScroll]). */
@@ -164,7 +160,41 @@ const val SCROLL_STIFFNESS = 450f
  * (7.12) Wspólna sprężyna fokusu (skala, obwódka) na wszystkich pulpitach: przejmuje prędkość przerwanej animacji, więc przy
  * szybkim wciskaniu strzałek kursor płynie od elementu do elementu zamiast zaczynać każdą animację od zera (tween).
  */
-fun <T> focusSpring() = androidx.compose.animation.core.spring<T>(dampingRatio = 1f, stiffness = 900f)   // (7.16) bez odbicia, szybsza – kursor jak w oknie opcji
+fun <T> focusSpring() = androidx.compose.animation.core.spring<T>(dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy, stiffness = FOCUS_STIFFNESS)
+
+/** (7.17) Sztywność sprężyny fokusu we wszystkich motywach – bez odbicia, kursor nadąża przy przytrzymanej strzałce. */
+const val FOCUS_STIFFNESS = 500f
+
+/** (7.17) Strefa spokoju fokusu: zaznaczony element trzymany między 25 % a 75 % długości listy (lista nie skacze przy krawędzi). */
+const val PIVOT_FRACTION = 0.25f
+
+/**
+ * (7.17) Wspólna reguła przewijania za fokusem (Compose i listy na widokach): element w strefie [PIVOT_FRACTION]…1−[PIVOT_FRACTION]
+ * – bez ruchu; poza nią – przesunięcie do granicy strefy (najmniejszy ruch). Element większy niż strefa – na środek;
+ * większy niż lista – od początku. Margines nie mniejszy niż [minMargin] (miejsce na powiększenie i poświatę).
+ */
+fun pivotScrollDistance(offset: Float, size: Float, containerSize: Float, minMargin: Float): Float {
+    if (size >= containerSize) return offset
+    var margin = maxOf(minMargin, containerSize * PIVOT_FRACTION)
+    if (size + 2 * margin > containerSize) margin = (containerSize - size) / 2
+    val end = offset + size
+    return when {
+        offset >= margin && end <= containerSize - margin -> 0f
+        offset < margin -> offset - margin
+        else -> end - containerSize + margin
+    }
+}
+
+/**
+ * (7.17) Zaznaczony element (albo element listy zawierający fokus) rysowany nad sąsiadami – powiększenie, obwódka i poświata
+ * nie są zasłaniane przez kolejne kafelki. Działa w obrębie rodzica (element `LazyRow` / `LazyColumn` / `Row`).
+ */
+@Composable
+fun Modifier.raiseOnFocus(): Modifier {
+    var raised by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    return this.then(androidx.compose.ui.Modifier.zIndex(if (raised) 1f else 0f))
+        .onFocusChanged { if (raised != it.hasFocus) raised = it.hasFocus }
+}
 
 /** Animowana skala elementu z fokusem (odczyt tylko w warstwie rysowania, np. `graphicsLayer { scaleX = scale }`). */
 @Composable

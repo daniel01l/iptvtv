@@ -26,6 +26,18 @@ object YtKeyless {
         fun related(id: String): List<YtVideo> = emptyList()
         /** (7.14) Playlista YouTube: nazwa i utwory (do [MAX] pozycji) – przesyłanie linków do STube. */
         fun playlist(id: String): Pair<String, List<YtVideo>> = "" to emptyList()
+        /**
+         * (7.17) Wyszukiwanie z rodzajem wyników ([StubeSearch.Filter]): filmy, kanały, playlisty, muzyka, na żywo.
+         * Domyślnie (źródła testowe) – same filmy z [search]; „Na żywo” – filmy o czasie „P0D”.
+         */
+        fun searchItems(q: String, filter: StubeSearch.Filter): List<StubeSearch.Item> {
+            val v = search(q).map { StubeSearch.Item.Video(it, it.duration == "P0D") }
+            return when (filter) {
+                StubeSearch.Filter.CHANNELS, StubeSearch.Filter.PLAYLISTS -> emptyList()
+                StubeSearch.Filter.LIVE -> v.filter { it.live }
+                else -> v
+            }
+        }
     }
 
     object NewPipeSource : Source {
@@ -59,6 +71,29 @@ object YtKeyless {
             }
             return info.name.orEmpty() to out
         }
+        override fun searchItems(q: String, filter: StubeSearch.Filter): List<StubeSearch.Item> {
+            YtStreams.ensureInit()
+            val yt = ServiceList.YouTube
+            // filtry treści NewPipe: wszystko (pusta lista), filmy, kanały, playlisty, utwory YouTube Music
+            val content = when (filter) {
+                StubeSearch.Filter.ALL -> emptyList()
+                StubeSearch.Filter.VIDEOS, StubeSearch.Filter.LIVE -> listOf("videos")
+                StubeSearch.Filter.CHANNELS -> listOf("channels")
+                StubeSearch.Filter.PLAYLISTS -> listOf("playlists")
+                StubeSearch.Filter.MUSIC -> listOf("music_songs")
+            }
+            val items = SearchInfo.getInfo(yt, yt.searchQHFactory.fromQuery(q.trim(), content, "")).relatedItems.mapNotNull { i ->
+                when (i) {
+                    is StreamInfoItem -> video(i)?.let { StubeSearch.Item.Video(it, it.duration == "P0D") }
+                    is org.schabi.newpipe.extractor.channel.ChannelInfoItem -> channelId(i.url)?.let { id ->
+                        StubeSearch.Item.Channel(id, i.name.orEmpty(), i.thumbnails.maxByOrNull { it.height }?.url.orEmpty(), i.subscriberCount) }
+                    is org.schabi.newpipe.extractor.playlist.PlaylistInfoItem -> playlistId(i.url)?.let { id ->
+                        StubeSearch.Item.Playlist(YtPlaylist(id, i.name.orEmpty(), i.thumbnails.maxByOrNull { it.height }?.url.orEmpty(), i.streamCount.toInt()), i.uploaderName.orEmpty()) }
+                    else -> null
+                }
+            }
+            return if (filter == StubeSearch.Filter.LIVE) items.filter { it is StubeSearch.Item.Video && it.live } else items
+        }
     }
 
     @Volatile var source: Source = NewPipeSource
@@ -91,6 +126,16 @@ object YtKeyless {
     suspend fun playlist(id: String): Pair<String, List<YtVideo>> = withContext(Dispatchers.IO) {
         try { source.playlist(id) } catch (e: Exception) { throw YtException(YtStreams.message(e)) }
     }
+
+    /** (7.17) Wyszukiwanie z rodzajem wyników (panel wyszukiwania STube); błąd → [YtException]. */
+    suspend fun searchItems(q: String, filter: StubeSearch.Filter): List<StubeSearch.Item> = withContext(Dispatchers.IO) {
+        try { source.searchItems(q, filter) } catch (e: Exception) { throw YtException(YtStreams.message(e)) }
+    }
+
+    /** Kanał z adresu (/channel/UC…). */
+    fun channelId(url: String): String? = Regex("/channel/([A-Za-z0-9_-]+)").find(url)?.groupValues?.get(1)
+    /** Playlista z adresu (list=…). */
+    fun playlistId(url: String): String? = Regex("[?&]list=([A-Za-z0-9_-]+)").find(url)?.groupValues?.get(1)
 
     /** Identyfikator z adresu filmu (watch?v=…, youtu.be/…, /shorts/…). */
     fun idOf(url: String): String? =

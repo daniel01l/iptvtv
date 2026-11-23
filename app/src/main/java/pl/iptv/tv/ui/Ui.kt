@@ -686,18 +686,39 @@ object Ui {
      * Powiększenie zaznaczonego elementu: najwyżej ok. 6 dp na stronę (szerokie wiersze rosną minimalnie,
      * małe kafelki do 3,5%), uniesione nad sąsiadów – nic nie wychodzi poza obramowanie paneli.
      */
-    private val focusInterpolator by lazy { android.view.animation.PathInterpolator(0.4f, 0f, 0.2f, 1f) }
+    /** (7.17) Czas animacji zaznaczenia na widokach (wszystkie motywy; FastOutSlowIn). */
+    const val FOCUS_ANIM_MS = 140L
+    /** (7.17) Największy przyrost powiększonego elementu na stronę (dp) i minimalny odstęp list na to miejsce. */
+    const val ZOOM_ROOM_X_DP = 10
+    const val ZOOM_ROOM_Y_DP = 6
+    const val LIST_PAD_X_DP = 12
+    const val LIST_PAD_Y_DP = 8
+
+    /** FastOutSlowIn – wspólna krzywa zaznaczenia (także [focusZoom]). */
+    val focusInterpolator by lazy { android.view.animation.PathInterpolator(0.4f, 0f, 0.2f, 1f) }
+
+    /** (7.17) Powiększenie elementu z własnym słuchaczem fokusu – ta sama krzywa i czas co w [style]; bez animacji przy lowPerf. */
+    fun focusZoom(v: View, focused: Boolean, scale: Float) {
+        val s = if (focused) scale else 1f
+        if (Prefs.lowPerf) { v.scaleX = s; v.scaleY = s; return }
+        v.animate().scaleX(s).scaleY(s).setDuration(FOCUS_ANIM_MS).setInterpolator(focusInterpolator).start()
+    }
 
     private fun zoomAnimator(v: View, w: Int, h: Int): StateListAnimator {
-        val g = geo; val room = if (g.zoomMax > 0.04f) 26 else 12
-        val sx = 1f + minOf(g.zoomMax, dp(room).toFloat() / maxOf(w, 1)); val sy = 1f + minOf(g.zoomMax, dp(room * 2 / 3).toFloat() / maxOf(h, 1))
+        // (7.17) przyrost na stronę ≤ [ZOOM_ROOM_X_DP] / [ZOOM_ROOM_Y_DP] – mieści się w odstępie listy ([LIST_PAD_X_DP] / [LIST_PAD_Y_DP]), nic nie jest ucinane
+        val g = geo; val big = g.zoomMax > 0.04f
+        val sx = 1f + minOf(g.zoomMax, dp(if (big) ZOOM_ROOM_X_DP * 2 else 12).toFloat() / maxOf(w, 1)); val sy = 1f + minOf(g.zoomMax, dp(if (big) ZOOM_ROOM_Y_DP * 2 else 8).toFloat() / maxOf(h, 1))
         val s = minOf(sx, sy)
         fun a(sc: Float, z: Float) = ObjectAnimator.ofPropertyValuesHolder(v, PropertyValuesHolder.ofFloat(View.SCALE_X, sc),
-            PropertyValuesHolder.ofFloat(View.SCALE_Y, sc), PropertyValuesHolder.ofFloat(View.TRANSLATION_Z, z)).setDuration(g.zoomMs.coerceAtLeast(130))
-            // (7.12) miękka krzywa zamiast liniowej – start i koniec zaznaczenia bez „kanciastości” (wszystkie motywy)
-            .apply { interpolator = if (g.overshoot > 0f && sc > 1f) android.view.animation.OvershootInterpolator(g.overshoot) else focusInterpolator }
-        // PS5: bez unoszenia – cień elewacji prześwitywał przez półprzezroczyste wypełnienie (ciemne obrzeże, jaśniejszy prostokąt w środku)
-        val lift = if (surface == S_PS5) 0f else dp(4).toFloat()
+            PropertyValuesHolder.ofFloat(View.SCALE_Y, sc), PropertyValuesHolder.ofFloat(View.TRANSLATION_Z, z)).setDuration(FOCUS_ANIM_MS)
+            // (7.17) jedna krzywa we wszystkich motywach: 140 ms FastOutSlowIn, bez odbicia (przy przytrzymanej strzałce zaznaczenie
+            // nadąża za kursorem; animator stanu startuje z bieżącej skali – bez skoku)
+            .apply { interpolator = focusInterpolator }
+        // PS5: cień elewacji prześwitywał przez półprzezroczyste wypełnienie (ciemne obrzeże, jaśniejszy prostokąt w środku) –
+        // (7.17) od API 28 uniesienie bez cienia (zaznaczony element nad sąsiadami), starsze – bez uniesienia
+        val ps5 = surface == S_PS5
+        if (android.os.Build.VERSION.SDK_INT >= 28) { val sh = if (ps5) Color.TRANSPARENT else Color.BLACK; v.outlineSpotShadowColor = sh; v.outlineAmbientShadowColor = sh }
+        val lift = if (!ps5) dp(4).toFloat() else if (android.os.Build.VERSION.SDK_INT >= 28) dp(1).toFloat() else 0f
         return StateListAnimator().apply {
             addState(intArrayOf(android.R.attr.state_focused), a(s, lift))
             addState(intArrayOf(), a(1f, 0f))
@@ -760,9 +781,60 @@ object Ui {
             // granica listy: elementy znikają na jej krawędzi (nie wchodzą pod nagłówki i strzałki obok)
             if (v.getTag(R.id.ui_clip) == null) { v.setTag(R.id.ui_clip, true)
                 v.addOnLayoutChangeListener { x, _, _, _, _, _, _, _, _ -> x.clipBounds = android.graphics.Rect(0, 0, x.width, x.height) } }
-            if (v.paddingLeft < dp(4)) v.setPadding(dp(5), maxOf(v.paddingTop, dp(4)), dp(5), maxOf(v.paddingBottom, dp(4)))
+            // (7.17) odstęp na powiększenie i poświatę zaznaczenia ([ZOOM_ROOM_X_DP] / [ZOOM_ROOM_Y_DP]) – pierwszy, ostatni i boczne
+            // elementy nie dotykają krawędzi listy (tag „nopad” – lista z własnym układem)
+            if ("nopad" !in tags) v.setPadding(maxOf(v.paddingLeft, dp(LIST_PAD_X_DP)), maxOf(v.paddingTop, dp(LIST_PAD_Y_DP)),
+                maxOf(v.paddingRight, dp(LIST_PAD_X_DP)), maxOf(v.paddingBottom, dp(LIST_PAD_Y_DP)))
+            installFocusFollow(v, pivot = "nopivot" !in tags)
             v.setItemViewCacheSize(12) }
         if (v is ViewGroup && v !is RecyclerView) for (i in 0 until v.childCount) style(v.getChildAt(i), item)
+    }
+
+    /**
+     * (7.17) Lista za fokusem (wszystkie motywy, raz na listę):
+     * - zaznaczony element (albo element zawierający fokus) rysowany jako ostatni – powiększenie i ramka nad sąsiadami
+     *   (także w PS5, gdzie nie ma uniesienia `translationZ`);
+     * - [pivot]: strefa spokoju 25–75 % długości listy ([pivotScrollDistance] – ta sama reguła co w Compose) – przy szybkim
+     *   przewijaniu zaznaczenie zostaje w stałym miejscu ekranu, a lista płynie pod nim, zamiast skakać przy krawędzi.
+     *   Fokus w zagnieżdżonej liście (rząd w rzędzie) przewija tylko tę wewnętrzną.
+     */
+    private fun installFocusFollow(rv: RecyclerView, pivot: Boolean) {
+        if (rv.getTag(R.id.ui_pivot) != null) return
+        rv.setTag(R.id.ui_pivot, pivot)
+        rv.setChildDrawingOrderCallback { count, i ->
+            val f = rv.focusedChild?.let { rv.indexOfChild(it) } ?: -1
+            when { f < 0 || f >= count -> i; i == count - 1 -> f; i >= f -> i + 1; else -> i }
+        }
+        val listener = android.view.ViewTreeObserver.OnGlobalFocusChangeListener { old, now ->
+            val inside = now != null && now !== rv && isDescendant(now, rv)
+            if (inside || (old != null && isDescendant(old, rv))) rv.invalidate()
+            if (!inside || rv.getTag(R.id.ui_pivot) != true || rv.scrollState == RecyclerView.SCROLL_STATE_DRAGGING) return@OnGlobalFocusChangeListener
+            // tylko fokus, którego najbliższą listą jest ta lista
+            var p = now!!.parent
+            while (p != null && p !== rv) { if (p is RecyclerView) return@OnGlobalFocusChangeListener; p = p.parent }
+            val item = rv.findContainingItemView(now) ?: return@OnGlobalFocusChangeListener
+            val lm = rv.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager ?: return@OnGlobalFocusChangeListener
+            val vertical = lm.orientation == RecyclerView.VERTICAL
+            val d = if (vertical) pivotScrollDistance((item.top - rv.paddingTop).toFloat(), item.height.toFloat(),
+                    (rv.height - rv.paddingTop - rv.paddingBottom).toFloat(), dp(LIST_PAD_Y_DP).toFloat())
+                else pivotScrollDistance((item.left - rv.paddingLeft).toFloat(), item.width.toFloat(),
+                    (rv.width - rv.paddingLeft - rv.paddingRight).toFloat(), dp(LIST_PAD_X_DP).toFloat())
+            val px = d.toInt()
+            if (px == 0 || rv.width == 0) return@OnGlobalFocusChangeListener
+            if (vertical) { if (rv.canScrollVertically(px)) rv.smoothScrollBy(0, px, focusInterpolator) }
+            else if (rv.canScrollHorizontally(px)) rv.smoothScrollBy(px, 0, focusInterpolator)
+        }
+        rv.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) { v.viewTreeObserver.addOnGlobalFocusChangeListener(listener) }
+            override fun onViewDetachedFromWindow(v: View) { v.viewTreeObserver.removeOnGlobalFocusChangeListener(listener) }
+        })
+        if (rv.isAttachedToWindow) rv.viewTreeObserver.addOnGlobalFocusChangeListener(listener)
+    }
+
+    private fun isDescendant(v: View, ancestor: View): Boolean {
+        var p: android.view.ViewParent? = v.parent
+        while (p != null) { if (p === ancestor) return true; p = p.parent }
+        return false
     }
 
     private fun styleText(v: TextView, tags: List<String>, inItem: Boolean) {

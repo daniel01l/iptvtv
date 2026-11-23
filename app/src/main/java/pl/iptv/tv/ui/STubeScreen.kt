@@ -145,8 +145,11 @@ object STubeScreen {
             p.id.startsWith(PL_IMPORTED) -> STubePage(pl.iptv.tv.data.StubeImport.all().firstOrNull { it.id == p.id.removePrefix(PL_IMPORTED).toLongOrNull() }?.videos().orEmpty().map(STubeTile::Video))
             p.id.startsWith(PL_MIX) -> STubePage((pl.iptv.tv.data.StubeMixes.byId(p.id.removePrefix(PL_MIX))?.let { pl.iptv.tv.data.StubeMixes.videos(it) }.orEmpty()).map(STubeTile::Video))
             p.id == PL_LIKED -> YouTubeRepository.liked(page).let { STubePage(it.videos.map(STubeTile::Video), it.nextPage) }
+            // (7.17) bez klucza API (kanał / playlista z panelu wyszukiwania): kanał – filmy z wyszukiwania po nazwie, playlista – NewPipe
+            p.id.startsWith(PL_CHANNEL) && !YouTubeRepository.publicAvailable -> STubePage(YtKeyless.search(p.title).map(STubeTile::Video))
             p.id.startsWith(PL_CHANNEL) -> YouTubeRepository.playlistVideos(YouTubeRepository.uploadsPlaylist(p.id.removePrefix(PL_CHANNEL)), page)
                 .let { STubePage(it.videos.map(STubeTile::Video), it.nextPage) }
+            !YouTubeRepository.publicAvailable && !YouTubeTokens.loggedIn -> STubePage(YtKeyless.playlist(p.id).second.map(STubeTile::Video))
             else -> YouTubeRepository.playlistVideos(p.id, page).let { STubePage(it.videos.map(STubeTile::Video), it.nextPage) }
         }
     }.also { it.source = p; it.square = p.id.startsWith(PL_MIX) || p.id.startsWith(PL_IMPORTED) }

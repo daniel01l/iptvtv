@@ -92,6 +92,20 @@ object ObsidianViews {
     }
     private val ACTIVATED = intArrayOf(android.R.attr.state_activated)
 
+    /**
+     * (7.17) Pozycja paska nawigacji (zaokrąglenie 14 dp): fokus – wypełnienie akcentem; wybrana sekcja – akcent 22 % z pełną
+     * obwódką 1,5 dp (GradientDrawable rysuje obrys wewnątrz granic – nic nie jest ucinane przy krawędzi ekranu).
+     */
+    fun railPill(): Drawable = StateListDrawable().apply {
+        val r = Ui.dp(AppNavRail.ITEM_RADIUS.value.toInt()).toFloat()
+        val on = round(ACCENT, r)
+        addState(FOCUSED, on); addState(PRESSED, on)
+        val stroke = Math.round(AppNavRail.SELECTED_STROKE.value * android.content.res.Resources.getSystem().displayMetrics.density).coerceAtLeast(1)
+        val chosen = round((ACCENT and 0x00FFFFFF) or (Math.round(AppNavRail.SELECTED_FILL_ALPHA * 255) shl 24), r, stroke, ACCENT)
+        addState(SELECTED, chosen); addState(ACTIVATED, chosen)
+        addState(intArrayOf(), ColorDrawable(0))
+    }
+
     /** Kolory tekstu pigułki: biały przy fokusie / wyborze, inaczej drugorzędny. */
     fun pillText(): ColorStateList = ColorStateList(arrayOf(FOCUSED, PRESSED, SELECTED, ACTIVATED, intArrayOf()), intArrayOf(TEXT, TEXT, TEXT, TEXT, TEXT2))
 
@@ -143,15 +157,22 @@ class AppNavigationRailViews(
 
     fun detach() { runCatching { rail.viewTreeObserver.removeOnGlobalFocusChangeListener(focusListener) }; anim?.cancel() }
 
-    /** Pigułki 48 dp: ikona w stałym miejscu (środek zwiniętego paska), podpis obok. */
+    /** (7.17) Pozycje paska: kontener 44 dp na środku zwiniętego paska (14 dp z obu stron), ikona w stałym miejscu, podpis obok. */
     fun styleItems() {
-        val iconPad = ((collapsedPx - rail.paddingLeft - rail.paddingRight - Ui.dp(AppNavRail.ICON.value.toInt())) / 2).coerceAtLeast(Ui.dp(2))
+        // (7.17) kontener 44 dp dokładnie na środku zwiniętego paska: margines 14 dp z obu stron pozycji, rodzice bez
+        // poziomych odstępów (dawniej ikona liczona od odstępu paska, a pozycje siedziały w kontenerze z własnym odstępem –
+        // zaznaczenie wychodziło niesymetryczne i ucięte przy lewej krawędzi); ikona na środku kontenera
+        val side = Ui.dp(AppNavRail.PAD.value.toInt())
+        val box = collapsedPx - side * 2
         val icon = Ui.dp(AppNavRail.ICON.value.toInt())
+        val iconPad = ((box - icon) / 2).coerceAtLeast(0)
         items().forEach { b ->
+            var p = b.parent as? View
+            while (p != null) { if (p.paddingLeft != 0 || p.paddingRight != 0) p.setPadding(0, p.paddingTop, 0, p.paddingBottom); if (p === rail) break; p = p.parent as? View }
             // podpis zapamiętany raz (tekst przycisku zmienia się z rozwinięciem paska)
             if (b.contentDescription.isNullOrEmpty() && b.text.isNotEmpty()) b.contentDescription = b.text
             b.tag = "keepcolor nozoom"
-            b.background = ObsidianViews.pill(Ui.dp(24).toFloat())
+            b.background = ObsidianViews.railPill()
             b.setTextColor(ObsidianViews.pillText())
             // ikona nad tekstem (dawny układ przycisków) → po lewej, 24 dp, w kolorach pigułki
             val d = b.compoundDrawablesRelative.let { it[0] ?: it[1] }
@@ -167,8 +188,8 @@ class AppNavigationRailViews(
             b.setPadding(iconPad, 0, Ui.dp(12), 0)
             b.minHeight = 0; b.minimumHeight = 0
             (b.layoutParams as? ViewGroup.MarginLayoutParams)?.let { lp ->
-                lp.width = ViewGroup.LayoutParams.MATCH_PARENT; lp.height = Ui.dp(AppNavRail.ITEM_H.value.toInt())
-                lp.topMargin = Ui.dp(3); lp.bottomMargin = Ui.dp(3); lp.marginStart = 0; lp.marginEnd = 0
+                lp.width = ViewGroup.LayoutParams.MATCH_PARENT; lp.height = box
+                lp.topMargin = Ui.dp(3); lp.bottomMargin = Ui.dp(3); lp.marginStart = side; lp.marginEnd = side; lp.leftMargin = side; lp.rightMargin = side
                 b.layoutParams = lp
             }
             if (b.contentDescription.isNullOrEmpty()) b.contentDescription = label(b)

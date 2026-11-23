@@ -176,7 +176,7 @@ class StubeHistoryTest {
         q.requestFocus()
         waitFor { a.suggestions.isNotEmpty() }
         assertEquals(listOf("kot w butach"), a.suggestions)
-        q.setText("Pies"); a.findViewById<View>(R.id.stSearch).performClick()
+        q.setText("Pies"); c.newIntent(android.content.Intent(ctx, STubeActivity::class.java).putExtra(STubeActivity.EXTRA_QUERY, "Pies"))
         waitFor { runBlocking { db.search().get("pies") } != null }
         assertEquals("Pies", runBlocking { db.search().get("pies") }!!.query)
         c.pause().stop().destroy()

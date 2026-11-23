@@ -50,6 +50,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
@@ -285,7 +286,7 @@ class ModernHomeActivity : BaseActivity() {
     private fun channelFeature(c: Channel): Feature {
         val p = runCatching { Repository.current(c) }.getOrNull()
         return Feature("ch:" + c.key, p?.fullTitle?.ifBlank { null } ?: c.name, listOfNotNull(c.name, p?.category?.ifBlank { null } ?: c.group.ifBlank { null }),
-            p?.let { timeRange(it.start, it.end) } ?: "", "NA ŻYWO", p?.desc?.ifBlank { null } ?: "Telewizja na żywo · ${c.group}",
+            p?.let { timeRange(it.start, it.end) } ?: "", if (pl.iptv.tv.data.isActualLiveBroadcast(p)) "NA ŻYWO" else "", p?.desc?.ifBlank { null } ?: "Telewizja na żywo · ${c.group}",
             listOfNotNull(c.logo.ifBlank { null } ?: c.epgIcon), logo = true, playLabel = "Oglądaj",
             play = { X25Actions.playChannel(this, c) },
             // (7.8) „Więcej informacji” – opis bieżącego programu; „Program TV” – przewodnik TV na tym kanale
@@ -619,7 +620,7 @@ class ModernHomeActivity : BaseActivity() {
         val rail get() = if (compact || portrait) 56.dp else pl.iptv.tv.ui.theme.AppNavRail.COLLAPSED
         val railOpen get() = if (compact || portrait) 200.dp else pl.iptv.tv.ui.theme.AppNavRail.EXPANDED
         val railItem get() = if (compact) 34.dp else if (portrait) 40.dp else pl.iptv.tv.ui.theme.AppNavRail.ITEM_H
-        val railPad get() = if (compact || portrait) 8.dp else 12.dp
+        val railPad get() = if (compact || portrait) 8.dp else pl.iptv.tv.ui.theme.AppNavRail.PAD
         val side get() = if (narrow) 10.dp else if (compact) 16.dp else 28.dp
         val heroH get() = if (compact) 150.dp else if (portrait) 210.dp else 236.dp
         val heroTitle get() = if (compact) 22.sp else if (portrait) 26.sp else 34.sp
@@ -799,7 +800,7 @@ class ModernHomeActivity : BaseActivity() {
         val focused = remember { mutableStateOf(false) }
         val h = if (dims.compact) 32.dp else 44.dp
         val ink = if (focused.value) pl.iptv.tv.ui.theme.ObsidianTokens.BackgroundPrimary else Color.White
-        Row(Modifier.height(h).item(key, h / 2, 1.06f, focused, frame = false, toRail = toRail, onClick = onClick)
+        Row(Modifier.height(h).zIndex(if (focused.value) 1f else 0f).item(key, h / 2, 1.06f, focused, frame = false, toRail = toRail, onClick = onClick)
             .obsidianGlassCard(focused.value, h / 2, c.accent)
             .clip(RoundedCornerShape(h / 2))
             .background(when { focused.value -> Color.White; primary -> c.accent; else -> Color.Transparent })
@@ -840,14 +841,14 @@ class ModernHomeActivity : BaseActivity() {
     @Composable
     private fun ShelfRow(s: Shelf) {
         val c = LocalModern.current
-        Column(Modifier.fillMaxWidth().padding(top = if (dims.compact) 6.dp else 10.dp)) {
+        Column(Modifier.fillMaxWidth().raiseOnFocus().padding(top = if (dims.compact) 6.dp else 10.dp)) {
             Row(Modifier.padding(start = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(6.dp).clip(CircleShape).background(c.live))
                 BasicText(s.title.uppercase(), Modifier.padding(start = 8.dp), style = ModernType.row.copy(fontSize = if (dims.compact) 12.sp else 14.sp))
             }
             SmoothScrolling {
                 LazyRow(Modifier.fillMaxWidth().rowEntry("r:${s.id}|").focusGroup(),
-                    contentPadding = PaddingValues(start = 10.dp, end = 48.dp, top = 12.dp, bottom = 6.dp),
+                    contentPadding = PaddingValues(start = 20.dp, end = 48.dp, top = 14.dp, bottom = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(dims.gap)) {
                     itemsIndexed(s.tiles, key = { _, t -> t.key }, contentType = { _, t -> if (t.kind == Kind.POSTER) "poster" else t.kind.name }) { i, t -> Card(s.id, t, first = i == 0) }
                 }
@@ -864,7 +865,7 @@ class ModernHomeActivity : BaseActivity() {
         // (7.17) „Obsidian Stream”: karty 16 dp; kanały – szklana karta (obsidianGlassCard) z logo na środku i paskiem 3 dp
         val r = 16.dp
         val glass = t.kind == Kind.CHANNEL
-        Column(Modifier.width(w)) {
+        Column(Modifier.width(w).zIndex(if (focused.value) 1f else 0f)) {
             Box(Modifier.size(w, h).item(key, r, 1.06f, focused, frame = !glass, onFocus = { showFeature(t.feature) }, toRail = first, onClick = t.run)
                 .then(if (glass) Modifier.obsidianGlassCard(focused.value, r, c.accent) else Modifier.modernTileSheen(r))
                 .clip(RoundedCornerShape(r)).then(if (glass) Modifier else Modifier.background(c.panel))) {

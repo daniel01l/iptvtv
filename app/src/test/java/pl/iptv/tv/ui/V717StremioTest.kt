@@ -116,9 +116,17 @@ class V717StremioTest {
 
     @Test fun filtersPostersAndRailNavigation() {
         val a = board()
-        // pigułki filtrów: Filmy, Seriale, Odkrywaj (wybrane), Biblioteka
-        assertEquals(listOf("Filmy", "Seriale", "Odkrywaj", "Biblioteka"), a.filterViews.map { it.text.toString() })
+        // (7.17) zakładki: Odkrywaj (pierwsza, wybrana, z kursorem startowym), Filmy, Seriale, Biblioteka
+        assertEquals(listOf("Odkrywaj", "Filmy", "Seriale", "Biblioteka"), a.filterViews.map { it.text.toString() })
+        assertEquals(0, StremioActivity.FILTER_ALL)
         assertTrue(a.filterViews[StremioActivity.FILTER_ALL].isSelected)
+        idle(600)
+        assertSame("kursor startowy na „Odkrywaj”", a.filterViews[StremioActivity.FILTER_ALL], focus(a))
+        // historia i postęp tylko w Bibliotece – Odkrywaj zaczyna się od katalogów
+        assertFalse(a.rowTitles.toString(), a.rowTitles.any { it == StremioActivity.CONTINUE_ROW || it == StremioActivity.WATCHED_ROW })
+        // ▼ z zakładki – pierwszy plakat (pasek nawigacji zostaje zwinięty)
+        key(a, KeyEvent.KEYCODE_DPAD_DOWN); idle(300)
+        assertTrue("▼ – plakaty", inside(focus(a), a.rowsBox))
         // plakat 2:3, ocena w rogu (tylko gdy jest), pod plakatem tytuł i rok
         val rv = recyclers(a.rowsBox).first { (it.adapter?.itemCount ?: 0) > 0 }
         val tile = rv.getChildAt(0) as android.view.ViewGroup
@@ -137,7 +145,7 @@ class V717StremioTest {
         // kursor startowy bywa w niższym rzędzie, z którego ▲ słusznie prowadzi rząd wyżej)
         recyclers(a.rowsBox).first { (it.adapter?.itemCount ?: 0) > 0 }.focusPosition(0); idle(400)
         key(a, KeyEvent.KEYCODE_DPAD_UP)
-        assertTrue("▲ z rzędu – pasek filtrów", focus(a) in a.filterViews || focus(a) is android.widget.EditText)
+        assertSame("▲ z pierwszego rzędu – wybrana zakładka", a.filterViews[StremioActivity.FILTER_ALL], focus(a))
         // ◄ z pierwszej pigułki – pasek nawigacji (rozwinięty), ► wraca na tę samą pigułkę
         a.filterViews[0].requestFocus(); idle()
         key(a, KeyEvent.KEYCODE_DPAD_LEFT)
@@ -153,12 +161,30 @@ class V717StremioTest {
         waitFor { a.rowTitles.any { it.contains("seriale") } && recyclers(a.rowsBox).any { (it.adapter?.itemCount ?: 0) > 0 } }
         assertTrue(a.filterViews[StremioActivity.FILTER_SERIES].isSelected)
         assertFalse(a.rowTitles.toString(), a.rowTitles.any { it.contains("filmy") })
+        // ▼ z „Seriale” do plakatów i ▲ – z powrotem dokładnie na „Seriale” (nie na „Odkrywaj”)
+        a.filterViews[StremioActivity.FILTER_SERIES].requestFocus(); idle()
+        key(a, KeyEvent.KEYCODE_DPAD_DOWN); idle(300)
+        assertTrue(inside(focus(a), a.rowsBox))
+        key(a, KeyEvent.KEYCODE_DPAD_UP)
+        assertSame(a.filterViews[StremioActivity.FILTER_SERIES], focus(a))
         // ◄ z pierwszego plakatu – pasek nawigacji
         recyclers(a.rowsBox).first { (it.adapter?.itemCount ?: 0) > 0 }.focusPosition(0); idle(400)
         key(a, KeyEvent.KEYCODE_DPAD_LEFT)
         assertEquals("Zaloguj", focus(a)?.contentDescription?.toString())
         key(a, KeyEvent.KEYCODE_DPAD_RIGHT)
         assertTrue("► z paska – z powrotem na plakat", inside(focus(a), a.rowsBox))
+    }
+
+    @Test fun debridAndTorrentioCatalogsHiddenFromBoard() {
+        fun a(name: String, id: String = "x.addon", url: String = "https://example.org/manifest.json") = pl.iptv.tv.data.StremioAddon(url, id, name)
+        val c = pl.iptv.tv.data.StremioAddon.Catalog("movie", "top", "Popularne")
+        assertTrue(StremioActivity.isHiddenCatalog(a("Torrentio RD"), c))
+        assertTrue(StremioActivity.isHiddenCatalog(a("Moje źródła", url = "https://torrentio.strem.fun/realdebrid=abc/manifest.json"), c))
+        assertTrue(StremioActivity.isHiddenCatalog(a("Debrid", id = "community.real-debrid"), c))
+        assertTrue(StremioActivity.isHiddenCatalog(a("Wtyczka"), pl.iptv.tv.data.StremioAddon.Catalog("movie", "rd", "RealDebrid – pobrane")))
+        // zwykłe katalogi zostają (Cinemeta, „rd” wewnątrz słowa)
+        assertFalse(StremioActivity.isHiddenCatalog(a("Cinemeta", "com.linvo.cinemeta", StremioApi.CINEMETA), c))
+        assertFalse(StremioActivity.isHiddenCatalog(a("Nagrody i nagrodzone", "org.awards"), pl.iptv.tv.data.StremioAddon.Catalog("movie", "oscars", "Oscary – Wordpress")))
     }
 
     @Test fun libraryFilterShowsSavedTitles() {

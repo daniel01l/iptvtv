@@ -37,6 +37,17 @@ object Prefs {
     var lowZapDelay: Int get() = int("low_zap_ms", 450); set(v) = putInt("low_zap_ms", v)
     /** Czyszczenie dekodera przy każdej zmianie kanału. */
     var lowCleanDecoder: Boolean get() = bool("low_clean", true); set(v) = putBool("low_clean", v)
+    /**
+     * (7.17) Opcje przełączania kanałów dla każdego urządzenia (sekcja „Silnik odtwarzania i akceleracja”): opóźnienie startu po
+     * ▲▼ – domyślnie 250 ms, w trybie słabszych urządzeń 450 ms (albo dawne [lowZapDelay]); czyszczenie dekodera – domyślnie
+     * jak dawniej (tylko w trybie słabszych urządzeń).
+     */
+    var zapDelayMs: Int get() = optInt("zap_ms") ?: if (lowPerf) lowZapDelay else 250; set(v) = putInt("zap_ms", v)
+    var cleanDecoderOnZap: Boolean get() = if (has("clean_dec")) bool("clean_dec", false) else lowPerf && lowCleanDecoder; set(v) = putBool("clean_dec", v)
+    /** (7.17) Bufor Live TV dla każdego urządzenia (s; 0 – automatyczny: start 1 s, po przycięciu 2 s, do 60 s). */
+    var bufMinS: Int get() = int("buf_min", 0); set(v) = putInt("buf_min", v)
+    /** (7.17) Dopasowanie odświeżania ekranu do klatek kanału (AFR) – domyślnie wyłączone. */
+    var autoFrameRate: Boolean get() = bool("afr", false); set(v) = putBool("afr", v)
 
     // ---- silnik odtwarzania ----
     /** 0 = Media3 sprzętowy (domyślny), 1 = Media3 programowy (zgodność), 2 = Media3 tunelowanie (Android TV). */

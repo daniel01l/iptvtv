@@ -28,7 +28,7 @@ fun EpgData.deduped(): EpgData {
 
 /** Przetworzone EPG w formacie binarnym – wczytywanie przy starcie wielokrotnie szybsze niż XML. */
 object EpgBinary {
-    private const val MAGIC = 0x45504732   // "EPG2"
+    private const val MAGIC = 0x45504733   // "EPG3" (7.17: znacznik <live />)
 
     /** Podpis zestawu kanałów – zmiana listy/mapowania wymaga ponownego przetworzenia XML. */
     fun signature(chs: List<Channel>): String = chs.joinToString("\n") { "${it.tvgId}|${it.name}|${it.tvgName}|${it.origName}|${it.epgOverride}" }
@@ -46,7 +46,7 @@ object EpgBinary {
             o.writeInt(d.programmes.size)
             d.programmes.forEach { (id, l) ->
                 o.str(id); o.writeInt(l.size)
-                l.forEach { p -> o.writeLong(p.start); o.writeLong(p.end); o.str(p.title); o.str(p.desc); o.str(p.category); o.str(p.subTitle); o.str(p.episode) }
+                l.forEach { p -> o.writeLong(p.start); o.writeLong(p.end); o.str(p.title); o.str(p.desc); o.str(p.category); o.str(p.subTitle); o.str(p.episode); o.writeBoolean(p.live) }
             }
         }
         tmp.renameTo(f)
@@ -66,9 +66,9 @@ object EpgBinary {
                     val id = i.readUTF(); val k = i.readInt(); val l = ArrayList<Programme>(k)
                     repeat(k) {
                         val s = i.readLong(); val e = i.readLong()
-                        val t = i.readUTF(); val ds = i.readUTF(); val cat = i.readUTF(); val st = i.readUTF(); val ep = i.readUTF()
+                        val t = i.readUTF(); val ds = i.readUTF(); val cat = i.readUTF(); val st = i.readUTF(); val ep = i.readUTF(); val live = i.readBoolean()
                         // poza oknem – bez obiektu programu; w oknie – teksty współdzielone (powtórki, seriale, te same opisy)
-                        if (e >= from && s <= to) l += Programme(s, e, d(t), d(ds), d(cat), d(st), d(ep))
+                        if (e >= from && s <= to) l += Programme(s, e, d(t), d(ds), d(cat), d(st), d(ep), live)
                     }
                     l.trimToSize()
                     progs[id] = l

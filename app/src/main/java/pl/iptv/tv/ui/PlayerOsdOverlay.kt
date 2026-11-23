@@ -36,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
@@ -73,6 +74,11 @@ object PlayerOsd {
      * blokowało kompozycję w kolejnych klasach (jak w IptvApp: elementy w tle pomijane w Robolectric). Testy OSD włączają go same.
      */
     @Volatile var enabled = android.os.Build.FINGERPRINT != "robolectric"
+    /**
+     * (7.17) Nakładka w odtwarzaczu Live TV – wyłączona na życzenie: w Live TV zostaje pasek informacji z 7.16 (styl wybierany
+     * w Ustawieniach, OK – lista kanałów, bez pigułek Audio / Jakość). Kod zostaje (testy włączają) na ewentualny powrót.
+     */
+    @Volatile var liveTv = false
     const val AUTO_HIDE_MS = 5_000L
     const val PROGRESS_TICK_MS = 500L
     /** Czasy używane przez nakładkę (domyślnie [AUTO_HIDE_MS] / [PROGRESS_TICK_MS]; krótsze tylko w testach). */
@@ -82,6 +88,29 @@ object PlayerOsd {
     val PANEL = Color(0xEB0F141F)
     val VIGNETTE = Color(0xE6080A0F)
     val TRACK = Color.White.copy(alpha = 0.18f)
+    /** (7.17) Smukły pasek: margines boczny i dolny karty, logo, odstępy, postęp i pigułki (dp). */
+    const val CARD_SIDE_DP = 32
+    const val CARD_BOTTOM_DP = 20
+    const val LOGO_DP = 56
+    const val GAP_DP = 8
+    const val PROGRESS_DP = 3
+    const val PILL_DP = 36
+}
+
+/**
+ * (7.17) Aktywna nakładka pełnoekranowego odtwarzacza – zawsze najwyżej jedna (okna nigdy na siebie nie nachodzą).
+ * [InfoBar] i [TrackSelection] rysuje Compose ([PlayerOsdOverlay]), [ChannelList] i [ProgramGuide] – panele boczne ekranu.
+ */
+sealed interface ActivePlayerOverlay {
+    data object None : ActivePlayerOverlay
+    /** Dolny pasek informacji (OSD) z pigułkami akcji. */
+    data object InfoBar : ActivePlayerOverlay
+    /** Lista kanałów (panel boczny albo lista po OK). */
+    data object ChannelList : ActivePlayerOverlay
+    /** Program TV / ostatnio oglądane (panel z prawej). */
+    data object ProgramGuide : ActivePlayerOverlay
+    /** Wybór Audio / Napisów / Jakości (panel z prawej). */
+    data object TrackSelection : ActivePlayerOverlay
 }
 
 /** Treść panelu: kanał na żywo ([live], godziny audycji) albo materiał z czasem trwania (VOD / STube / Stremio). */
@@ -89,6 +118,8 @@ object PlayerOsd {
 data class OsdInfo(
     val name: String = "", val number: String = "", val logo: String = "", val live: Boolean = true,
     val title: String = "", val next: String = "", val badge: String = "",
+    /** (7.17) Czerwona pigułka „NA ŻYWO” – tylko prawdziwa transmisja na żywo ([pl.iptv.tv.data.isActualLiveBroadcast]). */
+    val liveBadge: Boolean = false,
 )
 
 /** Postęp: 0–1 (albo -1 – brak), napis z lewej (start / pozycja) i z prawej (koniec / czas trwania). */
@@ -112,11 +143,24 @@ data class OsdAction(val key: String, val label: String, val icon: String, val o
  * ekran odtwarzacza – bez fokusu Compose (fokus widoków odtwarzacza i fokus wewnątrz ComposeView nie rywalizują).
  */
 class OsdState {
-    var visible by mutableStateOf(false); private set
+    /**
+     * (7.17) Jedyne źródło prawdy o nakładkach odtwarzacza: w danej chwili widać najwyżej jedną (pasek OSD, lista kanałów,
+     * Program TV albo panel ścieżek). Zmiana [active] chowa poprzednią nakładkę (animacja wyjścia) zanim pokaże się nowa.
+     */
+    var active by mutableStateOf<ActivePlayerOverlay>(ActivePlayerOverlay.None); private set
+    /** Nakładka Compose (pasek OSD albo panel ścieżek) widoczna – pętle postępu i auto-ukrywania działają tylko wtedy. */
+    val visible: Boolean get() = active == ActivePlayerOverlay.InfoBar || active == ActivePlayerOverlay.TrackSelection
     /** Pigułki akcji z zaznaczeniem (OK w odtwarzaczu); bez – sam podgląd informacji (zmiana kanału). */
     var interactive by mutableStateOf(false); private set
     var info by mutableStateOf(OsdInfo())
-    var panel by mutableStateOf<OsdPanel?>(null); private set
+    private var panelContent by mutableStateOf<OsdPanel?>(null)
+    /** Treść panelu ścieżek – tylko, gdy panel jest aktywną nakładką. */
+    val panel: OsdPanel? get() = panelContent.takeIf { active == ActivePlayerOverlay.TrackSelection }
+    /**
+     * Ekran odtwarzacza zamyka swoją nakładkę boczną (widoki: lista kanałów, Program TV), gdy pokazuje się pasek OSD
+     * albo panel ścieżek – wywoływane przed zmianą [active].
+     */
+    var onCloseSide: ((ActivePlayerOverlay) -> Unit)? = null
     var actions by mutableStateOf<List<OsdAction>>(emptyList())
     /** Zaznaczona pigułka (◄ ►) i pozycja panelu ścieżek (▲ ▼). */
     var pillIndex by mutableIntStateOf(0); private set
@@ -146,22 +190,49 @@ class OsdState {
     private var progressJob: kotlinx.coroutines.Job? = null
     private var hideJob: kotlinx.coroutines.Job? = null
 
-    fun show(interactive: Boolean) {
-        if (interactive && !this.interactive) pillIndex = 0
-        this.interactive = interactive || (visible && this.interactive)
-        visible = true; touch(); startLoops()
+    /** Zmiana aktywnej nakładki: boczna (widoki) zamykana przez ekran, gdy jej miejsce zajmuje inna. */
+    private fun switchTo(o: ActivePlayerOverlay) {
+        val prev = active
+        if (prev == o) return
+        if (prev == ActivePlayerOverlay.ChannelList || prev == ActivePlayerOverlay.ProgramGuide) onCloseSide?.invoke(prev)
+        active = o
     }
+
+    /** [keepPill] – powrót z panelu bocznego otwartego pigułką: zaznaczona ta sama pigułka. */
+    fun show(interactive: Boolean, keepPill: Boolean = false) {
+        if (interactive && !this.interactive && !keepPill) pillIndex = 0
+        this.interactive = interactive || (visible && this.interactive)
+        // pokazanie paska przy otwartym panelu ścieżek zostawia panel (pasek wraca po jego zamknięciu)
+        if (active != ActivePlayerOverlay.TrackSelection) switchTo(ActivePlayerOverlay.InfoBar)
+        touch(); startLoops()
+    }
+    /** Chowa pasek OSD / panel ścieżek (nakładki boczne – bez zmian). */
     fun hide() {
         progressJob?.cancel(); hideJob?.cancel(); progressJob = null; hideJob = null
-        if (!visible && panel == null) return
-        visible = false; interactive = false; panel = null; onHidden?.invoke()
+        if (!visible) return
+        active = ActivePlayerOverlay.None; interactive = false; panelContent = null; onHidden?.invoke()
     }
     fun touch() { lastInput = android.os.SystemClock.uptimeMillis() }
+    /** Panel ścieżek (Audio / Napisy / Jakość) zamiast paska – zaznaczenie na wybranej pozycji. */
     fun openPanel(p: OsdPanel) {
         panelIndex = p.sections.flatMap { it.options }.indexOfFirst { it.selected }.coerceAtLeast(0)
-        panel = p; visible = true; touch(); startLoops()
+        panelContent = p; switchTo(ActivePlayerOverlay.TrackSelection); touch(); startLoops()
     }
-    fun closePanel() { if (panel != null) { panel = null; touch() } }
+    /** WSTECZ / wybór w panelu ścieżek: z powrotem pasek z zaznaczoną tą samą pigułką. */
+    fun closePanel() {
+        if (active != ActivePlayerOverlay.TrackSelection) return
+        panelContent = null; active = ActivePlayerOverlay.InfoBar; touch(); startLoops()
+    }
+
+    /** Ekran otworzył nakładkę boczną ([o] – lista kanałów albo Program TV): pasek OSD i panel ścieżek znikają. */
+    fun enterSide(o: ActivePlayerOverlay) {
+        progressJob?.cancel(); hideJob?.cancel(); progressJob = null; hideJob = null
+        val was = visible
+        interactive = false; panelContent = null; active = o
+        if (was) onHidden?.invoke()
+    }
+    /** Nakładka boczna [o] zamknięta (WSTECZ, czas, wybór kanału). */
+    fun leaveSide(o: ActivePlayerOverlay) { if (active == o) active = ActivePlayerOverlay.None }
 
     /**
      * Klawisz pilota przy OSD z pigułkami / panelem ([KeyEvent.ACTION_DOWN]): panel – ▲▼ pozycja, OK wybór (i zamknięcie),
@@ -220,7 +291,10 @@ class OsdState {
 fun PlayerOsdOverlay(state: OsdState, lowPerf: Boolean = false) {
     val anim = if (lowPerf) 0 else 180
     Box(Modifier.fillMaxSize().onPreviewKeyEvent { state.touch(); false }) {
-        AnimatedVisibility(state.visible, Modifier.fillMaxSize(), enter = fadeIn(tween(anim)), exit = fadeOut(tween(anim))) {
+        // (7.17) jedna nakładka naraz ([OsdState.active]): nowa pojawia się dopiero po zniknięciu poprzedniej (opóźnienie = czas wyjścia)
+        val active = state.active
+        AnimatedVisibility(active == ActivePlayerOverlay.InfoBar, Modifier.fillMaxSize(),
+            enter = fadeIn(tween(anim, delayMillis = anim)), exit = fadeOut(tween(anim))) {
             Box(Modifier.fillMaxSize()) {
                 // dolna winieta: obraz przechodzi w ciemność pod panelem (tekst czytelny na każdym obrazie)
                 Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(0.5f)
@@ -229,8 +303,8 @@ fun PlayerOsdOverlay(state: OsdState, lowPerf: Boolean = false) {
             }
         }
         val p = state.panel
-        AnimatedVisibility(p != null, Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(0.36f),
-            enter = slideInHorizontally(tween(if (lowPerf) 0 else 220)) { it } + fadeIn(tween(anim)),
+        AnimatedVisibility(active == ActivePlayerOverlay.TrackSelection && p != null, Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(0.36f),
+            enter = slideInHorizontally(tween(if (lowPerf) 0 else 220, delayMillis = anim)) { it } + fadeIn(tween(anim, delayMillis = anim)),
             exit = slideOutHorizontally(tween(if (lowPerf) 0 else 200)) { it } + fadeOut(tween(anim))) {
             val last = remember { mutableStateOf(p) }
             if (p != null) last.value = p
@@ -246,34 +320,36 @@ private fun OsdCard(state: OsdState, modifier: Modifier) {
     // postęp z pętli [OsdState] (działa tylko przy widocznym OSD); ułamek – tylko w fazie rysowania paska
     val labels = state.progressLabels
     val fraction = state.progressFraction
-    Column(modifier.padding(32.dp).fillMaxWidth().obsidianGlassCard(false, 16.dp).padding(horizontal = 24.dp, vertical = 20.dp)) {
+    // (7.17) smukły pasek: margines 32 dp z boków i 20 dp od dołu, wnętrze 20 / 12 dp – mniej zasłoniętego obrazu
+    Column(modifier.padding(start = PlayerOsd.CARD_SIDE_DP.dp, end = PlayerOsd.CARD_SIDE_DP.dp, bottom = PlayerOsd.CARD_BOTTOM_DP.dp).fillMaxWidth()
+        .obsidianGlassCard(false, 16.dp).padding(horizontal = 20.dp, vertical = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             OsdLogo(info)
-            Column(Modifier.padding(start = 18.dp).weight(1f)) {
+            Column(Modifier.padding(start = 14.dp).weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     BasicText((if (info.number.isNotEmpty()) info.number + "  " else "") + info.name, Modifier.weight(1f, fill = false),
-                        style = t.sectionTitle.copy(fontSize = 22.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (info.live) BasicText("NA ŻYWO", Modifier.padding(start = 12.dp).clip(RoundedCornerShape(10.dp)).background(ObsidianTokens.BadgeLive)
+                        style = t.sectionTitle.copy(fontSize = 18.sp, lineHeight = 22.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (info.liveBadge) BasicText("NA ŻYWO", Modifier.padding(start = 12.dp).clip(RoundedCornerShape(10.dp)).background(ObsidianTokens.BadgeLive)
                         .padding(horizontal = 9.dp, vertical = 3.dp), style = t.badge)
                     if (info.badge.isNotEmpty()) BasicText(info.badge, Modifier.padding(start = 8.dp).clip(RoundedCornerShape(10.dp))
                         .background(ObsidianTokens.AccentPrimary).padding(horizontal = 9.dp, vertical = 3.dp), style = t.badge)
                 }
-                BasicText(info.title.ifEmpty { "Brak informacji o programie" }, Modifier.padding(top = 4.dp),
-                    style = t.cardTitle.copy(fontSize = 18.sp, color = ObsidianTokens.TextPrimary.copy(alpha = 0.92f)), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (info.next.isNotEmpty()) BasicText(info.next, Modifier.padding(top = 2.dp), style = t.meta, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                BasicText(info.title.ifEmpty { "Brak informacji o programie" }, Modifier.padding(top = 2.dp),
+                    style = t.cardTitle.copy(fontSize = 15.sp, lineHeight = 19.sp, color = ObsidianTokens.TextPrimary.copy(alpha = 0.92f)), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (info.next.isNotEmpty()) BasicText(info.next, Modifier.padding(top = 1.dp), style = t.meta.copy(fontSize = 12.sp, lineHeight = 16.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        // postęp 4 dp: aktywny – akcent, tło – biel 18 %
+        // postęp 3 dp (odstęp 8 dp): aktywny – akcent, tło – biel 18 %
         if (labels.first.isNotEmpty() || labels.second.isNotEmpty()) {
-            Box(Modifier.padding(top = 16.dp).fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).drawBehind {
+            Box(Modifier.padding(top = PlayerOsd.GAP_DP.dp).fillMaxWidth().height(PlayerOsd.PROGRESS_DP.dp).clip(RoundedCornerShape(1.5.dp)).drawBehind {
                 val f = fraction.floatValue.coerceIn(0f, 1f)
                 drawRect(PlayerOsd.TRACK)
                 drawRect(ObsidianTokens.AccentPrimary, size = Size(size.width * f, size.height))
             })
-            Row(Modifier.fillMaxWidth().padding(top = 6.dp)) {
-                BasicText(labels.first, style = t.meta)
+            Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                BasicText(labels.first, style = t.meta.copy(fontSize = 12.sp, lineHeight = 14.sp))
                 Spacer(Modifier.weight(1f))
-                BasicText(labels.second, style = t.meta)
+                BasicText(labels.second, style = t.meta.copy(fontSize = 12.sp, lineHeight = 14.sp))
             }
         }
         if (state.actions.isNotEmpty()) OsdActions(state)
@@ -285,22 +361,22 @@ private fun OsdLogo(info: OsdInfo) {
     val ctx = LocalContext.current
     var failed by remember(info.logo) { mutableStateOf(info.logo.isBlank()) }
     val shape = RoundedCornerShape(12.dp)
-    Box(Modifier.size(112.dp, 64.dp).clip(shape).background(Color.White.copy(alpha = 0.06f)), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(PlayerOsd.LOGO_DP.dp).clip(shape).background(Color.White.copy(alpha = 0.06f)), contentAlignment = Alignment.Center) {
         if (failed) BasicText(initialsOf(info.name), style = ObsidianTypography().sectionTitle.copy(color = ObsidianTokens.TextSecondary))
         else {
             // rozmiar dekodowania = rozmiar pola logo (bez pełnej rozdzielczości w pamięci)
             val req = remember(info.logo) {
-                coil.request.ImageRequest.Builder(ctx).data(info.logo).size(Ui.dp(112), Ui.dp(64)).scale(coil.size.Scale.FIT)
+                coil.request.ImageRequest.Builder(ctx).data(info.logo).size(Ui.dp(PlayerOsd.LOGO_DP)).scale(coil.size.Scale.FIT)
                     .precision(coil.size.Precision.INEXACT).crossfade(false).build()
             }
-            coil.compose.AsyncImage(req, info.name, Modifier.fillMaxSize().padding(6.dp), contentScale = ContentScale.Fit, onError = { failed = true })
+            coil.compose.AsyncImage(req, info.name, Modifier.fillMaxSize().padding(5.dp), contentScale = ContentScale.Fit, onError = { failed = true })
         }
     }
 }
 
 @Composable
 private fun OsdActions(state: OsdState) {
-    Row(Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    Row(Modifier.padding(top = PlayerOsd.GAP_DP.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         state.actions.forEachIndexed { i, a -> OsdPill(a, focused = state.interactive && state.panel == null && state.pillIndex == i) }
     }
 }
@@ -308,16 +384,16 @@ private fun OsdActions(state: OsdState) {
 /** Pigułka akcji: zaznaczona – biała z ciemnym tekstem, obwódka i poświata, skala na warstwie GPU ([tvFocusScale]). */
 @Composable
 private fun OsdPill(a: OsdAction, focused: Boolean) {
-    val h = 44.dp
+    val h = PlayerOsd.PILL_DP.dp
     val ink = if (focused) ObsidianTokens.BackgroundPrimary else ObsidianTokens.TextPrimary
-    Row(Modifier.height(h).tvFocusScale(focused)
+    Row(Modifier.height(h).zIndex(if (focused) 1f else 0f).tvFocusScale(focused)
         .x25Clickable(a.onClick)
         .obsidianGlassCard(focused, h / 2)
         .clip(RoundedCornerShape(h / 2))
         .background(if (focused) Color.White else Color.Transparent)
-        .padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+        .padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Canvas(Modifier.size(16.dp)) { ModernIcons.draw(this, a.icon, ink) }
-        BasicText(a.label.uppercase(), Modifier.padding(start = 10.dp), style = ObsidianTypography().badge.copy(fontSize = 14.sp, color = ink),
+        BasicText(a.label.uppercase(), Modifier.padding(start = 8.dp), style = ObsidianTypography().badge.copy(fontSize = 12.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold, color = ink),
             maxLines = 1, softWrap = false)
     }
 }

@@ -129,9 +129,10 @@ class STubeActivity : BaseActivity() {
             }
         }
         account.setOnClickListener { openAccount() }
-        findViewById<View>(R.id.stSearch).setOnClickListener { search(query.text.toString()) }
-        // dotknięcie / OK na polu – klawiatura systemowa (na TV samo zaznaczenie pola jej nie pokazuje)
-        query.setOnClickListener { showKeyboard() }
+        // (7.17) lupa i pole „Szukaj w STube” – panel wyszukiwania z klawiaturą ekranową i wynikami na żywo ([STubeSearchActivity])
+        findViewById<View>(R.id.stSearch).setOnClickListener { openSearchScreen() }
+        query.setOnClickListener { openSearchScreen() }
+        query.showSoftInputOnFocus = false
         query.setOnEditorActionListener { _, id, ev ->
             if (id == EditorInfo.IME_ACTION_SEARCH || id == EditorInfo.IME_ACTION_DONE || ev?.keyCode == KeyEvent.KEYCODE_ENTER) {
                 search(query.text.toString()); true
@@ -173,6 +174,8 @@ class STubeActivity : BaseActivity() {
     override fun onNewIntent(i: Intent) {
         super.onNewIntent(i)
         i.getStringExtra(EXTRA_QUERY)?.trim()?.takeIf { it.isNotEmpty() }?.let { q -> query.setText(q); search(q) }
+        // (7.17) kanał / playlista wybrane w panelu wyszukiwania
+        openTarget(i)
     }
 
     override fun onResume() {
@@ -246,6 +249,13 @@ class STubeActivity : BaseActivity() {
             }, 150)
         }
         keyboardRequested = true
+    }
+
+    /** (7.17) Panel wyszukiwania STube (z bieżącą frazą); systemowa klawiatura nie wysuwa się na tym ekranie. */
+    fun openSearchScreen() {
+        suggestJob?.cancel(); query.dismissDropDown()
+        (getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager)?.hideSoftInputFromWindow(query.windowToken, 0)
+        startActivity(STubeSearchActivity.intent(this, query.text.toString().trim().ifEmpty { searchQuery.orEmpty() }))
     }
 
     /** Klawiatura wywołana (testy). */
@@ -1040,7 +1050,7 @@ class STubeActivity : BaseActivity() {
         // OK / Enter na polu wyszukiwania – klawiatura ekranowa (chyba że wybrano podpowiedź z listy – wtedy wyszukanie)
         if ((event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER || event.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) &&
             window.decorView.findFocus() === query && !(query.isPopupShowing && query.listSelection != android.widget.ListView.INVALID_POSITION)) {
-            if (event.action == KeyEvent.ACTION_UP) showKeyboard()
+            if (event.action == KeyEvent.ACTION_UP) openSearchScreen()
             return true
         }
         // pasek „Teraz odtwarzane”: ▲ wraca do ostatnio zaznaczonego rzędu, ◄► między przyciskami paska

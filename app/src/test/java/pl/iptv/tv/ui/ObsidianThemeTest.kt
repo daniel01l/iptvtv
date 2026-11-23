@@ -41,7 +41,7 @@ class ObsidianThemeTest {
         assertEquals(FontWeight.Bold, t.hero.fontWeight)
         assertEquals(16f, t.cardTitle.fontSize.value); assertEquals(FontWeight.SemiBold, t.cardTitle.fontWeight)
         assertEquals(14f, t.epgDescription.fontSize.value); assertEquals(ObsidianTokens.TextPrimary, t.epgDescription.color)
-        assertEquals(1.06f, TV_FOCUS_SCALE); assertEquals(0.78f, TV_FOCUS_DAMPING); assertEquals(420f, TV_FOCUS_STIFFNESS)
+        assertEquals(1.06f, TV_FOCUS_SCALE); assertEquals(1f, TV_FOCUS_DAMPING); assertEquals(500f, TV_FOCUS_STIFFNESS)
     }
 
     @Test fun glassCardDrawsWithAndWithoutFocus() {

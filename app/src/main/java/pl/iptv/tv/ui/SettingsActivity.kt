@@ -237,6 +237,15 @@ class SettingsActivity : BaseActivity() {
             text = "Zapisz i zamknij"; textSize = 18f; tag = "item"; isFocusable = true; isClickable = true
             gravity = Gravity.CENTER; setPadding(Ui.dp(20), Ui.dp(14), Ui.dp(20), Ui.dp(14))
             setOnClickListener { saveAndClose() }
+            // (7.17) ostatni element treści: ▼ i ► nie uciekają do kart po lewej (FocusFinder szukał najbliższego widoku
+            // w całym oknie); ▼ tylko dosuwa notatkę pod przyciskiem
+            setOnKeyListener { _, code, e ->
+                when (code) {
+                    android.view.KeyEvent.KEYCODE_DPAD_DOWN -> { if (e.action == android.view.KeyEvent.ACTION_DOWN) scroll.smoothScrollTo(0, container.height); true }
+                    android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> true
+                    else -> false
+                }
+            }
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(24) })
         note("Ustawienia zapisują się też automatycznie. Jeśli wpisano nowy adres listy, zostanie ona wczytana przed zamknięciem.")
     }
@@ -367,10 +376,51 @@ class SettingsActivity : BaseActivity() {
         }
     }
 
-    private fun choice(title: String, options: List<String>, get: () -> Int, look: Boolean = true, set: (Int) -> Unit) =
+    /**
+     * Wiersz wyboru. Wygląd ([look]) – dawne okno z boku (podgląd motywu na żywo widoczny pod spodem); pozostałe – (7.17) okno
+     * „Obsidian Stream” z kartami ([Dialogs.choiceCards], opisy [descriptions]); po zamknięciu fokus wraca na ten wiersz.
+     */
+    private fun choice(title: String, options: List<String>, get: () -> Int, look: Boolean = true, descriptions: List<String> = emptyList(), set: (Int) -> Unit) =
         row(title, options.getOrNull(get()) ?: "") {
-            Dialogs.choiceLive(this, title, options, get()) { set(it); if (look) lookChanged() else build(keepFocus = true) }
+            if (look) Dialogs.choiceLive(this, title, options, get()) { set(it); lookChanged() }
+            else {
+                val k = lastKey ?: currentKey()          // wiersz, który otworzył okno (ustawiany przy kliknięciu)
+                lastChoice = Dialogs.choiceCards(this, title, options, get(), descriptions,
+                    onDismiss = { k?.let { key -> (findByKey(container, key) ?: findByKey(sticky, key))?.requestFocus() } }) { set(it); build(keepFocus = true) }
+            }
         }
+
+    /**
+     * (7.17) Szybkie profile wydajności ([EngineProfiles]): poziomy rząd pigułek (odstęp na fokus – bez ucinania), aktywny profil
+     * zaznaczony, a nad nim podpis „Profil: …” („Własny (Zmodyfikowany)” po ręcznej zmianie parametru). OK – profil od razu.
+     */
+    private fun profilePills() {
+        val O = pl.iptv.tv.ui.theme.ObsidianViews
+        val active = EngineProfiles.active()
+        target().addView(TextView(this).apply { text = "Profil: " + EngineProfiles.activeLabel(); tag = "text2"; textSize = 14f; setPadding(Ui.dp(4), Ui.dp(6), 0, 0) })
+        val bar = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(Ui.dp(8), Ui.dp(10), Ui.dp(8), Ui.dp(10)) }
+        EngineProfiles.Profile.entries.forEach { p ->
+            bar.addView(TextView(this).apply {
+                text = p.label; textSize = 14f; tag = "keepcolor nozoom"; isFocusable = true; isClickable = true; gravity = Gravity.CENTER
+                setTypeface(typeface, android.graphics.Typeface.BOLD); setTextColor(O.pillText())
+                background = O.pill(rest = 0x1FFFFFFF); isSelected = p == active
+                setPadding(Ui.dp(18), Ui.dp(9), Ui.dp(18), Ui.dp(9))
+                setTag(R.id.row_key, "profile|" + p.name)
+                setOnFocusChangeListener { v, f -> Ui.focusZoom(v, f, 1.05f) }
+                setOnClickListener { lastKey = "profile|" + p.name; EngineProfiles.apply(p); build(keepFocus = true) }
+            }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = Ui.dp(10) })
+        }
+        profileBar = bar
+        target().addView(android.widget.HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false; isFocusable = false; clipToPadding = false; clipChildren = false; addView(bar)
+        }, LinearLayout.LayoutParams(-1, -2))
+    }
+
+    /** Rząd pigułek profili (testy). */
+    var profileBar: LinearLayout? = null; private set
+
+    /** Ostatnio otwarte okno wyboru (testy). */
+    var lastChoice: android.app.Dialog? = null; private set
 
     private fun field(label: String, initial: String, hint: String, uri: Boolean = true): EditText {
         target().addView(TextView(this).apply { text = label; tag = "text2"; textSize = 14f; setPadding(Ui.dp(4), Ui.dp(10), 0, Ui.dp(4)) })
@@ -950,10 +1000,35 @@ class SettingsActivity : BaseActivity() {
         note("Gdy dźwięk spóźnia się względem obrazu, wybierz „dźwięk wcześniej”. Zmienisz to też podczas oglądania: przytrzymaj OK → Audio i napisy.")
 
         header("Silnik odtwarzania i akceleracja")
-        choice("Silnik odtwarzania", Playback.ENGINES, { Prefs.playerEngine.coerceIn(Playback.ENGINES.indices) }, look = false) { Prefs.playerEngine = it; Playback.stop() }
+        profilePills()
+        // (7.17) bufor dla każdego urządzenia ze stanem ochrony (np. „2 s (tryb szybki)”, „+1,5 s ochrony” po przycięciach)
+        val bufs = EngineProfiles.BUFFER_VALUES
+        choice("Bufor – minimum", bufs.map { if (it == Prefs.bufMinS) EngineProfiles.bufferLabel(it) else EngineProfiles.bufferLabel(it, 0) },
+            { bufs.indexOf(Prefs.bufMinS).coerceAtLeast(0) }, look = false,
+            descriptions = bufs.map { when { it == 0 -> "Start po 1 s, po przycięciu 2 s – ustawienie zalecane"; it <= 3 -> "Najszybsze przełączanie kanałów; po częstych przycięciach zapas rośnie sam"; it <= 5 -> "Szybki start i mniej przycięć"; else -> "Najmniej przycięć przy słabym łączu, dłuższy start" } }) {
+            Prefs.bufMinS = bufs[it]; Playback.stop()
+        }
+        choice("Silnik odtwarzania", Playback.ENGINES, { Prefs.playerEngine.coerceIn(Playback.ENGINES.indices) }, look = false,
+            descriptions = listOf("Obraz dekoduje układ graficzny – najmniejsze obciążenie", "Gdy sprzętowy daje zielony / czarny obraz – większe obciążenie procesora",
+                "Obraz i dźwięk synchronizowane sprzętowo (włącza akcelerację i kolejkę asynchroniczną)")) {
+            Prefs.playerEngine = it
+            // (7.17) tunelowanie wymaga dekodera sprzętowego i asynchronicznej kolejki – obie opcje włączane od razu
+            if (it == Playback.ENGINE_TUNNELING) { Prefs.hwAccel = true; Prefs.asyncDecoder = 1 }
+            Playback.stop(); build(keepFocus = true)
+        }
         note("Dekoder sprzętowy: obraz dekoduje układ graficzny (najmniejsze obciążenie, zalecany). Programowy: gdy sprzętowy daje zielony/czarny obraz lub nie obsługuje formatu (większe obciążenie procesora). Tunelowanie: obraz i dźwięk synchronizowane sprzętowo – na zgodnych Android TV najpłynniejszy obraz; synchronizacja dźwięku z ustawień może wtedy nie działać.")
-        choice("Kolejka dekodera", listOf("Automatycznie", "Asynchroniczna (szybsza)", "Synchroniczna (gdy obraz zamarza)"), { Prefs.asyncDecoder.coerceIn(0, 2) }, look = false) { Prefs.asyncDecoder = it; Playback.stop() }
-        toggle("Akceleracja sprzętowa obrazu", { Prefs.hwAccel }) { Prefs.hwAccel = it; Playback.stop() }
+        // (7.17) spójność z tunelowaniem: inna kolejka albo wyłączona akceleracja – powrót do dekodera sprzętowego bez tunelowania
+        choice("Kolejka dekodera", listOf("Automatycznie", "Asynchroniczna (szybsza)", "Synchroniczna (gdy obraz zamarza)"), { Prefs.asyncDecoder.coerceIn(0, 2) }, look = false,
+            descriptions = listOf("Wybór Media3 wg urządzenia", "Szybsze dekodowanie (wymagana przy tunelowaniu)", "Na telewizorach, na których obraz staje przy działającym dźwięku")) {
+            Prefs.asyncDecoder = it
+            if (it != 1 && Prefs.playerEngine == Playback.ENGINE_TUNNELING) { Prefs.playerEngine = 0; build(keepFocus = true) }
+            Playback.stop()
+        }
+        toggle("Akceleracja sprzętowa obrazu", { Prefs.hwAccel }) {
+            Prefs.hwAccel = it
+            if (!it && Prefs.playerEngine == Playback.ENGINE_TUNNELING) { Prefs.playerEngine = 0; build(keepFocus = true) }
+            Playback.stop()
+        }
         note("Wyłączona akceleracja = dekoder programowy (gdy obraz ma artefakty lub jest zielony). Silnik i akceleracja zmienisz też podczas oglądania: przytrzymaj OK.")
         toggle("Zapasowy dekoder przy błędzie", { Prefs.decoderFallback }) { Prefs.decoderFallback = it; Playback.stop() }
         toggle("Dekoder programowy, gdy obraz zamarza", { Prefs.freezeFallback }) { Prefs.freezeFallback = it; Playback.stop() }
@@ -965,6 +1040,15 @@ class SettingsActivity : BaseActivity() {
             }
         }
         note("Kanał bez obrazu po ${Playback.START_CHECK_MS / 1000} s albo z błędem dekodera: odtwarzacz sprawdza po kolei inne ustawienia (dekoder programowy, dźwięk FFmpeg, kolejka dekodera, HLS / TS – po ok. ${ChannelEngineOptimizer.PROBE_MS / 1000} s na próbę, w tle) i zapamiętuje działające dla tego kanału. Gdy nic nie pomaga (np. serwer nie działa), kanał nie jest testowany ponownie przez dobę.")
+        // (7.17) przełączanie kanałów – dla każdego urządzenia (dawniej tylko w trybie słabszych urządzeń)
+        toggle("Czyszczenie dekodera przy zmianie kanału", { Prefs.cleanDecoderOnZap }) { Prefs.cleanDecoderOnZap = it }
+        val zapDelays = listOf(150, 200, 250, 350, 450, 600, 800, 1000, 1500)
+        choice("Opóźnienie startu po ▲▼", zapDelays.map { "$it ms" }, { zapDelays.indexOf(Prefs.zapDelayMs).let { i -> if (i < 0) zapDelays.indexOfFirst { v -> v >= Prefs.zapDelayMs }.coerceAtLeast(0) else i } }, look = false) {
+            Prefs.zapDelayMs = zapDelays[it]
+        }
+        note("Czyszczenie dekodera: każdy kanał startuje na świeżym dekoderze (pomaga, gdy obraz zacina się po ▲▼). Opóźnienie startu: szybkie przewijanie kanałów nie uruchamia każdego po drodze (domyślnie 250 ms, w trybie słabszych urządzeń 450 ms).")
+        toggle("Dopasowanie odświeżania ekranu (Auto Frame Rate)", { Prefs.autoFrameRate }) { Prefs.autoFrameRate = it }
+        note("Automatycznie przełącza odświeżanie TV na 50 Hz / 24 Hz dla idealnej płynności ruchu (wg klatek kanału). Po wyjściu z odtwarzacza ekran wraca do zwykłego trybu; działa, gdy telewizor ma taki tryb.")
         toggle("Niskie opóźnienie na żywo", { Prefs.lowLatency }) { Prefs.lowLatency = it; Playback.stop() }
         note("Niskie opóźnienie: start po 0,5 s buforu i odtwarzanie bliżej bieżącej chwili transmisji (mniejsze opóźnienie, przy słabym łączu częstsze buforowanie).")
         row("Bieżący dekoder", Playback.decoderInfo().take(60)) { Dialogs.confirm(this, "Bieżący dekoder", Playback.decoderInfo()) {} }
@@ -983,8 +1067,6 @@ class SettingsActivity : BaseActivity() {
             num("Bufor – minimum", listOf(2, 5, 8, 10, 15, 20, 30, 45, 60), { "$it s" }, { Prefs.lowBufMinS }, { Prefs.lowBufMinS = it; if (Prefs.lowBufMaxS < it) Prefs.lowBufMaxS = it })
             num("Bufor – maksimum", listOf(5, 10, 15, 20, 30, 45, 60, 90, 120), { "$it s" }, { Prefs.lowBufMaxS }, { Prefs.lowBufMaxS = it; if (Prefs.lowBufMinS > it) Prefs.lowBufMinS = it })
             num("Pamięć bufora", listOf(8, 16, 24, 32, 48, 64, 96, 128), { "$it MB" }, { Prefs.lowBufMb }, { Prefs.lowBufMb = it })
-            toggle("Czyszczenie dekodera przy zmianie kanału", { Prefs.lowCleanDecoder }) { Prefs.lowCleanDecoder = it }
-            num("Opóźnienie startu po ▲▼", listOf(150, 250, 350, 450, 600, 800, 1000, 1500), { "$it ms" }, { Prefs.lowZapDelay }, { Prefs.lowZapDelay = it }, restart = false)
             num("Program TV naprzód", (1..7).toList(), { if (it == 1) "1 dzień" else "$it dni" }, { Prefs.lowEpgAhead }, { Prefs.lowEpgAhead = it }, restart = false)
             num("Długość opisu programu", listOf(100, 200, 300, 500, 1000, 2000), { "$it znaków" }, { Prefs.lowDescLen }, { Prefs.lowDescLen = it }, restart = false)
             num("Pobieranie EPG podczas oglądania", listOf(200, 400, 600, 1000, 1500, 2500, 5000), { "$it kB/s" }, { Prefs.lowEpgKbps }, { Prefs.lowEpgKbps = it }, restart = false)

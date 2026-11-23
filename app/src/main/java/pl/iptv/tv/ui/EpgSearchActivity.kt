@@ -222,7 +222,8 @@ class EpgSearchActivity : BaseActivity() {
             h.sub.text = listOf(p.episode, p.subTitle).filter { it.isNotBlank() }.joinToString(" – ")
                 .ifEmpty { p.desc.take(120) }
             when {
-                p.isNow(now) -> { h.badge.text = "● NA ŻYWO"; h.badge.setTextColor(Ui.live) }
+                p.isNow(now) && pl.iptv.tv.data.isActualLiveBroadcast(p) -> { h.badge.text = "● NA ŻYWO"; h.badge.setTextColor(Ui.live) }
+                p.isNow(now) -> h.badge.text = ""
                 p.end <= now && Repository.isInArchive(ch, p, now) -> { h.badge.text = "⟲ archiwum"; h.badge.setTextColor(Ui.archive) }
                 p.end <= now -> { h.badge.text = "minął"; h.badge.setTextColor(Ui.textColors(Ui.text2)) }
                 Reminders.isSet(ch, p) -> { h.badge.text = "🔔"; h.badge.setTextColor(Ui.accent) }

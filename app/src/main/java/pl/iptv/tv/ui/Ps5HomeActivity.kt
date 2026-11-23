@@ -44,6 +44,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -382,6 +383,7 @@ class Ps5HomeActivity : BaseActivity() {
         val scale by focusScale(focused, scaleTo, "ps5s")
         AutoFocus(key)
         return this
+            .zIndex(if (focused) 1f else 0f)
             .focusRequester(requester(key))
             .onFocusChanged { if (it.isFocused != focused) { focused = it.isFocused; if (it.isFocused) onFocus() else if (focusedNow == key) focusedNow = null } }
             .x25Clickable(onClick, onLong)
@@ -567,20 +569,20 @@ class Ps5HomeActivity : BaseActivity() {
             item(key = "stube") { ServiceCard(stube = true) }
             item(key = "stremio") { ServiceCard(stube = false) }
             item(key = "col2") {
-                Column(verticalArrangement = Arrangement.spacedBy(g)) {
+                Column(Modifier.raiseOnFocus(), verticalArrangement = Arrangement.spacedBy(g)) {
                     AddAppCard(tallH)
                     if (tab == 0) QuickCard("c:q1", X25Action.GUIDE, "Przewodnik TV", "Co teraz w telewizji", act(X25Action.GUIDE))
                     else QuickCard("c:q1", X25Action.HISTORY, "Historia i postęp", "Wróć do filmów", act(X25Action.HISTORY))
                 }
             }
             item(key = "col3") {
-                Column(verticalArrangement = Arrangement.spacedBy(g)) {
+                Column(Modifier.raiseOnFocus(), verticalArrangement = Arrangement.spacedBy(g)) {
                     StorageCard()
                     SecondCard(tallH)
                 }
             }
             item(key = "col4") {
-                Column(verticalArrangement = Arrangement.spacedBy(g)) {
+                Column(Modifier.raiseOnFocus(), verticalArrangement = Arrangement.spacedBy(g)) {
                     QuickCard("c:settings", X25Action.SETTINGS, "Ustawienia", "Wygląd, listy, odtwarzanie", act(X25Action.SETTINGS))
                     QuickCard("c:options", X25Icons.MORE, "Opcje ekranu głównego", "Przełączniki motywu PS5") { openOptions() }
                     if (dims.bigH - dims.smallH * 2 - g * 2 >= dims.smallH)

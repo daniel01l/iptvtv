@@ -159,7 +159,7 @@ class StremioDetailActivity : BaseActivity() {
                 addState(intArrayOf(), if (primary) pill(O.ACCENT) else pill(O.SURFACE_GLASS, O.SPECULAR))
             }
             setOnClickListener { onClick() }
-            setOnFocusChangeListener { v, f -> v.animate().scaleX(if (f) 1.06f else 1f).scaleY(if (f) 1.06f else 1f).setDuration(if (pl.iptv.tv.data.Prefs.lowPerf) 0 else 140).start() }
+            setOnFocusChangeListener { v, f -> Ui.focusZoom(v, f, 1.06f) }
         }
     }
 

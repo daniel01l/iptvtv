@@ -82,8 +82,9 @@ class V712StremioTest {
 
     @Test fun serviceAddonCatalogsAreHidden() {
         val re = StremioActivity.HIDDEN_CATALOGS
-        listOf("AIOStreams ElfHosted · Store RD", "ElfHosted Store PM", "AIOStreams", "Store RD", "store_pm").forEach { assertTrue(it, re.containsMatchIn(it)) }
-        listOf("Cinemeta Popularne", "Cyberflix Filmy", "Torrentio").forEach { assertFalse(it, re.containsMatchIn(it)) }
+        listOf("AIOStreams ElfHosted · Store RD", "ElfHosted Store PM", "AIOStreams", "Store RD", "store_pm", "Torrentio", "Torrentio RD", "RealDebrid", "real-debrid").forEach { assertTrue(it, re.containsMatchIn(it)) }
+        // (7.17) Torrentio i debrid – też ukryte
+        listOf("Cinemeta Popularne", "Cyberflix Filmy", "Nagrody Wordpress").forEach { assertFalse(it, re.containsMatchIn(it)) }
     }
 
     @Test fun inCinemasKeepsOnlyRecentReleases() = runBlocking {

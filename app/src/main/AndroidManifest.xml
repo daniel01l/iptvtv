@@ -75,6 +75,9 @@
         </activity>
         <activity android:name=".ui.SettingsActivity" android:screenOrientation="behind"
             android:windowSoftInputMode="adjustResize|stateHidden" />
+        <!-- (7.17) panel wyszukiwania STube: klawiatura ekranowa D-pad – bez systemowej klawiatury -->
+        <activity android:name=".ui.STubeSearchActivity" android:screenOrientation="behind"
+            android:windowSoftInputMode="stateAlwaysHidden" />
         <receiver android:name=".update.InstallReceiver" android:exported="false" />
         <receiver android:name=".update.UpdatedReceiver" android:exported="true">
             <intent-filter><action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter>

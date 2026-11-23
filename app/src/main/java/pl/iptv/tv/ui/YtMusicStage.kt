@@ -270,7 +270,7 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
         background = if (primary) fillStates(Ui.focus or 0xFF000000.toInt(), Ui.accent or 0xFF000000.toInt()) else fillStates(Ui.focus or 0xFF000000.toInt(), Ui.withAlpha(Ui.text, 0x26), Ui.withAlpha(Ui.accent, 0x40))
         setIcon(this, kind, primary)
         setOnClickListener { onClick() }
-        setOnFocusChangeListener { v, f -> v.animate().scaleX(if (f) 1.1f else 1f).scaleY(if (f) 1.1f else 1f).setDuration(110).start() }
+        setOnFocusChangeListener { v, f -> Ui.focusZoom(v, f, 1.1f) }
     }
 
     private fun pill(text: String, onClick: () -> Unit): TextView = TextView(context).apply {

@@ -294,7 +294,8 @@ class GuideActivity : BaseActivity() {
         val now = System.currentTimeMillis()
         title.text = p.fullTitle
         val status = when {
-            p.isNow(now) -> "● NA ŻYWO"
+            p.isNow(now) && pl.iptv.tv.data.isActualLiveBroadcast(p) -> "● NA ŻYWO"
+            p.isNow(now) -> "● teraz"
             p.end <= now && Repository.isInArchive(ch, p, now) -> "⟲ w archiwum"
             p.end <= now -> "minął"
             Reminders.isSet(ch, p) -> "🔔 przypomnienie ustawione"

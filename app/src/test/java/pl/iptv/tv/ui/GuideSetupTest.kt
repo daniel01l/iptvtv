@@ -151,6 +151,24 @@ class GuideSetupTest {
         c.pause().stop().destroy()
     }
 
+    @Test fun settingsSaveButtonKeepsFocusOnDownAndRight() {
+        // (7.17) ▼ / ► z „Zapisz i zamknij” nie przeskakują do kart po lewej (np. „Nagrywanie”, „Konto YouTube”)
+        for (t in listOf(0, 7, 11)) {
+            val c = Robolectric.buildActivity(SettingsActivity::class.java, Intent().putExtra("tab", t)).setup(); idle()
+            val a = c.get()
+            fun all(v: View): List<View> = listOf(v) + if (v is ViewGroup) (0 until v.childCount).flatMap { all(v.getChildAt(it)) } else emptyList()
+            val save = all(a.window.decorView).filterIsInstance<TextView>().first { it.text.contains("Zapisz i zamknij") }
+            assertTrue(save.requestFocus())
+            for (k in listOf(KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT)) {
+                assertTrue("tab $t key $k", a.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, k)))
+                a.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, k)); idle()
+                assertSame("tab $t key $k", save, a.window.decorView.findFocus())
+            }
+            assertFalse(a.isFinishing)
+            c.pause().stop().destroy()
+        }
+    }
+
     @Test fun catchupDefaultForChannelsWithoutInfo() {
         assertFalse(Repository.channels[1].hasCatchup)
         Prefs.catchupDefaultType = "shift"; Prefs.catchupDefaultDays = 3; Repository.reapply()

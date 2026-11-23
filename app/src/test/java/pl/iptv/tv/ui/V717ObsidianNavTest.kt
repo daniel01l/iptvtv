@@ -134,7 +134,7 @@ class V717ObsidianNavTest {
         fun t(ms: Long) = java.text.SimpleDateFormat("yyyyMMddHHmmss", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.format(java.util.Date(ms)) + " +0000"
         // kanał 1 (kategoria TV jest pierwsza w liście „Wszystkie”): program teraz, potem i jutro
         val xml = "<tv><channel id=\"c1\"><display-name>Kanał 1</display-name></channel>" +
-            listOf(Triple(now - 600_000, now + 600_000, "Teraz"), Triple(now + 600_000, now + 1_800_000, "Potem"), Triple(now + day, now + day + 1_800_000, "Jutro rano"))
+            listOf(Triple(now - 600_000, now + 600_000, "Teraz – Wiadomości"), Triple(now + 600_000, now + 1_800_000, "Potem"), Triple(now + day, now + day + 1_800_000, "Jutro rano"))
                 .joinToString("") { (s, e, n) -> "<programme start=\"${t(s)}\" stop=\"${t(e)}\" channel=\"c1\"><title>$n</title></programme>" } + "</tv>"
         runBlocking { Repository.loadEpg(File(ctx.filesDir, "v717.xml").apply { writeText(xml) }.absolutePath) }
         Prefs.lastChannel = Repository.channels.first { it.name == "Kanał 1" }.key

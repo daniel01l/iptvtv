@@ -123,9 +123,24 @@ class V64Test {
         assertTrue(bar.shown)
         assertTrue(texts(bar).any { it.text == "Tytuł filmu" }); assertTrue(texts(bar).any { it.text == "Kanał Autora" })
         assertTrue(bar.playBtn.isFocusable && bar.openBtn.isFocusable && bar.stopBtn.isFocusable)
-        // ⏯ – pauza w tle
+        // (7.17) pływająca kapsuła: nad treścią w prawym dolnym rogu, ≤ 520 dp, 20 dp od krawędzi, szkło 72 %
+        val lp = bar.layoutParams as android.widget.FrameLayout.LayoutParams
+        assertEquals(android.view.Gravity.BOTTOM or android.view.Gravity.END, lp.gravity)
+        assertTrue(lp.width <= Ui.dp(520)); assertEquals(Ui.dp(20), lp.bottomMargin); assertEquals(Ui.dp(20), lp.rightMargin)
+        val bg = bar.background as android.graphics.drawable.GradientDrawable
+        assertEquals(0xB8, android.graphics.Color.alpha(bg.color!!.defaultColor))
+        // treść ekranu się nie kurczy (bez dolnego odstępu całego ekranu); przewijane listy – odstęp na przewinięcie ponad kapsułę
+        val content = bar.parent as android.view.ViewGroup
+        val main = (0 until content.childCount).map { content.getChildAt(it) }.first { it !== bar && it is android.widget.LinearLayout || it is android.widget.FrameLayout && it !== bar }
+        assertEquals(0, main.paddingBottom)
+        // ⏯ – okrągły przycisk 36 dp w kolorze akcentu z rysowaną ikoną (bez emoji)
+        assertEquals("", bar.playBtn.text.toString()); assertTrue(bar.playBtn.compoundDrawables[0] is PlayerIcon)
+        assertEquals(Ui.dp(36), bar.playBtn.layoutParams.width); assertEquals(Ui.dp(36), bar.playBtn.layoutParams.height)
+        assertEquals(true, bar.playingIcon)
+        // ⏯ – pauza w tle (ikona: odtwarzanie)
         bar.playBtn.performClick(); idle()
         assertFalse(YtEngine.player!!.playWhenReady)
+        assertEquals(false, bar.playingIcon)
         // ⛶ – pełny ekran (bieżący film, bez ponownego wczytania)
         bar.openBtn.performClick(); idle()
         assertTrue(shadowOf(s.get()).nextStartedActivity.getBooleanExtra(YtPlayerActivity.EXTRA_RESUME_CURRENT, false))
@@ -262,7 +277,7 @@ class V64Test {
 
     // ---------------- klawiatura wyszukiwarki ----------------
 
-    @Test fun okOnSearchFieldShowsKeyboard() {
+    @Test fun okOnSearchFieldOpensSearchPanelWithoutSystemKeyboard() {
         val a = Robolectric.buildActivity(STubeActivity::class.java).setup().get(); idle(300)
         // ekran budowany po wczytaniu historii (asynchronicznie) – dopiero potem fokus na pole, inaczej budowa przenosi go na rząd
         waitFor { a.rows.isNotEmpty() }; idle(300)
@@ -271,11 +286,14 @@ class V64Test {
         assertTrue(q.hasFocus())
         a.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_CENTER))
         a.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_CENTER)); idle(300)
-        assertTrue(a.keyboardRequested); assertTrue(q.hasFocus())
+        // (7.17) OK na polu – panel wyszukiwania z klawiaturą ekranową; systemowa klawiatura się nie wysuwa
+        assertEquals(STubeSearchActivity::class.java.name, shadowOf(a).nextStartedActivity.component?.className)
+        assertFalse(a.keyboardRequested)
         val imm = shadowOf(ctx.getSystemService(InputMethodManager::class.java))
-        assertTrue(imm.isSoftInputVisible)
-        // „Szukaj” z pustym polem – też klawiatura, bez wyszukiwania
+        assertFalse(imm.isSoftInputVisible)
+        // lupa w pasku – ten sam panel, bez wyszukiwania na ekranie STube
         a.findViewById<View>(pl.iptv.tv.R.id.stSearch).performClick(); idle()
+        assertEquals(STubeSearchActivity::class.java.name, shadowOf(a).nextStartedActivity.component?.className)
         assertTrue(a.rows.none { it.id == STubeScreen.ROW_SEARCH })
         // akcja „Szukaj” klawiatury TV
         q.setText("koty"); q.onEditorAction(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH); idle(300)

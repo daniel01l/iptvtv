@@ -184,14 +184,11 @@ class StremioPosterAdapter(val items: MutableList<StremioTile> = mutableListOf()
         val vh = VH(root, poster, initials, bar, barBox, title, sub, rating)
         root.setOnClickListener { items.getOrNull(vh.bindingAdapterPosition)?.let(onClick) }
         root.setOnLongClickListener { items.getOrNull(vh.bindingAdapterPosition)?.let(onLongClick); true }
-        val focusAnim = android.view.animation.PathInterpolator(0.4f, 0f, 0.2f, 1f)
         root.setOnFocusChangeListener { _, f ->
             if (f) items.getOrNull(vh.bindingAdapterPosition)?.let(onFocus)
             if (obsidian) {
                 // skala i poświata tylko we właściwościach widoku (RenderNode – GPU), bez ponownego pomiaru rzędu
-                val s = if (f) StremioUi.POSTER_FOCUS_SCALE else 1f
-                val ms = if (pl.iptv.tv.data.Prefs.lowPerf || Ui.anim == 0) 0L else 160L
-                root.animate().scaleX(s).scaleY(s).setDuration(ms).setInterpolator(focusAnim).start()
+                if (Ui.anim == 0) { val s = if (f) StremioUi.POSTER_FOCUS_SCALE else 1f; root.scaleX = s; root.scaleY = s } else Ui.focusZoom(root, f, StremioUi.POSTER_FOCUS_SCALE)
                 frame.elevation = if (f) Ui.dp(14).toFloat() else 0f
             }
         }

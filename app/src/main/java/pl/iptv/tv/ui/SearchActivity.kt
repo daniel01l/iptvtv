@@ -313,8 +313,7 @@ class SearchActivity : BaseActivity() {
             val vh = VH(root, image, badge, title, sub)
             root.setOnClickListener { items.getOrNull(vh.bindingAdapterPosition)?.let(onClick) }
             root.setOnFocusChangeListener { v, f ->
-                val s = if (f) 1.06f else 1f
-                v.animate().scaleX(s).scaleY(s).setDuration(if (pl.iptv.tv.data.Prefs.lowPerf) 0 else 140).start()
+                Ui.focusZoom(v, f, 1.06f)
             }
             return vh
         }
@@ -348,7 +347,7 @@ class SearchActivity : BaseActivity() {
             h.image.setPadding(Ui.dp(70), Ui.dp(12), Ui.dp(70), Ui.dp(12))
             h.image.loadPicon(t.channel)
             h.badge.visibility = View.VISIBLE
-            if (p.isNow(now)) { h.badge.text = "NA ŻYWO"; h.badge.background = ObsidianViews.livePill() }
+            if (p.isNow(now) && pl.iptv.tv.data.isActualLiveBroadcast(p)) { h.badge.text = "NA ŻYWO"; h.badge.background = ObsidianViews.livePill() }
             else { h.badge.text = Fmt.shortDay(p.start) + " " + Fmt.time(p.start); h.badge.background = ObsidianViews.durationBadge() }
             h.title.text = p.fullTitle
             h.sub.text = "${Fmt.time(p.start)}–${Fmt.time(p.end)}  ·  ${t.channel.name}"

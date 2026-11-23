@@ -225,9 +225,14 @@ class STubeTest {
     }
 
     @Test fun searchAddsResultsRowOnTop() {
-        val a = open().get()
+        val c = open(); val a = c.get()
         a.findViewById<TextView>(R.id.stQuery).text = "kot"
+        // (7.17) lupa otwiera panel wyszukiwania z bieżącą frazą
         a.findViewById<View>(R.id.stSearch).performClick()
+        val s = shadowOf(a).nextStartedActivity
+        assertEquals(STubeSearchActivity::class.java.name, s.component?.className); assertEquals("kot", s.getStringExtra(STubeSearchActivity.EXTRA_QUERY))
+        // wyszukiwanie z frazą (telefon, pulpit) – rząd wyników na górze STube
+        c.newIntent(android.content.Intent(ctx, STubeActivity::class.java).putExtra(STubeActivity.EXTRA_QUERY, "kot"))
         waitLoaded(a)
         assertEquals("Wyniki: kot", a.rows[0].title)
         assertEquals("Wynik K1", (a.rows[0].tiles[0] as STubeTile.Video).v.title)

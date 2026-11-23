@@ -51,7 +51,7 @@ class V717OsdTest {
 
     @Before fun setup() {
         Playback.stop()
-        PlayerOsd.enabled = true                                             // w Robolectric OSD włącza tylko ten test
+        PlayerOsd.enabled = true; PlayerOsd.liveTv = true                    // w Robolectric OSD włącza tylko ten test (w Live TV wyłączony)
         PlayerOsd.autoHideMs = 1_500; PlayerOsd.progressTickMs = 100        // krótsze czasy w teście (w aplikacji 5 s i 500 ms)
         Prefs.permissionsAsked = true; Prefs.setupDone = true; Prefs.startAction = 0; Prefs.tutorialShown = true; Prefs.keyMapJson = ""
         // stan z wcześniejszych testów (kontrola rodzicielska, panele, ulubione kanały w innej kolejności) – od zera
@@ -75,7 +75,7 @@ class V717OsdTest {
         frame = null
         runCatching { controller?.pause()?.stop()?.destroy() }; controller = null; idle(200)
         frame = null; Playback.stop(); PlayerOsd.autoHideMs = PlayerOsd.AUTO_HIDE_MS; PlayerOsd.progressTickMs = PlayerOsd.PROGRESS_TICK_MS
-        PlayerOsd.enabled = false
+        PlayerOsd.enabled = false; PlayerOsd.liveTv = false
     }
 
     private fun open(): PlayerActivity {
@@ -169,4 +169,86 @@ class V717OsdTest {
         assertEquals("bez ponownego startu strumienia / kodeka", starts, Playback.starts)
         assertSame(p, a.findViewById<androidx.media3.ui.PlayerView>(pl.iptv.tv.R.id.playerView).player)
     }
+
+    @Test fun liveBadgeOnlyForActualLiveBroadcasts() {
+        fun p(title: String, cat: String = "", sub: String = "", ep: String = "", desc: String = "", live: Boolean = false) =
+            pl.iptv.tv.data.Programme(0, 1, title, desc, cat, sub, ep, live)
+        // seriale, filmy, bajki – bez pigułki
+        assertFalse(pl.iptv.tv.data.isActualLiveBroadcast(p("Nowa Maja w ogrodzie S1E24")))
+        assertFalse(pl.iptv.tv.data.isActualLiveBroadcast(p("M jak miłość", ep = "S01E12")))
+        assertFalse(pl.iptv.tv.data.isActualLiveBroadcast(p("Komisarz Alex", sub = "odc. 54")))
+        assertFalse(pl.iptv.tv.data.isActualLiveBroadcast(p("Szybcy i wściekli", cat = "film", desc = "Wyścigi i sport")))
+        assertFalse(pl.iptv.tv.data.isActualLiveBroadcast(p("Świnka Peppa", cat = "bajka")))
+        assertFalse(pl.iptv.tv.data.isActualLiveBroadcast(p("Audycja 1")))
+        assertFalse(pl.iptv.tv.data.isActualLiveBroadcast(null))
+        // „sport” tylko od początku wyrazu
+        assertFalse(pl.iptv.tv.data.isActualLiveBroadcast(p("Magazyn Eurosportu")))
+        // transmisje: słowa kluczowe, kategoria, opis, znacznik <live />
+        assertTrue(pl.iptv.tv.data.isActualLiveBroadcast(p("Fakty")))
+        assertTrue(pl.iptv.tv.data.isActualLiveBroadcast(p("Wiadomości")))
+        assertTrue(pl.iptv.tv.data.isActualLiveBroadcast(p("Piłka nożna: Polska – Holandia", cat = "Sport")))
+        assertTrue(pl.iptv.tv.data.isActualLiveBroadcast(p("Liga Mistrzów: mecz 1/8 finału")))
+        assertTrue(pl.iptv.tv.data.isActualLiveBroadcast(p("Gala KSW", desc = "Transmisja z Gliwic")))
+        assertTrue(pl.iptv.tv.data.isActualLiveBroadcast(p("Koncert noworoczny", cat = "film", live = true)))
+        assertFalse("odcinek z <live /> to i tak serial", pl.iptv.tv.data.isActualLiveBroadcast(p("Serial S2E3", live = true)))
+        // XMLTV: <live /> wczytany i zapisany w formacie binarnym
+        val now = System.currentTimeMillis()
+        fun t(ms: Long) = java.text.SimpleDateFormat("yyyyMMddHHmmss", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.format(java.util.Date(ms)) + " +0000"
+        val xml = "<tv><programme start=\"${t(now - 60_000)}\" stop=\"${t(now + 3_600_000)}\" channel=\"o1\"><title>Koncert</title><live /></programme>" +
+            "<programme start=\"${t(now - 60_000)}\" stop=\"${t(now + 3_600_000)}\" channel=\"o2\"><title>Nowa Maja w ogrodzie S1E24</title></programme></tv>"
+        runBlocking { Repository.loadEpg(File(ctx.filesDir, "live.xml").apply { writeText(xml) }.absolutePath) }
+        val c1 = Repository.current(Repository.channels[0], now)!!; val c2 = Repository.current(Repository.channels[1], now)!!
+        assertTrue(c1.live); assertTrue(pl.iptv.tv.data.isActualLiveBroadcast(c1)); assertFalse(pl.iptv.tv.data.isActualLiveBroadcast(c2))
+        val bin = File(ctx.filesDir, "live.bin"); pl.iptv.tv.data.EpgBinary.write(bin, Repository.epg, "x")
+        assertTrue(pl.iptv.tv.data.EpgBinary.read(bin, "x", 0, Long.MAX_VALUE)!!.programmes.values.flatten().any { it.live && it.title == "Koncert" })
+        // OSD: kanał 1 (koncert z <live />) – pigułka; kanał 2 (serial) – bez pigułki
+        val a = open(); val s = a.osd!!
+        assertTrue(s.info.liveBadge)
+        key(a, KeyEvent.KEYCODE_DPAD_DOWN)
+        assertEquals("Kanał 2", s.info.name.trim()); assertFalse("serial – bez NA ŻYWO", s.info.liveBadge)
+        // kompaktowy pasek
+        assertEquals(36, PlayerOsd.PILL_DP); assertEquals(56, PlayerOsd.LOGO_DP); assertEquals(3, PlayerOsd.PROGRESS_DP); assertEquals(20, PlayerOsd.CARD_BOTTOM_DP)
+    }
+
+    @Test fun overlaysAreMutuallyExclusiveAndBackRestoresBar() {
+        val a = open(); val s = a.osd!!
+        fun rightOpen() = a.findViewById<View>(pl.iptv.tv.R.id.rightPanel).visibility == View.VISIBLE
+        fun leftOpen() = a.findViewById<View>(pl.iptv.tv.R.id.leftPanel).visibility == View.VISIBLE
+        // OK → pasek z pigułkami; ► ► „Program TV” + OK → tylko panel z prawej (pasek znika)
+        key(a, KeyEvent.KEYCODE_DPAD_CENTER)
+        assertEquals(ActivePlayerOverlay.InfoBar, a.activeOverlay)
+        key(a, KeyEvent.KEYCODE_DPAD_RIGHT); key(a, KeyEvent.KEYCODE_DPAD_RIGHT); key(a, KeyEvent.KEYCODE_DPAD_CENTER)
+        assertTrue(rightOpen()); assertEquals(ActivePlayerOverlay.ProgramGuide, a.activeOverlay); assertFalse("pasek OSD schowany", s.visible)
+        // zmiana kanału przy otwartym panelu nie pokazuje paska pod panelem
+        idle(400); assertFalse(s.visible)
+        // WSTECZ – panel zamknięty, pasek wraca z tą samą pigułką i fokusem na odtwarzaczu
+        a.onBackPressedDispatcher.onBackPressed(); idle()
+        assertFalse(rightOpen()); assertEquals(ActivePlayerOverlay.InfoBar, a.activeOverlay); assertTrue(s.interactive); assertEquals(2, s.pillIndex)
+        assertFalse("fokus nie zostaje w zamkniętym panelu", a.findViewById<View>(pl.iptv.tv.R.id.rightPanel).hasFocus())
+        // „Lista kanałów” → panel z lewej, pasek znika; OK (pasek) przy otwartej liście – lista zamknięta, tylko pasek
+        key(a, KeyEvent.KEYCODE_DPAD_RIGHT); key(a, KeyEvent.KEYCODE_DPAD_CENTER)
+        assertTrue(leftOpen()); assertEquals(ActivePlayerOverlay.ChannelList, a.activeOverlay); assertFalse(s.visible)
+        s.show(interactive = true); idle()
+        assertFalse("lista zamknięta przy pokazaniu paska", leftOpen()); assertEquals(ActivePlayerOverlay.InfoBar, a.activeOverlay)
+        // panel ścieżek zastępuje pasek (nie nachodzi na niego); WSTECZ – z powrotem pasek
+        s.openPanel(OsdPanel("Jakość", listOf(OsdSection("", listOf(OsdOption("Automatyczna", true) {}))))); idle()
+        assertEquals(ActivePlayerOverlay.TrackSelection, a.activeOverlay); assertNotNull(s.panel)
+        a.onBackPressedDispatcher.onBackPressed(); idle()
+        assertEquals(ActivePlayerOverlay.InfoBar, a.activeOverlay); assertNull(s.panel)
+        a.onBackPressedDispatcher.onBackPressed(); idle()
+        assertEquals(ActivePlayerOverlay.None, a.activeOverlay); assertFalse(a.isFinishing)
+    }
+
+    @Test fun liveTvInModernUsesInfoBarFrom716() {
+        // (7.17) na życzenie: w Live TV pasek informacji jak w 7.16 (styl z Ustawień), bez pigułek Audio / Jakość
+        PlayerOsd.liveTv = false
+        val a = open()
+        assertNull("bez nowego OSD", a.osd)
+        key(a, KeyEvent.KEYCODE_DPAD_DOWN)
+        assertTrue("dawny pasek informacji z kanałem", a.findViewById<android.widget.TextView>(pl.iptv.tv.R.id.oName).text.contains("Kanał 2"))
+        assertTrue(a.findViewsWithText("Audio / Napisy").isEmpty())
+    }
 }
+
+private fun android.app.Activity.findViewsWithText(t: String): List<View> =
+    ArrayList<View>().also { window.decorView.findViewsWithText(it, t, View.FIND_VIEWS_WITH_TEXT) }

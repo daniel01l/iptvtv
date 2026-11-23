@@ -33,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -163,7 +164,7 @@ class AppLibraryActivity : BaseActivity() {
         var on by remember { mutableStateOf(false) }
         val scale by focusScale(on, 1.1f, "lib")
         val box = if (compact) 72.dp else 104.dp
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.zIndex(if (on) 1f else 0f), horizontalAlignment = Alignment.CenterHorizontally) {
             Box(Modifier.size(box)
                 .then(if (req != null) Modifier.focusRequester(req) else Modifier)
                 .onFocusChanged { if (it.isFocused != on) { on = it.isFocused; if (it.isFocused) { focused = e; X25Theme.navSound(this@AppLibraryActivity) } } }

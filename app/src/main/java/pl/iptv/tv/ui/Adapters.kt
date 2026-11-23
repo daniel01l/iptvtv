@@ -427,12 +427,16 @@ class ProgrammeAdapter(
             h.badge.background = null; h.badge.setPadding(0, 0, 0, 0)
             h.day.setPadding(Ui.dp(4), Ui.dp(if (pos == 0) 2 else 14), 0, Ui.dp(4)); h.day.isAllCaps = true; h.day.letterSpacing = 0.06f
         }
+        // trwający mecz: wynik na żywo zamiast samego „NA ŻYWO” (program TV kanału, lista EPG)
+        // (7.17) pigułka tylko dla prawdziwej transmisji na żywo (serial / film z odtworzenia – bez pigułki i bez pustego miejsca)
+        val score = if (p.isNow(now)) ch?.let { pl.iptv.tv.data.Scores.liveForProgramme(it, p, now) } else null
+        val live = p.isNow(now) && (score != null || pl.iptv.tv.data.isActualLiveBroadcast(p))
         when {
-            // trwający mecz: wynik na żywo zamiast samego „NA ŻYWO” (program TV kanału, lista EPG)
             // (7.17) „Obsidian Stream”: wyraźna czerwona pigułka NA ŻYWO (biały tekst)
-            p.isNow(now) && obsidian -> { h.badge.text = ch?.let { pl.iptv.tv.data.Scores.liveForProgramme(it, p, now) } ?: "NA ŻYWO"; h.badge.setTextColor(android.graphics.Color.WHITE)
+            live && obsidian -> { h.badge.text = score ?: "NA ŻYWO"; h.badge.setTextColor(android.graphics.Color.WHITE)
                 h.badge.background = pl.iptv.tv.ui.theme.ObsidianViews.livePill(); h.badge.setPadding(Ui.dp(8), Ui.dp(2), Ui.dp(8), Ui.dp(2)); h.badge.textSize = 11f }
-            p.isNow(now) -> { h.badge.text = ch?.let { pl.iptv.tv.data.Scores.liveForProgramme(it, p, now) } ?: "● NA ŻYWO"; h.badge.setTextColor(Ui.live) }
+            live -> { h.badge.text = score ?: "● NA ŻYWO"; h.badge.setTextColor(Ui.live) }
+            p.isNow(now) -> h.badge.text = ""
             p.start > now && ch != null && pl.iptv.tv.data.Reminders.isSet(ch, p) -> { h.badge.text = "🔔"; h.badge.setTextColor(Ui.accent) }
             p.end <= now && p.start >= catchupFrom -> { h.badge.text = "⟲"; h.badge.setTextColor(Ui.archive) }
             else -> h.badge.text = ""

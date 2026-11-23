@@ -168,7 +168,7 @@ object PlayerChrome {
         setPadding(Ui.dp(if (label.isEmpty()) 12 else 16), Ui.dp(9), Ui.dp(if (label.isEmpty()) 12 else 18), Ui.dp(9))
         tag = "keepcolor nozoom"
         setOnClickListener { onClick() }
-        setOnFocusChangeListener { v, has -> v.animate().scaleX(if (has) 1.06f else 1f).scaleY(if (has) 1.06f else 1f).setDuration(110).start() }
+        setOnFocusChangeListener { v, has -> Ui.focusZoom(v, has, 1.06f) }
     }
 
     /**

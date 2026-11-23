@@ -7,6 +7,7 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,10 +50,17 @@ object AppNavRail {
     val COLLAPSED = 72.dp
     val EXPANDED = 240.dp
     const val ANIM_MS = 220
-    /** Pigułka pozycji: wysokość, ikona i margines paska (ikona na środku zwiniętego paska). */
-    val ITEM_H = 48.dp
+    /**
+     * (7.17) Pozycja paska: zwinięty – kwadrat [ITEM_H] × [ITEM_H] z zaokrągleniem [ITEM_RADIUS], dokładnie na środku paska
+     * ([PAD] z lewej i prawej: 14 + 44 + 14 = 72 dp); rozwinięty – ten sam kontener rozciąga się na całą szerokość pozycji.
+     * Wybrana sekcja: wypełnienie akcentem 22 % i pełna obwódka [SELECTED_STROKE] (rysowana wewnątrz – bez ucinania).
+     */
+    val ITEM_H = 44.dp
     val ICON = 24.dp
-    val PAD = 12.dp
+    val PAD = 14.dp
+    val ITEM_RADIUS = 14.dp
+    val SELECTED_STROKE = 1.5.dp
+    const val SELECTED_FILL_ALPHA = 0.22f
     /** Scrim pod rozwiniętym paskiem: `#080A0F` 78 %. */
     val SCRIM = Color(0xFF080A0F).copy(alpha = 0.78f)
     const val SCRIM_ARGB = 0xC7080A0F.toInt()
@@ -86,8 +94,8 @@ fun AppNavigationRail(
 }
 
 /**
- * Pozycja paska: pigułka [AppNavRail.ITEM_H] na całą szerokość – zaznaczona: wypełnienie akcentem, bieżąca sekcja: delikatny
- * akcent i kropka. Ikona zawsze w tym samym miejscu (środek zwiniętego paska), podpis tylko w rozwiniętym. [focusModifier] –
+ * Pozycja paska: kontener [AppNavRail.ITEM_H] (zaokrąglenie [AppNavRail.ITEM_RADIUS]) na całą szerokość – zaznaczona: wypełnienie
+ * akcentem, bieżąca sekcja: akcent 22 % z obwódką 1,5 dp (7.17 – zamiast kropki). Ikona zawsze w tym samym miejscu (środek zwiniętego paska), podpis tylko w rozwiniętym. [focusModifier] –
  * fokus i kliknięcie z ekranu (klucze, prośby o fokus).
  */
 @Composable
@@ -106,11 +114,12 @@ fun AppNavigationRailItem(
     avatar: Boolean = false,
     icon: DrawScope.(Color) -> Unit,
 ) {
-    val shape = RoundedCornerShape(itemHeight / 2)
+    val shape = RoundedCornerShape(minOf(AppNavRail.ITEM_RADIUS, itemHeight / 2))
     val tint = if (focused || selected) ObsidianTokens.TextPrimary else ObsidianTokens.TextSecondary
     val start = ((railWidth - railPadding * 2 - iconSize) / 2).coerceAtLeast(2.dp)
     Row(Modifier.fillMaxWidth().height(itemHeight).then(focusModifier).clip(shape)
-        .background(when { focused -> accent; selected -> accent.copy(alpha = 0.18f); else -> Color.Transparent })
+        .background(when { focused -> accent; selected -> accent.copy(alpha = AppNavRail.SELECTED_FILL_ALPHA); else -> Color.Transparent })
+        .then(if (selected && !focused) Modifier.border(AppNavRail.SELECTED_STROKE, accent, shape) else Modifier)
         .padding(start = start, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(iconSize).then(if (avatar) Modifier.clip(CircleShape).background(Brush.linearGradient(listOf(accent, live))).padding(4.dp) else Modifier)) {
             Canvas(Modifier.fillMaxSize()) { icon(if (avatar) Color.White else tint) }
@@ -118,8 +127,6 @@ fun AppNavigationRailItem(
         if (expanded) BasicText(label, Modifier.padding(start = 16.dp).weight(1f),
             style = ObsidianTypography().cardTitle.copy(color = tint, fontSize = 15.sp, fontWeight = if (focused || selected) FontWeight.Bold else FontWeight.Medium),
             maxLines = 1, softWrap = false, overflow = TextOverflow.Clip)
-        // bieżąca sekcja przy zwiniętym pasku – kropka przy ikonie
-        if (selected && !focused && !expanded) Box(Modifier.padding(start = 4.dp).size(5.dp).clip(CircleShape).background(live))
     }
 }
 

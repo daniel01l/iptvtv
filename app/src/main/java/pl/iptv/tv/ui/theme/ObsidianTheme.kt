@@ -195,8 +195,8 @@ fun Modifier.obsidianAmbientGlow(glow: Color): Modifier = drawWithCache {
 
 /** Domyślna skala fokusu i sprężyna animacji fokusu D-pad. */
 const val TV_FOCUS_SCALE = 1.06f
-const val TV_FOCUS_DAMPING = 0.78f
-const val TV_FOCUS_STIFFNESS = 420f
+const val TV_FOCUS_DAMPING = androidx.compose.animation.core.Spring.DampingRatioNoBouncy   // (7.17) bez odbicia – jak [pl.iptv.tv.ui.focusSpring]
+const val TV_FOCUS_STIFFNESS = pl.iptv.tv.ui.FOCUS_STIFFNESS
 
 /**
  * Skala fokusu D-pad na warstwie GPU: wartość z `animateFloatAsState` (sprężyna 0,78 / 420) czytana wyłącznie w bloku

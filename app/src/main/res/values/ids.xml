@@ -10,6 +10,9 @@
     <item name="guide_cell" type="id"/>
     <item name="row_key" type="id"/>
     <item name="zoom_listener" type="id"/>
+    <item name="ui_pivot" type="id"/>
+    <item name="mini_play" type="id"/>
+    <item name="mini_inset" type="id"/>
     <item name="settings_styled" type="id"/>
     <item name="picon_url" type="id"/>
 </resources>
