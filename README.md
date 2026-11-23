@@ -103,6 +103,9 @@
 
 Kanał trafia do „ostatnio oglądanych” po co najmniej 1 minucie odtwarzania.
 
+**v7.19** (23.11.2026):
+- **Stremio – źródła**: bez źródeł P2P (torrent bez adresu – nie otwierają się); w każdej rozdzielczości najpierw polska wersja (lektor / dubbing, potem napisy), w niej wtyczki, z których naprawdę oglądasz (punkt po obejrzeniu 10 % filmu lub odcinka – samo uruchomienie się nie liczy), dalej domyślna kolejność wtyczek: AIOStreams | ElfHosted, Torrentio PM, Torrentio RD, Torrentio Lite, Torrentio, MediaFusion | ElfHosted RD, Comet | ElfHosted | RD, Orion, Cinemeta, MediaFusion | ElfHosted (pozostałe na końcu). Źródła „do pobrania” w debrid: zamiast planszy „pobieranie” odtwarzacz pokazuje komunikat, sprawdza co 20 s i sam startuje, gdy plik jest gotowy (debrid udostępnia plik dopiero po pobraniu całości).
+
 **v7.18** (23.11.2026):
 - **STube – piosenki od początku**: utwory (oznaczenia muzyki, „Wykonawca – Tytuł”, do 9 min) zawsze startują od początku – w widoku muzycznym i zwykłym; nie ma ich w „Kontynuuj oglądanie”. Filmy, podcasty i długie nagrania wznawiają się jak dotąd.
 - **STube – widok muzyczny**: podpowiedź „OK – synchronizacja tekstu” widać tylko z kursorem w samym tekście (nie na kafelku „Tekst”). WSTECZ w polu tekstu (niebieska ramka) wraca na kafelek „Tekst” (kończy też ręczną synchronizację), dopiero kolejne WSTECZ zamyka odtwarzacz.

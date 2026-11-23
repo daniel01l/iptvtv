@@ -128,7 +128,7 @@ class StremioPlayerActivity : AppCompatActivity() {
         videoId = intent.getStringExtra(EXTRA_VIDEO).orEmpty(); label = intent.getStringExtra(EXTRA_LABEL).orEmpty()
         setContentView(build())
         if (json.isNullOrBlank()) resolveAndStart()
-        else { stream = StremioStream.fromJson(JSONObject(json)); start(resume = true) }
+        else { stream = StremioStream.fromJson(JSONObject(json)); startChecked(resume = true) }
     }
 
     // ---------------- (7.8) wznowienie bez ekranu źródeł ----------------
@@ -168,7 +168,7 @@ class StremioPlayerActivity : AppCompatActivity() {
             stream = pick; videoId = vid; label = target.label
             intent.putExtra(EXTRA_STREAM, pick.toJson().toString()).putExtra(EXTRA_VIDEO, vid).putExtra(EXTRA_LABEL, target.label)
             loadingView.visibility = View.GONE
-            start(resume = true)
+            startChecked(resume = true)
         }
     }
 
@@ -454,6 +454,63 @@ class StremioPlayerActivity : AppCompatActivity() {
     private var failureDialog: androidx.appcompat.app.AlertDialog? = null
     private var audioWarned = false
 
+    // ---------------- (7.18) źródła pobierane przez debrid ----------------
+
+    private var debridJob: kotlinx.coroutines.Job? = null
+    private var debridView: TextView? = null
+    /** Odtwarzacz czeka, aż debrid pobierze plik (testy). */
+    var debridWaiting = false; private set
+
+    /**
+     * Start źródła z kontrolą debrid: adres rozwiązywany przez wtyczkę ([DebridResolve.needsCheck]) jest najpierw sprawdzany –
+     * gdy prowadzi do planszy „pobieranie”, odtwarzacz pokazuje komunikat i sprawdza co [DebridResolve.POLL_MS], a gdy plik jest
+     * gotowy – startuje sam. Debrid (np. RealDebrid) udostępnia plik dopiero po pobraniu całości, więc nie da się ruszyć od części.
+     */
+    private fun startChecked(resume: Boolean) {
+        debridJob?.cancel()
+        if (!pl.iptv.tv.data.DebridResolve.needsCheck(stream.url)) { hideDebrid(); start(resume); return }
+        val s = stream
+        debridJob = lifecycleScope.launch {
+            val t0 = android.os.SystemClock.uptimeMillis()
+            var first = true
+            while (true) {
+                val st = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { pl.iptv.tv.data.DebridResolve.check(s.url, s.headers) }
+                if (stream !== s) return@launch
+                val waited = android.os.SystemClock.uptimeMillis() - t0
+                when (st) {
+                    pl.iptv.tv.data.DebridResolve.State.READY -> {
+                        hideDebrid()
+                        if (!first) I18n.makeToast(this@StremioPlayerActivity, "Plik gotowy – start odtwarzania", Toast.LENGTH_SHORT).show()
+                        start(resume); return@launch
+                    }
+                    pl.iptv.tv.data.DebridResolve.State.FAILED -> { hideDebrid(); showFailure("Serwis debrid nie mógł pobrać tego źródła."); return@launch }
+                    pl.iptv.tv.data.DebridResolve.State.DOWNLOADING -> {
+                        if (waited > pl.iptv.tv.data.DebridResolve.MAX_WAIT_MS) { hideDebrid(); showFailure("Debrid wciąż pobiera to źródło – spróbuj innego albo wróć później."); return@launch }
+                        showDebrid(waited)
+                    }
+                }
+                first = false
+                kotlinx.coroutines.delay(pl.iptv.tv.data.DebridResolve.POLL_MS)
+            }
+        }
+    }
+
+    private fun showDebrid(waitedMs: Long) {
+        debridWaiting = true
+        val v = debridView ?: TextView(this).apply {
+            textSize = 20f; setTextColor(Color.WHITE); gravity = android.view.Gravity.CENTER; setLineSpacing(0f, 1.25f)
+            background = pl.iptv.tv.ui.theme.ObsidianViews.dialogPanel(); setPadding(Ui.dp(32), Ui.dp(24), Ui.dp(32), Ui.dp(24))
+            (window.decorView as? android.view.ViewGroup)?.addView(this, FrameLayout.LayoutParams(-2, -2, android.view.Gravity.CENTER))
+        }.also { debridView = it }
+        val min = waitedMs / 60_000
+        v.text = "⬇ Debrid pobiera ten tytuł na swój serwer\n" +
+            "Odtwarzanie ruszy samo, gdy plik będzie gotowy (sprawdzam co ${pl.iptv.tv.data.DebridResolve.POLL_MS / 1000} s" +
+            (if (min > 0) ", czekasz $min min" else "") + ").\nWSTECZ – wybierz inne źródło"
+        v.visibility = View.VISIBLE
+    }
+
+    private fun hideDebrid() { debridWaiting = false; debridView?.visibility = View.GONE }
+
     /** [atMs] ≥ 0 – start od tej pozycji (ponowienie po błędzie dekodera), bez wznawiania z historii. */
     private fun start(resume: Boolean, atMs: Long = -1) {
         releasePlayer()
@@ -604,11 +661,18 @@ class StremioPlayerActivity : AppCompatActivity() {
     override fun onResume() { super.onResume(); player?.let { if (it.playbackState != Player.STATE_ENDED) it.play() } }
     override fun onDestroy() { failureDialog?.dismiss(); releasePlayer(); handler.removeCallbacksAndMessages(null); super.onDestroy() }
 
+    /** (7.18) Źródło, za które wtyczka dostała już punkt w tym seansie. */
+    private var creditedKey: String? = null
+
     fun saveProgress(push: Boolean = false) {
         val p = player ?: return
         val pos = p.currentPosition; val dur = p.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0
         if (pos < 5_000) return
         if (!::stream.isInitialized) return
+        // (7.18) obejrzane ≥ 10 % – źródło działa: wtyczka trafia wyżej na liście źródeł (raz na źródło w tym seansie)
+        if (creditedKey != stream.key && pl.iptv.tv.data.StremioAddonScores.watched(pos, dur)) {
+            creditedKey = stream.key; pl.iptv.tv.data.StremioAddonScores.credit(stream.addonUrl)
+        }
         val row = StremioProgress(metaId, type, intent.getStringExtra(EXTRA_NAME).orEmpty(), intent.getStringExtra(EXTRA_POSTER).orEmpty(),
             videoId, label.substringBefore(" – "), pos, dur, System.currentTimeMillis(),
             nextShown = nextReached, addonUrl = stream.addonUrl, bingeGroup = stream.bingeGroup, quality = stream.quality)
@@ -880,7 +944,7 @@ class StremioPlayerActivity : AppCompatActivity() {
             decoderStage = StremioDecoders.Stage.NORMAL; failure = null; forceVideo = false   // nowe źródło – znowu od dekoderów sprzętowych
             intent.putExtra(EXTRA_STREAM, pick.toJson().toString()).putExtra(EXTRA_VIDEO, n.id).putExtra(EXTRA_LABEL, n.label)
             I18n.makeToast(this@StremioPlayerActivity, "Następny odcinek: ${n.label}", Toast.LENGTH_SHORT).show()
-            start(resume = false)
+            startChecked(resume = false)
         }
     }
 

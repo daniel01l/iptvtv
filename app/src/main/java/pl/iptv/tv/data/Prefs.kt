@@ -192,6 +192,8 @@ object Prefs {
     var stremioSubLang: String get() = str("stremio_sub_lang", "pol"); set(v) = put("stremio_sub_lang", v)
     /** Źródła Stremio bez polskiej ścieżki mimo oznaczenia lektora (skróty kluczy, po jednym w linii). */
     var stremioNotPolish: String get() = str("stremio_not_pl"); set(v) = put("stremio_not_pl", v)
+    /** (7.18) Wtyczki Stremio, z których naprawdę się ogląda (JSON adres → liczba seansów ≥ 10 %). */
+    var stremioAddonScores: String get() = str("stremio_addon_scores"); set(v) = put("stremio_addon_scores", v)
     /** Serwer strumieniujący źródła P2P (TorrServer / serwer Stremio), np. „192.168.1.10:11470”; pusty – szukanie na tym urządzeniu. */
     var torrentServer: String get() = str("torrent_server"); set(v) = put("torrent_server", v)
     // ---- motyw X25 ----

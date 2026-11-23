@@ -631,16 +631,19 @@ class StremioDetailActivity : BaseActivity() {
 
         /** Czysta funkcja (bez dostępu do widoków): grupy rozdzielczości z polską wersją na górze każdej grupy, komunikaty. */
         fun prepare(gs: List<StremioSourceGroup>): SourcePrepared {
-            val all = gs.flatMap { it.streams }
+            // (7.18) bez źródeł P2P (torrent bez adresu) – na TV się nie otwierają
+            val raw = gs.flatMap { it.streams }
+            val all = raw.filter { it.kind != StremioStream.Kind.TORRENT }
             val groups = all.groupBy { it.quality }
             val order = StremioStreams.QUALITY_ORDER + (groups.keys - StremioStreams.QUALITY_ORDER.toSet())
-            // sortowanie stabilne: polska wersja (dubbing / lektor, potem napisy) na górze rozdzielczości, dalej kolejność wtyczki
-            val by = order.mapNotNull { q -> groups[q]?.let { l -> q to l.map { it to StremioStreams.polishRank(it) }.sortedBy { it.second }.map { it.first } } }
+            // (7.18) w rozdzielczości: najpierw wtyczki, z których naprawdę oglądasz (≥ 10 % filmu), dalej polska wersja i kolejność wtyczki
+            val by = order.mapNotNull { q -> groups[q]?.let { l -> q to pl.iptv.tv.data.StremioAddonScores.order(l) } }
             val notes = buildList<SourceItem> {
                 // (7.11) błędy i przekroczenia czasu wtyczek są pomijane po cichu (bez komunikatów w trakcie wyszukiwania)
                 // (7.7) jeden, jednolity wiersz zamiast listy wczytywanych wtyczek
                 if (gs.any { it.loading }) add(SourceItem.Loading)
-                if (all.isEmpty() && gs.none { it.loading }) add(SourceItem.Note("Brak źródeł dla tego tytułu we włączonych wtyczkach."))
+                if (all.isEmpty() && gs.none { it.loading }) add(SourceItem.Note(if (raw.isNotEmpty()) "Są tylko źródła P2P (torrent) – nie są obsługiwane. Użyj wtyczki z debrid."
+                    else "Brak źródeł dla tego tytułu we włączonych wtyczkach."))
             }
             return SourcePrepared(by, by.flatMap { it.second }, notes)
         }

@@ -1,6 +1,6 @@
 {
-  "versionCode": 78,
-  "versionName": "7.18",
+  "versionCode": 79,
+  "versionName": "7.19",
   "apk": "D-iptv-Player.apk",
-  "notes": "STube: songs always start from the beginning (music view and normal player); videos still resume. Music view: BACK in the lyrics returns to the 'Lyrics' tab, 'OK - sync lyrics' hint only while in the lyrics. Settings: left/right arrows move between engine profiles. / STube: piosenki zawsze od poczatku (widok muzyczny i zwykly odtwarzacz), filmy nadal wznawiane. Widok muzyczny: WSTECZ w tekscie wraca na kafelek 'Tekst', podpowiedz 'OK - synchronizacja tekstu' tylko w samym tekscie. Ustawienia: strzalki w lewo/prawo przechodza miedzy profilami silnika."
+  "notes": "Stremio sources: no P2P sources (they do not open on TV); in every resolution Polish versions first, then add-ons you actually watch (after 10% of a movie or episode), then the default add-on order (AIOStreams, Torrentio PM/RD/Lite, Torrentio, MediaFusion RD, Comet, Orion, Cinemeta, MediaFusion). Debrid sources that are still downloading: the player waits, checks every 20 s and starts automatically when the file is ready. / Zrodla Stremio: bez zrodel P2P (nie otwieraja sie na TV); w kazdej rozdzielczosci najpierw polska wersja, potem wtyczki, z ktorych naprawde ogladasz (po 10% filmu lub odcinka), dalej domyslna kolejnosc wtyczek (AIOStreams, Torrentio PM/RD/Lite, Torrentio, MediaFusion RD, Comet, Orion, Cinemeta, MediaFusion). Zrodla pobierane przez debrid: odtwarzacz czeka, sprawdza co 20 s i sam startuje, gdy plik jest gotowy."
 }
