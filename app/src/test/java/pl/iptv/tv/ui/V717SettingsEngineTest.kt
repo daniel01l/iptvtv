@@ -58,6 +58,15 @@ class V717SettingsEngineTest {
         assertEquals(EngineProfiles.Profile.entries.map { it.label }, pills.map { it.text.toString() })
         assertTrue(pills[0].isSelected)
         assertTrue(all(a.window.decorView).filterIsInstance<TextView>().any { it.text == "Profil: Automatyczny (Zalecany)" })
+        // ◄ ► między profilami (dawniej każde ◄ w treści przenosiło na karty z lewej)
+        fun key(code: Int) { a.dispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, code)); a.dispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, code)); idle(50) }
+        pills[0].requestFocus(); idle()
+        key(android.view.KeyEvent.KEYCODE_DPAD_RIGHT); assertTrue(pills[1].isFocused)
+        repeat(4) { key(android.view.KeyEvent.KEYCODE_DPAD_RIGHT) }; assertTrue("ostatni profil – zostaje", pills[3].isFocused)
+        key(android.view.KeyEvent.KEYCODE_DPAD_LEFT); assertTrue(pills[2].isFocused)
+        repeat(2) { key(android.view.KeyEvent.KEYCODE_DPAD_LEFT) }; assertTrue(pills[0].isFocused)
+        key(android.view.KeyEvent.KEYCODE_DPAD_LEFT)
+        assertFalse("◄ z pierwszego – karty z lewej", pills.any { it.isFocused })
         // OK na „Szybkie przełączanie” – parametry i etykieta
         pills[1].performClick(); idle()
         assertEquals(2, Prefs.bufMinS)

@@ -76,6 +76,17 @@ class V717EngineTest {
         assertFalse("domyślnie wyłączone", Prefs.autoFrameRate)
     }
 
+    @Test fun songsAlwaysStartFromBeginningVideosResume() {
+        fun v(t: String, ch: String = "", dur: String = "PT3M40S") = pl.iptv.tv.data.YtVideo("abcdefghijk", t, ch, duration = dur)
+        // piosenki (jak widok muzyczny) – bez wznawiania
+        assertTrue(YtEngine.isSong(v("Dawid Podsiadło - Małomiasteczkowy (Official Video)")))
+        assertTrue(YtEngine.isSong(v("Sanah – Szampan")))
+        assertTrue(YtEngine.isSong(v("Bad Guy", "Billie Eilish - Topic")))
+        // filmy, podcasty i długie nagrania – wznawiane jak dotąd
+        assertFalse(YtEngine.isSong(v("Jak zrobić pizzę w domu", "Kuchnia", "PT14M")))
+        assertFalse(YtEngine.isSong(v("Podcast o technologii #45", "Tech", "PT1H20M")))
+    }
+
     @Test fun channelSwitchOptionsForEveryDevice() {
         Prefs.lowPerf = false
         assertEquals(250, Prefs.zapDelayMs)

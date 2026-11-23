@@ -35,6 +35,18 @@ import java.util.concurrent.CopyOnWriteArraySet
  * ponowna ekstrakcja przy wygasłym adresie, następny film z kolejki, korektor na sesji audio.
  */
 object YtEngine {
+    /**
+     * (7.17) Piosenka (te same zasady co widok muzyczny: znaczniki muzyki w tytule / kanale albo „Wykonawca – Tytuł” krótkiego
+     * utworu) – odtwarzana zawsze od początku, bez „Oglądaj dalej”. Filmy, podcasty i długie nagrania – wznawiane jak dotąd.
+     */
+    fun isSong(v: YtVideo, p: YtPlayable? = null): Boolean {
+        val title = p?.title?.ifBlank { null } ?: v.title
+        val ch = p?.channel?.ifBlank { null } ?: v.channel
+        val dur = p?.durationS?.takeIf { it > 0 }?.let { pl.iptv.tv.data.YtKeyless.isoDuration(it) } ?: v.duration
+        // utwór: znak muzyki i bez cech filmu / składanki, do 9 min (długie miksy i nagrania – wznawiane)
+        return pl.iptv.tv.data.StubeMixes.isTrack(YtVideo(v.id, title, ch, v.thumb, duration = dur))
+    }
+
     /** Zdarzenia dla ekranów (ten sam proces). Domyślne implementacje – nic. */
     interface Listener {
         fun onLoading(v: YtVideo) {}
@@ -148,7 +160,8 @@ object YtEngine {
             if (p !is YtPlayable.Live) segments = sb?.await().orEmpty()
             // wznowienie od miejsca przerwania (jak w YouTube); „od początku” z menu kafelka
             var at = resumeAtMs
-            if (at <= 0 && !fromStart && p !is YtPlayable.Live && Prefs.stubeResume) at = StubeHistory.resumeFrom(StubeHistory.progress(v.id))
+            // (7.17) piosenki zawsze od początku (widok muzyczny i zwykły) – wznawiane są tylko filmy
+            if (at <= 0 && !fromStart && p !is YtPlayable.Live && Prefs.stubeResume && !isSong(v, p)) at = StubeHistory.resumeFrom(StubeHistory.progress(v.id))
             exo.trackSelectionParameters = trackParams(exo, p)
             exo.setMediaSource(YtMedia.source(app, p))
             if (at > 0 && p !is YtPlayable.Live) exo.seekTo(at)

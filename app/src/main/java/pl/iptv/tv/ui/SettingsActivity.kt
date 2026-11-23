@@ -120,6 +120,14 @@ class SettingsActivity : BaseActivity() {
             lastKeyAt = android.os.SystemClock.uptimeMillis()
             val f = window.decorView.findFocus()
             val inContent = inside(f, container) || inside(f, sticky)
+            // (7.17) pigułki profili wydajności: ◄ ► między profilami (◄ z pierwszego – karty z lewej, ► na ostatnim – zostaje)
+            profileBar?.takeIf { f != null && f.parent === it }?.let { bar ->
+                val i = bar.indexOfChild(f)
+                when (event.keyCode) {
+                    android.view.KeyEvent.KEYCODE_DPAD_LEFT -> if (i > 0) { bar.getChildAt(i - 1).requestFocus(); return true }
+                    android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> { bar.getChildAt(i + 1)?.requestFocus(); return true }
+                }
+            }
             if (event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT && inContent && f !is EditText) { tabs[tab].requestFocus(); return true }
             if (event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT && f != null && f in tabs) {
                 handler.removeCallbacks(tabSwitch)

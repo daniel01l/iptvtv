@@ -193,7 +193,8 @@ object STubeScreen {
                 ROW_MIXES -> STubeRow(id, "Twoje miksy") { _ ->
                     STubePage(pl.iptv.tv.data.StubeMixes.current().map { STubeTile.Playlist(YtPlaylist(PL_MIX + it.id, it.title, it.thumb)) })
                 }
-                ROW_CONTINUE -> STubeRow(id, "Kontynuuj oglądanie") { _ -> STubePage(StubeHistory.unfinished().map { STubeTile.Video(it.toVideo()) }) }
+                // (7.17) piosenki zawsze od początku – bez nich w „Kontynuuj oglądanie”
+                ROW_CONTINUE -> STubeRow(id, "Kontynuuj oglądanie") { _ -> STubePage(StubeHistory.unfinished().map { it.toVideo() }.filterNot { YtEngine.isSong(it) }.map { STubeTile.Video(it) }) }
                 // wyszukiwanie bez klucza (nie zużywa limitu API: 100 jednostek za zapytanie); API – zapasowo
                 ROW_SEARCH -> STubeRow(id, "Wyniki: ${query!!.trim()}") { _ ->
                     val found = try { YtKeyless.search(query) } catch (e: YtException) {

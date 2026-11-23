@@ -245,6 +245,23 @@ class V79Test {
         assertSame(s.lyricsTab, s.findFocus())
         key(a, android.view.KeyEvent.KEYCODE_DPAD_DOWN)
         assertSame(inText, s.findFocus())
+        // (7.17) podpowiedź „OK – synchronizacja tekstu” tylko z kursorem w tekście (gdy tekst jest wczytany)
+        waitFor { s.syncHintShown }
+        assertTrue("w tekście – podpowiedź", s.syncHintShown)
+        // (7.17) WSTECZ w tekście – kafelek „Tekst” (odtwarzacz zostaje), stąd dalej ◄ – „Kolejka”
+        key(a, android.view.KeyEvent.KEYCODE_BACK)
+        assertSame(s.lyricsTab, s.findFocus()); assertFalse(a.isFinishing)
+        assertFalse("na kafelku „Tekst” – bez podpowiedzi", s.syncHintShown)
+        key(a, android.view.KeyEvent.KEYCODE_DPAD_LEFT)
+        assertSame(s.queueTab, s.findFocus())
+        // także w trybie ręcznej synchronizacji: WSTECZ kończy synchronizację i wraca na „Tekst”
+        s.lyricsTab.requestFocus(); key(a, android.view.KeyEvent.KEYCODE_DPAD_DOWN); assertSame(inText, s.findFocus())
+        s.toggleSync()
+        key(a, android.view.KeyEvent.KEYCODE_BACK)
+        assertSame(s.lyricsTab, s.findFocus()); assertFalse(s.syncMode); assertFalse(a.isFinishing)
+        // poza tekstem WSTECZ – jak dotąd (zamyka odtwarzacz)
+        key(a, android.view.KeyEvent.KEYCODE_BACK)
+        assertTrue(a.isFinishing)
     }
 
     @Test fun lyricsCleaningAndFallbackQueries() {

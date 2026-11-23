@@ -1188,6 +1188,8 @@ class YtPlayerActivity : AppCompatActivity() {
             // okno opcji w widoku muzycznym: WSTECZ zamyka je (nie cały odtwarzacz)
             if (stage.optionsOpen && event.keyCode == KeyEvent.KEYCODE_BACK) { if (event.action == KeyEvent.ACTION_DOWN) stage.closeOptions(); return true }
             if (stage.optionsOpen) return super.dispatchKeyEvent(event)
+            // (7.17) WSTECZ w polu tekstu – z powrotem na kafelek „Tekst” (dalsza nawigacja w widoku muzycznym), nie wyjście do STube
+            if (event.keyCode == KeyEvent.KEYCODE_BACK && stage.handleBack(event)) return true
             if (stage.handleKey(event)) return true
             val down = event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0
             when (event.keyCode) {

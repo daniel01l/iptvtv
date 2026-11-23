@@ -995,7 +995,7 @@ class STubeActivity : BaseActivity() {
         Dialogs.menu(this, v.title, buildList {
             add("▶ Odtwórz w aplikacji" to { playInApp(v) })
             // od początku, gdy zapisana pozycja (wznawianie domyślnie od miejsca zakończenia)
-            if (StubeHistory.resumeFrom(watched) > 0) add("⏮ Odtwórz od początku" to { startActivity(YtPlayerActivity.intent(this@STubeActivity, v, fromStart = true)) })
+            if (StubeHistory.resumeFrom(watched) > 0 && !YtEngine.isSong(v)) add("⏮ Odtwórz od początku" to { startActivity(YtPlayerActivity.intent(this@STubeActivity, v, fromStart = true)) })
             if (StubeHistory.isWatchLater(v.id)) add("✖ Usuń z „Do obejrzenia później”" to {
                 lifecycleScope.launch { StubeHistory.removeWatchLater(v.id); toast("Usunięto z „Do obejrzenia później”"); watchLaterChanged() }; Unit
             }) else add("🕘 Do obejrzenia później" to {

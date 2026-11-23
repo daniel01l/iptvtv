@@ -197,6 +197,7 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
         lyricsBox.addView(lyricsText)
         lyricsScroll.apply { addView(lyricsBox); visibility = View.GONE; setOnKeyListener { _, _, e -> if (e.action == android.view.KeyEvent.ACTION_DOWN) holdScrollUntil = android.os.SystemClock.uptimeMillis() + 4000; false }
             setOnTouchListener { _, _ -> holdScrollUntil = android.os.SystemClock.uptimeMillis() + 4000; false }; isFocusable = true; isFocusableInTouchMode = false; isVerticalScrollBarEnabled = false
+            onFocusChangeListener = View.OnFocusChangeListener { _, _ -> refreshSyncHint() }   // (7.17) podpowiedź OK tylko w tekście
             background = focusFrame(); isClickable = true; setOnClickListener { toggleSync() } }
         val rightBody = FrameLayout(c).apply { clipChildren = true }
         rightBody.addView(list, LayoutParams(-1, -1)); rightBody.addView(lyricsScroll, LayoutParams(-1, -1))
@@ -445,10 +446,29 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
     fun delayLabel(ms: Long = lyricDelayMs) = "%+.2f".format(java.util.Locale.US, ms / 1000.0).replace('.', ',') + " s"
 
     private fun refreshSyncHint() {
-        val on = tab == TAB_LYRICS && lyricLines.isNotEmpty()
+        // (7.17) podpowiedź tylko z kursorem w samym tekście (nie na kafelku „Tekst”)
+        val on = tab == TAB_LYRICS && lyricLines.isNotEmpty() && lyricsScroll.hasFocus()
         syncHint.visibility = if (on) View.VISIBLE else View.GONE
         syncHint.text = if (syncMode) "◄ ► przesuń tekst (${delayLabel()}) · OK – gotowe"
             else if (lyricDelayMs != 0L) "OK – synchronizacja tekstu (${delayLabel()})" else "OK – synchronizacja tekstu"
+    }
+
+    /** Podpowiedź „OK – synchronizacja tekstu” widoczna (testy). */
+    val syncHintShown: Boolean get() = syncHint.visibility == View.VISIBLE
+
+    /** WSTECZ wciśnięty w polu tekstu – zwolnienie klawisza też należy do widoku (nie zamyka odtwarzacza). */
+    private var backInLyrics = false
+
+    /**
+     * (7.17) WSTECZ z pola tekstu (niebieska ramka): kończy ręczną synchronizację i wraca na kafelek „Tekst” – stamtąd dalej
+     * ◄ ► ▲ ▼ po widoku muzycznym. Kolejne WSTECZ (już poza tekstem) – jak dotąd. Zwraca true, gdy klawisz obsłużono.
+     */
+    fun handleBack(e: android.view.KeyEvent): Boolean {
+        if (e.action == android.view.KeyEvent.ACTION_UP) { val was = backInLyrics; backInLyrics = false; return was }
+        if (e.action != android.view.KeyEvent.ACTION_DOWN || findFocus() !== lyricsScroll) return false
+        backInLyrics = true
+        if (e.repeatCount == 0) { if (syncMode) { syncMode = false; refreshSyncHint() }; lyricsTab.requestFocus() }
+        return true
     }
 
     fun toggleSync() {
