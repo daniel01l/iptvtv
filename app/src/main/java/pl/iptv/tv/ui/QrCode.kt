@@ -21,4 +21,11 @@ object QrCode {
         // całkowita wielokrotność modułu – ostre krawędzie (bez filtrowania)
         return Bitmap.createScaledBitmap(small, n * scale, n * scale, false).also { if (it !== small) small.recycle() }
     }
+
+    /** (7.21) Kod QR do zeskanowania telefonem (np. adres strony aplikacji w sieci lokalnej) – kwadrat [sizeDp], zaokrąglony. */
+    fun image(c: android.content.Context, text: String, sizeDp: Int = 150) = android.widget.ImageView(c).apply {
+        tag = "keepcolor nozoom"; contentDescription = "Kod QR: $text"; scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+        runCatching { setImageBitmap(bitmap(text, Ui.dp(sizeDp))) }
+        layoutParams = android.view.ViewGroup.LayoutParams(Ui.dp(sizeDp), Ui.dp(sizeDp))
+    }
 }

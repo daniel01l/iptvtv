@@ -14,7 +14,8 @@ import org.json.JSONObject
  * Wyniki w pamięci podręcznej; błąd sieci / brak tłumaczenia – null (bezpieczny powrót do danych angielskich).
  */
 object StremioTmdb {
-    var apiKey: () -> String = { runCatching { pl.iptv.tv.BuildConfig.TMDB_API_KEY }.getOrDefault("") }
+    /** (7.21) Klucz użytkownika z Ustawień Stremio ([Prefs.tmdbApiKey]); pusty – funkcje TMDB wyłączone (jak w 7.19). */
+    var apiKey: () -> String = { runCatching { Prefs.tmdbApiKey }.getOrDefault("") }
     var base = "https://api.themoviedb.org/3"
     const val TIMEOUT_MS = 6_000L
 
@@ -136,6 +137,20 @@ object StremioTmdb {
         }
         return mapped.distinctBy { it.id }.take(limit)
     }
+
+    /** (7.21) Sprawdzenie klucza jednym zapytaniem: true – działa, false – odrzucony (401), null – brak sieci. */
+    suspend fun validate(key: String): Boolean? = withContext(Dispatchers.IO) {
+        withTimeoutOrNull(TIMEOUT_MS) {
+            runCatching {
+                StremioApi.client().newCall(okhttp3.Request.Builder().url("$base/configuration?api_key=${key.trim()}").build()).execute().use { r ->
+                    when { r.isSuccessful -> true; r.code == 401 || r.code == 403 -> false; else -> null }
+                }
+            }.getOrNull()
+        }
+    }
+
+    /** Informacja wymagana przez TMDB przy korzystaniu z API. */
+    const val ATTRIBUTION = "This product uses the TMDB API but is not endorsed or certified by TMDB."
 
     /** Testy. */
     fun clearCache() = synchronized(cache) { cache.clear() }

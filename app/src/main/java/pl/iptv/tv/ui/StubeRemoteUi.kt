@@ -38,7 +38,10 @@ object StubeRemoteUi {
         }
         val box = LinearLayout(a).apply {
             orientation = LinearLayout.VERTICAL; setPadding(px(24), px(8), px(24), px(4))
-            listOf(step1, url, step2, pin, info).forEach { addView(it, LinearLayout.LayoutParams(-1, -2)) }
+            listOf(step1, url).forEach { addView(it, LinearLayout.LayoutParams(-1, -2)) }
+            // (7.21) kod QR z adresem – telefon otwiera stronę bez wpisywania IP
+            StubeRemote.pageUrl()?.let { u -> addView(QrCode.image(a, u, 140), LinearLayout.LayoutParams(px(140), px(140)).apply { gravity = Gravity.CENTER_HORIZONTAL; bottomMargin = px(8) }) }
+            listOf(step2, pin, info).forEach { addView(it, LinearLayout.LayoutParams(-1, -2)) }
         }
         val d = Ui.dialog(a).setTitle("📱 Połącz z telefonem").setView(box)
             .setPositiveButton("Gotowe", null)

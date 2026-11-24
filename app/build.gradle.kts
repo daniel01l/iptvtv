@@ -16,17 +16,16 @@ android {
         applicationId = "pl.iptv.tv"
         minSdk = 21
         targetSdk = 34
-        versionCode = 80
-        versionName = "7.20"
+        versionCode = 81
+        versionName = "7.21"
         // konto YouTube (OAuth 2.0 Device Flow): klient typu „TV i urządzenia z ograniczonym wejściem” z Google Cloud Console.
         // Plik keystore/youtube_oauth.properties (poza repozytorium): client_id=…, client_secret=…, api_key=… (klucz – trendy bez logowania).
         val yt = Properties().apply { rootProject.file("keystore/youtube_oauth.properties").takeIf { it.exists() }?.reader()?.use { load(it) } }
         buildConfigField("String", "YT_CLIENT_ID", "\"${yt.getProperty("client_id", "").trim()}\"")
         buildConfigField("String", "YT_CLIENT_SECRET", "\"${yt.getProperty("client_secret", "").trim()}\"")
         buildConfigField("String", "YT_API_KEY", "\"${yt.getProperty("api_key", "").trim()}\"")
-        // (7.20) Plik keystore/tmdb.properties (poza repozytorium, opcjonalny): api_key=… (TMDB v3) – polskie opisy i kolekcje filmów w Stremio.
-        val tmdb = Properties().apply { rootProject.file("keystore/tmdb.properties").takeIf { it.exists() }?.reader()?.use { load(it) } }
-        buildConfigField("String", "TMDB_API_KEY", "\"${tmdb.getProperty("api_key", "").trim()}\"")
+        // (7.21) klucz TMDB nie jest wbudowany w APK – użytkownik wpisuje własny w Stremio („Klucz TMDB”)
+        buildConfigField("String", "TMDB_API_KEY", "\"\"")
     }
     signingConfigs {
         create("iptvtv") {

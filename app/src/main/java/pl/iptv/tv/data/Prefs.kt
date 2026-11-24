@@ -201,6 +201,8 @@ object Prefs {
     var stremioLibrary: String get() = str("stremio_library"); set(v) = put("stremio_library", v)
     /** (7.20) Co ile godzin rzędy „Top 10” Stremio są pobierane od nowa (domyślnie 96 h = 4 dni). */
     var stremioTop10Hours: Int get() = int("stremio_top10_h", 96); set(v) = putInt("stremio_top10_h", v)
+    /** (7.21) Własny klucz API TMDB użytkownika (Stremio → „Klucz TMDB”): Top 10, polskie opisy, części filmów; pusty – jak w 7.19. */
+    var tmdbApiKey: String get() = str("tmdb_key"); set(v) = put("tmdb_key", v.trim())
     /** Odtwarzacz: rozmiar napisów (indeks), kolor (indeks), opóźnienie (ms), dopasowanie obrazu, preferowany język napisów. */
     var stremioSubSize: Int get() = int("stremio_sub_size", 1); set(v) = putInt("stremio_sub_size", v)
     var stremioSubColor: Int get() = int("stremio_sub_color", 0); set(v) = putInt("stremio_sub_color", v)

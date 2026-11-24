@@ -195,6 +195,9 @@ class StremioActivity : BaseActivity() {
         // (7.8) odświeżenie wtyczek (zmiany na koncie) i ponowne wczytanie tablicy
         searchBar.addView(StremioUi.button(this, "", PlayerIcon.REFRESH) { refreshAddons() }.apply { contentDescription = "Odśwież wtyczki" },
             LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
+        // (7.21) własny klucz TMDB (Top 10, polskie opisy, części filmów) – wpisanie pilotem albo z telefonu (kod QR)
+        searchBar.addView(StremioUi.button(this, "", PlayerIcon.STAR) { TmdbKeyUi.show(this) { build(searchQuery) } }.apply { contentDescription = TmdbKeyUi.TITLE },
+            LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
         account = StremioUi.button(this, "", PlayerIcon.USER) { accountMenu() }
         if (obsidian) {
             // (7.17) „Obsidian Stream”: przyciski nagłówka w pasku nawigacji (nad treścią), u góry pigułki filtrów i wyszukiwarka
@@ -209,6 +212,7 @@ class StremioActivity : BaseActivity() {
             railBox.addView(StremioUi.button(this, "", PlayerIcon.SEARCH) { query.requestFocus(); showKeyboard() }.apply { contentDescription = "Szukaj" }, LinearLayout.LayoutParams(-1, -2))
             buttons.getOrNull(1)?.let { (it as TextView).text = ""; it.contentDescription = "Wtyczki"; railBox.addView(it, LinearLayout.LayoutParams(-1, -2)) }
             buttons.getOrNull(2)?.let { railBox.addView(it, LinearLayout.LayoutParams(-1, -2)) }
+            buttons.getOrNull(3)?.let { railBox.addView(it, LinearLayout.LayoutParams(-1, -2)) }        // (7.21) Klucz TMDB
             railBox.addView(View(this), LinearLayout.LayoutParams(0, 0, 1f))
             railBox.addView(StremioUi.button(this, "", PlayerIcon.CLOSE) { leaveScreen() }.apply { contentDescription = "Zamknij" }, LinearLayout.LayoutParams(-1, -2))
             filterBar = buildFilterBar()
@@ -580,6 +584,8 @@ class StremioActivity : BaseActivity() {
         val T = pl.iptv.tv.data.StremioTop10
         T.init(this)
         val canFetch = pl.iptv.tv.data.StremioTmdb.available
+        // (7.21) bez klucza TMDB – tablica jak w 7.19 (żadnych rzędów Top 10, także z pamięci podręcznej)
+        if (!canFetch) return
         val byKey = LinkedHashMap<String, Row>()
         val specs = T.rows(type)
         for (s in specs) {

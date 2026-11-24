@@ -57,7 +57,10 @@ object StubeImportUi {
         val details = TextView(a).apply { tag = "text2"; textSize = 14f; visibility = View.GONE }
         val box = LinearLayout(a).apply {
             orientation = LinearLayout.VERTICAL; setPadding(px(24), px(8), px(24), px(4))
-            listOf<View>(intro, input, phone, status, bar, details).forEach { addView(it, LinearLayout.LayoutParams(-1, -2)) }
+            listOf<View>(intro, input, phone).forEach { addView(it, LinearLayout.LayoutParams(-1, -2)) }
+            // (7.21) kod QR z adresem strony – bez wpisywania IP na telefonie
+            RemoteServer.localIps().firstOrNull()?.let { ip -> addView(QrCode.image(a, "http://$ip:${RemoteServer.PORT}", 120), LinearLayout.LayoutParams(px(120), px(120)).apply { topMargin = px(6) }) }
+            listOf<View>(status, bar, details).forEach { addView(it, LinearLayout.LayoutParams(-1, -2)) }
         }
         val d = Ui.dialog(a).setTitle("＋ Dodaj playlistę").setView(box)
             .setPositiveButton("Sprawdź", null).setNeutralButton("Wklej", null).setNegativeButton("Anuluj", null).create()

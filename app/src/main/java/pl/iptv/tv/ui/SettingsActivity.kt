@@ -591,6 +591,8 @@ class SettingsActivity : BaseActivity() {
             val ips = pl.iptv.tv.remote.RemoteServer.localIps()
             row("📺 Nazwa urządzenia", pl.iptv.tv.remote.RemoteServer.deviceName) {}
             row("🌐 Adres", ips.joinToString(", ") { "$it:${pl.iptv.tv.remote.RemoteServer.PORT}" }.ifEmpty { "brak sieci" }) {}
+            // (7.21) kod QR z adresem strony – telefon otwiera ją bez wpisywania IP
+            ips.firstOrNull()?.let { ip -> target().addView(QrCode.image(this, "http://$ip:${pl.iptv.tv.remote.RemoteServer.PORT}", 120), LinearLayout.LayoutParams(Ui.dp(120), Ui.dp(120)).apply { setMargins(Ui.dp(14), Ui.dp(4), 0, Ui.dp(6)) }) }
             row("🔑 Kod PIN", pl.iptv.tv.remote.RemoteServer.ensurePin()) { Prefs.remotePin = ""; pl.iptv.tv.remote.RemoteServer.ensurePin(); build(true) }
             toggle("Od razu ustawiaj odebraną listę jako aktywną", { Prefs.remoteAutoActivate }) { Prefs.remoteAutoActivate = it }
             note("Na telefonie (ta sama sieć Wi-Fi):\n• otwórz w przeglądarce http://${ips.firstOrNull() ?: "IP"}:${pl.iptv.tv.remote.RemoteServer.PORT}, wybierz plik i wpisz PIN, albo\n" +

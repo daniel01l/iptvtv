@@ -321,7 +321,10 @@ class SetupActivity : BaseActivity() {
         Ui.dialog(this).setTitle("📶 Lista przez Wi-Fi").setMessage(
             "Na telefonie lub komputerze w tej samej sieci otwórz w przeglądarce:\n\nhttp://${ip ?: "?"}:${pl.iptv.tv.remote.RemoteServer.PORT}\n\n" +
             "PIN: ${pl.iptv.tv.remote.RemoteServer.ensurePin()}\n\nAlbo w D-iptv Player na telefonie: Ustawienia → Listy → Wyślij w tej samej sieci Wi-Fi.\n" +
-            "Lista pojawi się tutaj automatycznie.").setPositiveButton("OK", null).show()
+            "Lista pojawi się tutaj automatycznie.")
+            // (7.21) kod QR z adresem – telefon otwiera stronę bez wpisywania IP
+            .apply { ip?.let { setView(android.widget.FrameLayout(this@SetupActivity).apply { setPadding(0, Ui.dp(8), 0, 0); addView(QrCode.image(this@SetupActivity, "http://$it:${pl.iptv.tv.remote.RemoteServer.PORT}", 140), android.widget.FrameLayout.LayoutParams(Ui.dp(140), Ui.dp(140), android.view.Gravity.CENTER_HORIZONTAL)) }) } }
+            .setPositiveButton("OK", null).show()
     }
 
     private fun remoteInternet() {

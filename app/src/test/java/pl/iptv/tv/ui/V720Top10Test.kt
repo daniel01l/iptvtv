@@ -93,7 +93,7 @@ class V720Top10Test {
 
     @After fun tearDown() {
         StremioApi.defaultAddons = listOf(StremioApi.CINEMETA, StremioApi.OPENSUBTITLES); StremioApi.client = { pl.iptv.tv.data.Repository.http }
-        StremioTmdb.base = "https://api.themoviedb.org/3"; StremioTmdb.apiKey = { pl.iptv.tv.BuildConfig.TMDB_API_KEY }; StremioTmdb.clearCache()
+        StremioTmdb.base = "https://api.themoviedb.org/3"; StremioTmdb.apiKey = { Prefs.tmdbApiKey }; StremioTmdb.clearCache()
         StremioTop10.resetForTest(ctx); Prefs.stremioTop10Hours = 96
         Prefs.stremioGuest = false; StremioAccount.clear(); server.shutdown(); StubeHistory.useDatabase(null); db.close()
     }
@@ -149,7 +149,7 @@ class V720Top10Test {
     @Test fun boardShowsRowsInstantlyFromCacheWithRankBadgesPerTab() = runBlocking {
         // zapis z poprzedniego uruchomienia; bez klucza (brak sieci) – rzędy i tak od razu z pliku
         StremioTop10.refreshStale(StremioTop10.rows(null))
-        StremioTmdb.apiKey = { "" }
+        // świeży zapis – bez zapytań do sieci (klucz jest, ale rzędy nie są przeterminowane)
         synchronized(discovers) { discovers.clear() }
         val a = board(); waitFor { a.rowTitles.count { it.startsWith("Top 10") } == 10 }
         assertEquals(StremioTop10.rows(null).map { it.title }, a.rowTitles.filter { it.startsWith("Top 10") })

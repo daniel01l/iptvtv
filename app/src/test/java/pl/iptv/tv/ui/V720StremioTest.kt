@@ -107,7 +107,7 @@ class V720StremioTest {
 
     @After fun tearDown() {
         StremioApi.defaultAddons = listOf(StremioApi.CINEMETA, StremioApi.OPENSUBTITLES); StremioApi.client = { pl.iptv.tv.data.Repository.http }
-        StremioTmdb.base = "https://api.themoviedb.org/3"; StremioTmdb.apiKey = { pl.iptv.tv.BuildConfig.TMDB_API_KEY }; StremioTmdb.clearCache()
+        StremioTmdb.base = "https://api.themoviedb.org/3"; StremioTmdb.apiKey = { Prefs.tmdbApiKey }; StremioTmdb.clearCache()
         Prefs.stremioGuest = false; Prefs.stremioLibrary = ""; Prefs.language = "pl"
         StremioAccount.clear(); server.shutdown(); StubeHistory.useDatabase(null); db.close(); StremioMetas.clear()
     }

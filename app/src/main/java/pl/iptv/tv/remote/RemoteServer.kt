@@ -153,6 +153,14 @@ object RemoteServer {
                 val res = receiveCast(r.headers["x-pin"].orEmpty(), dec(r.headers["x-url"]).ifBlank { String(r.body, Charsets.UTF_8) })
                 respond(sock, if (res.first) 200 else 403, "application/json", JSONObject().put("ok", res.first).put("message", res.second).toString())
             }
+            // (7.21) klucz TMDB z telefonu (kod QR w Stremio → „Klucz TMDB”): strona /tmdb i zapis /api/tmdb z kodem PIN
+            r.method == "GET" && r.path.startsWith("/tmdb") -> respond(sock, 200, "text/html", tmdbPage())
+            r.method == "POST" && r.path.startsWith("/api/tmdb") -> {
+                val ok = r.headers["x-pin"].orEmpty() == Prefs.remotePin
+                val key = String(r.body, Charsets.UTF_8).trim()
+                if (ok && key.length in 16..64) { Prefs.tmdbApiKey = key; pl.iptv.tv.data.StremioTmdb.clearCache(); pl.iptv.tv.ui.TmdbKeyUi.onRemoteKey?.invoke() }
+                respond(sock, if (ok) 200 else 403, "application/json", JSONObject().put("ok", ok && key.length in 16..64).put("message", if (!ok) "Błędny kod PIN" else if (key.length !in 16..64) "Nieprawidłowy klucz" else "Zapisano – wróć do telewizora").toString())
+            }
             r.method == "GET" -> respond(sock, 200, "text/html", page())
             r.method == "POST" && r.path.startsWith("/api/playlist") -> {
                 val h = r.headers
@@ -279,3 +287,11 @@ button{background:#2f80ed;border:0;font-weight:bold}.m{padding:12px;border-radiu
 <label>Plik IptvTv.apk</label><input type="file" name="apk" accept=".apk" required>
 <button type="submit">Zaktualizuj</button></form></body></html>"""
 }
+
+/** (7.21) Prosta strona do wpisania klucza TMDB z telefonu (kod QR na telewizorze). */
+private fun tmdbPage(): String = """<!doctype html><html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Klucz TMDB</title><style>body{font-family:sans-serif;background:#0F141F;color:#F8FAFC;margin:0;padding:24px}input,button{width:100%;box-sizing:border-box;font-size:18px;padding:12px;margin:8px 0;border-radius:12px;border:1px solid #334155;background:#121722;color:#F8FAFC}button{background:#3B82F6;border:0;font-weight:bold}small{color:#94A3B8}</style></head>
+<body><h2>Klucz TMDB</h2><p><small>Klucz API (v3) z themoviedb.org → Ustawienia → API. Włącza Top 10, polskie opisy i części filmów.</small></p>
+<input id="k" placeholder="Klucz API (32 znaki)" autocomplete="off"><input id="p" placeholder="PIN z telewizora" inputmode="numeric">
+<button onclick="fetch('/api/tmdb',{method:'POST',headers:{'x-pin':document.getElementById('p').value},body:document.getElementById('k').value}).then(r=>r.json()).then(j=>document.getElementById('m').textContent=j.message)">Zapisz</button>
+<p id="m"></p><p><small>This product uses the TMDB API but is not endorsed or certified by TMDB.</small></p></body></html>"""
