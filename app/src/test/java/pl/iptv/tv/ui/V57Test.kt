@@ -141,27 +141,26 @@ class V57Test {
             .putExtra(PlayerActivity.EXTRA_CHANNEL, Repository.channels[1].key).putExtra(PlayerActivity.EXTRA_GROUP, Repository.ALL)).setup(); idle(600)
         val a = c.get()
         down(a, KeyEvent.KEYCODE_DPAD_CENTER); down(a, KeyEvent.KEYCODE_DPAD_CENTER, 1); a.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_CENTER)); idle()
-        val d = ShadowDialog.getLatestDialog() as androidx.appcompat.app.AlertDialog
+        // (7.20) okno silnika z kartami (EngineSheet) – te same ustawienia co Ustawienia, zmiana działa od razu (bez restartu ekranu)
+        val d = EngineSheet.shown!!
         assertTrue(d.isShowing)
-        val lv = all(d.window!!.decorView).filterIsInstance<android.widget.ListView>().first()
-        fun label(i: Int) = lv.adapter.getItem(i).toString()
-        assertTrue(label(0), label(0).startsWith("▶ Silnik: dekoder sprzętowy"))
-        assertTrue(label(1), label(1).contains("Akceleracja sprzętowa: ✔"))
+        fun card(key: String) = all(d.window!!.decorView).first { it.tag == "engine:$key" }
+        fun value(key: String) = all(card(key)).filterIsInstance<TextView>().firstOrNull { it.tag == "value" }?.text?.toString() ?: ""
+        assertTrue(value("engine"), value("engine").startsWith("Sprzętowy"))
+        assertTrue(card("hw").contentDescription.endsWith("włączone"))
         val before = Playback.player
-        lv.performItemClick(lv.getChildAt(1), 1, 1); idle()
+        card("hw").performClick(); idle()
         assertFalse(Prefs.hwAccel)
         assertTrue(Playback.softwareDecoding)
-        assertNotSame(before, Playback.player)                              // nowy odtwarzacz z nowymi ustawieniami
+        assertNotSame(before, Playback.player)                              // nowy odtwarzacz z nowymi ustawieniami (w locie)
         assertTrue(Playback.active)
-        assertTrue(label(1), label(1).contains("✖ wyłączona"))
-        lv.performItemClick(lv.getChildAt(0), 0, 0); idle()
+        assertTrue(card("hw").contentDescription.endsWith("wyłączone"))   // okno odświeżone z tego samego źródła
+        card("engine").performClick(); idle()
         assertEquals(1, Prefs.playerEngine)
-        assertTrue(label(0).startsWith("▶ Silnik: dekoder programowy"))
-        // do szybkiego menu ikon
-        // 7.5: menu ma też pozycje dopasowania silnika kanału – „Szybkie menu ikon” szukane po nazwie
-        assertTrue((0 until lv.adapter.count).any { label(it).contains("Dopasowanie silnika") })
-        val mini = (0 until lv.adapter.count).first { label(it).contains("Szybkie menu ikon") }
-        lv.performItemClick(lv.getChildAt(mini), mini, mini.toLong()); idle()
+        assertTrue(value("engine").startsWith("Programowy"))
+        // dopasowanie silnika i szybkie menu ikon – akcje na końcu okna
+        assertTrue(all(d.window!!.decorView).any { (it.tag as? String)?.startsWith("engine:extra") == true && it.contentDescription == "Dopasowanie silnika (automatyczne)" })
+        all(d.window!!.decorView).first { (it.tag as? String)?.startsWith("engine:extra") == true && it.contentDescription == "Szybkie menu ikon" }.performClick(); idle()
         assertFalse(d.isShowing)
         assertEquals(View.VISIBLE, a.findViewById<View>(R.id.miniMenu).visibility)
         Prefs.playerEngine = 0; Prefs.hwAccel = true

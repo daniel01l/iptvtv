@@ -15,6 +15,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import coil.load
+import pl.iptv.tv.R
 import pl.iptv.tv.data.StremioAddon
 import pl.iptv.tv.data.StremioApi
 import pl.iptv.tv.data.StremioMeta
@@ -66,22 +67,44 @@ object StremioUi {
         listOfNotNull(typeName(type), year.ifBlank { null }, rating.takeIf { it.isNotBlank() && it != "0" }?.let { "★ $it" }, genres.take(3).joinToString(", ").ifBlank { null })
             .joinToString("   ·   ")
 
+
+    /**
+     * (7.20) Odznaka pozycji rankingu „#1”–„#10” na plakacie Top 10: wypełnienie w akcencie aktywnego motywu, tekst o wysokim
+     * kontraście (biały / czarny wg jasności akcentu), zaokrąglenie 8 dp, cienka jasna obwódka – czytelna na każdym plakacie.
+     */
+    fun rankBadge(c: Context) = TextView(c).apply {
+        val pal = CardSheet.palette()
+        val ink = if (androidx.core.graphics.ColorUtils.calculateLuminance(pal.accent) > 0.55) android.graphics.Color.BLACK else android.graphics.Color.WHITE
+        tag = "keepcolor"; setTag(R.id.row_key, RANK_TAG); textSize = 14f; setTypeface(typeface, android.graphics.Typeface.BOLD); setTextColor(ink)
+        includeFontPadding = false; setPadding(Ui.dp(8), Ui.dp(3), Ui.dp(8), Ui.dp(4)); visibility = View.GONE
+        background = GradientDrawable().apply { setColor(pal.accent or 0xFF000000.toInt()); cornerRadius = Ui.dp(8).toFloat(); setStroke(Ui.dp(1), CardSheet.withAlpha(android.graphics.Color.WHITE, 0x66)) }
+        elevation = Ui.dp(2).toFloat()
+    }
+    const val RANK_TAG = "rank_badge"
+
     fun fmt(ms: Long): String { val s = ms / 1000; return if (s >= 3600) String.format("%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60) else String.format("%d:%02d", s / 60, s % 60) }
 }
 
 /** Metadane (Cinemeta i inne wtyczki „meta”) z pamięcią podręczną. */
 object StremioMetas {
     private val cache = HashMap<String, StremioMeta>()
-    fun cached(type: String, id: String) = synchronized(cache) { cache["$type/$id"] }
+    private fun key(type: String, id: String) = "${pl.iptv.tv.data.StremioTmdb.language()}/$type/$id"
+    fun cached(type: String, id: String) = synchronized(cache) { cache[key(type, id)] }
 
+    /**
+     * Metadane tytułu. (7.20) Aplikacja po polsku: wtyczka TMDB (zwykle skonfigurowana z językiem) przed Cinemetą, a opis,
+     * tytuł i gatunki z TMDB `pl-PL` ([pl.iptv.tv.data.StremioTmdb.localize]); brak polskiego tłumaczenia – dane angielskie.
+     */
     suspend fun get(type: String, id: String): StremioMeta? {
         cached(type, id)?.let { return it }
+        val polish = pl.iptv.tv.data.StremioTmdb.polishWanted
         val addons = StremioStore.addons().map { it.first }.filter { it.supports("meta", type, id) }
-            .sortedBy { if (it.transportUrl == StremioApi.CINEMETA) 0 else 1 }
+            .sortedBy { a -> when { polish && a.transportUrl.contains("tmdb", ignoreCase = true) -> 0; a.transportUrl == StremioApi.CINEMETA -> 1; else -> 2 } }
             .ifEmpty { listOfNotNull(runCatching { StremioApi.manifest(StremioApi.CINEMETA) }.getOrNull()) }
         for (a in addons) {
-            val m = runCatching { StremioApi.meta(a, type, id) }.getOrNull() ?: continue
-            synchronized(cache) { cache["$type/$id"] = m }
+            val raw = runCatching { StremioApi.meta(a, type, id) }.getOrNull() ?: continue
+            val m = runCatching { pl.iptv.tv.data.StremioTmdb.localize(raw) }.getOrDefault(raw)
+            synchronized(cache) { cache[key(type, id)] = m }
             return m
         }
         return null
@@ -113,11 +136,30 @@ object StremioMetas {
         return found.filter { it.type == "movie" && it.id != currentId && it.name.lowercase().startsWith(b) }
             .distinctBy { it.id }.sortedBy { it.releaseInfo.take(4).toIntOrNull() ?: 9999 }.take(20)
     }
+
+    /**
+     * (7.20) Wszystkie części serii filmu / bajki razem z bieżącą ([current]), chronologicznie wg premiery: kolekcja TMDB
+     * (`belongs_to_collection`, język aplikacji), a bez niej – wyszukiwanie po tytule ([parts]). Pojedynczy film – lista
+     * z jedną pozycją (ikona „Inne części” w odtwarzaczu ukryta – [hasOtherParts]).
+     */
+    suspend fun relatedParts(current: StremioMetaPreview): List<StremioMetaPreview> {
+        val col = runCatching { pl.iptv.tv.data.StremioTmdb.collectionParts(current.id.substringBefore(':')) }.getOrNull()
+        val list = if (!col.isNullOrEmpty()) col else parts(current.name, current.id)
+        val withCurrent = if (list.any { it.id == current.id }) list else list + current
+        return withCurrent.distinctBy { it.id }.sortedWith(compareBy({ yearOf(it) }, { it.released.ifBlank { "9999" } }, { it.name }))
+    }
+
+    private fun yearOf(p: StremioMetaPreview) = (p.released.take(4).ifBlank { p.releaseInfo.take(4) }).toIntOrNull() ?: 9999
+
+    /** Ikona „Inne odcinki / części”: serial z więcej niż jednym odcinkiem albo film z co najmniej 2 częściami (z bieżącą). */
+    fun hasOtherParts(series: Boolean, episodes: Int, relatedParts: Int): Boolean = if (series) episodes > 1 else relatedParts > 1
 }
 
 /** Kafelek plakatu: pozycja katalogu (opcjonalnie z postępem oglądania). */
 /** [note] – podpis zamiast domyślnego (np. „Sezon 2 · 60%”), [fraction] – pasek na plakacie (np. procent obejrzanego sezonu). */
-data class StremioTile(val meta: StremioMetaPreview, val progress: StremioProgress? = null, val note: String = "", val fraction: Float? = null)
+data class StremioTile(val meta: StremioMetaPreview, val progress: StremioProgress? = null, val note: String = "", val fraction: Float? = null,
+                       /** (7.20) Pozycja w rankingu „Top 10” (1–10; 0 – bez odznaki). */
+                       val rank: Int = 0)
 
 /** Rząd plakatów (katalog / wyniki wyszukiwania / „Kontynuuj oglądanie”). */
 class StremioPosterAdapter(val items: MutableList<StremioTile> = mutableListOf()) : RecyclerView.Adapter<StremioPosterAdapter.VH>() {
@@ -126,7 +168,7 @@ class StremioPosterAdapter(val items: MutableList<StremioTile> = mutableListOf()
     var onFocus: (StremioTile) -> Unit = {}
 
     class VH(val root: LinearLayout, val poster: ImageView, val initials: TextView, val bar: View, val barBox: FrameLayout,
-             val title: TextView, val sub: TextView, val rating: TextView? = null) : RecyclerView.ViewHolder(root)
+             val title: TextView, val sub: TextView, val rating: TextView? = null, val rank: TextView? = null) : RecyclerView.ViewHolder(root)
 
     /** (7.17) Stałe identyfikatory pozycji (typ + id tytułu) i jeden typ widoku „plakat” – odświeżenie rzędu bez gubienia fokusu. */
     init { setHasStableIds(true) }
@@ -171,6 +213,10 @@ class StremioPosterAdapter(val items: MutableList<StremioTile> = mutableListOf()
             }
             frame.addView(rating, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, Ui.dp(7), Ui.dp(7), 0) })
         }
+        // (7.20) odznaka pozycji „#1”–„#10” w rzędach Top 10: w lewym górnym rogu WEWNĄTRZ plakatu (przycięta razem z nim –
+        // przy powiększeniu fokusu nic nie wystaje ani nie jest ucinane), kolory z motywu ([StremioUi.rankBadge])
+        val rank = StremioUi.rankBadge(c)
+        frame.addView(rank, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { setMargins(Ui.dp(6), Ui.dp(6), 0, 0) })
         // pasek obejrzenia na dole plakatu
         val barBox = FrameLayout(c).apply { setBackgroundColor(0x99000000.toInt()); visibility = View.GONE }
         val bar = View(c).apply { setBackgroundColor(Ui.accent) }
@@ -181,7 +227,7 @@ class StremioPosterAdapter(val items: MutableList<StremioTile> = mutableListOf()
         val sub = StremioUi.text(c, size = 12f, tag2 = "text2", lines = 1).apply { setPadding(Ui.dp(2), Ui.dp(1), Ui.dp(2), 0) }
         root.addView(title, LinearLayout.LayoutParams(-1, -2)); root.addView(sub, LinearLayout.LayoutParams(-1, -2))
         if (obsidian) { title.setTextColor(O.TEXT); title.tag = "keepcolor"; sub.setTextColor(O.TEXT2); sub.tag = "keepcolor"; initials.setTextColor(O.TEXT2); initials.tag = "keepcolor" }
-        val vh = VH(root, poster, initials, bar, barBox, title, sub, rating)
+        val vh = VH(root, poster, initials, bar, barBox, title, sub, rating, rank)
         root.setOnClickListener { items.getOrNull(vh.bindingAdapterPosition)?.let(onClick) }
         root.setOnLongClickListener { items.getOrNull(vh.bindingAdapterPosition)?.let(onLongClick); true }
         root.setOnFocusChangeListener { _, f ->
@@ -209,6 +255,8 @@ class StremioPosterAdapter(val items: MutableList<StremioTile> = mutableListOf()
             val v = m.imdbRating.takeIf { it.isNotBlank() && it != "0" && it != "0.0" }
             r.text = v?.let { "★ $it" } ?: ""; r.visibility = if (v != null) View.VISIBLE else View.GONE
         }
+        h.rank?.let { b -> b.text = if (t.rank > 0) "#${t.rank}" else ""; b.visibility = if (t.rank > 0) View.VISIBLE else View.GONE }
+        h.root.contentDescription = if (t.rank > 0) "#${t.rank} ${m.name}" else null
         h.initials.text = m.name
         coil.util.CoilUtils.dispose(h.poster)
         h.poster.setImageDrawable(null)
@@ -266,5 +314,22 @@ class StremioAddonAdapter(var items: List<Pair<StremioAddon, Boolean>>, private 
             h.state.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, null, null)
         }
         h.state.alpha = if (on) 1f else 0.6f
+    }
+}
+
+/**
+ * (7.20) Zwiastun Stremio: z metadanych (YouTube) – odtwarzacz STube w trybie zwiastuna ([YtPlayerActivity.trailerIntent]:
+ * wyjście całkowicie zatrzymuje i zwalnia odtwarzacz, bez tła, mini-odtwarzacza i PiP); bez identyfikatora – wyszukiwanie
+ * zwiastuna w STube. Zewnętrzny odtwarzacz (SmartTube) – jak dotąd.
+ */
+object StremioTrailer {
+    fun play(a: android.app.Activity, name: String, year: String, trailerId: String?) {
+        when {
+            trailerId != null -> {
+                val v = pl.iptv.tv.data.YtVideo(trailerId, "Zwiastun – $name", name)
+                if (pl.iptv.tv.data.Prefs.stubeInternal) a.startActivity(YtPlayerActivity.trailerIntent(a, v)) else SmartTubeIntegrationHelper.play(a, v.url)
+            }
+            pl.iptv.tv.BuildConfig.FULL_EDITION -> a.startActivity(android.content.Intent(a, STubeActivity::class.java).putExtra(STubeActivity.EXTRA_QUERY, "$name ${year.take(4)} zwiastun".trim()))
+        }
     }
 }

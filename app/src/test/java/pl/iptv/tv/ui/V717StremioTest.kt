@@ -205,7 +205,7 @@ class V717StremioTest {
         // przyciski CTA: OGLĄDAJ (akcent), ZWIASTUN, DODAJ DO BIBLIOTEKI
         assertEquals("OGLĄDAJ", a.watchBtn!!.text.toString())
         assertEquals("ZWIASTUN", a.trailerBtn!!.text.toString())
-        assertEquals("DODAJ DO BIBLIOTEKI", a.libraryBtn!!.text.toString())
+        assertEquals("DO OBEJRZENIA", a.libraryBtn!!.text.toString())
         // opis do 4 linii, gatunki jako pigułki
         val all = mutableListOf<TextView>().also { l -> fun w(v: View) { if (v is TextView) l += v; if (v is android.view.ViewGroup) (0 until v.childCount).forEach { w(v.getChildAt(it)) } }; w(a.window.decorView) }
         assertEquals(4, all.first { it.text.startsWith("Opis filmu") }.maxLines)
@@ -213,7 +213,7 @@ class V717StremioTest {
         assertTrue(all.any { it.text.contains("2h 5min") && it.text.contains("★ 8.4") })
         // biblioteka: dodanie i usunięcie
         a.libraryBtn!!.performClick()
-        assertTrue(StremioLibrary.contains("ttm1")); assertEquals("W BIBLIOTECE", a.libraryBtn!!.text.toString())
+        assertTrue(StremioLibrary.contains("ttm1")); assertEquals("✓ NA LIŚCIE DO OBEJRZENIA", a.libraryBtn!!.text.toString())
         a.libraryBtn!!.performClick()
         assertFalse(StremioLibrary.contains("ttm1"))
         // zwiastun z metadanych – odtwarzacz STube

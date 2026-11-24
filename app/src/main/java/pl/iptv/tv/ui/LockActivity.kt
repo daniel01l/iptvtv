@@ -24,6 +24,10 @@ import pl.iptv.tv.data.Activation.State
  * Nie da się go ominąć – WSTECZ zamyka aplikację.
  */
 class LockActivity : AppCompatActivity() {
+    /** (7.20) Siatka interfejsu TV 960 × 540 dp (1920 × 1080) niezależnie od DPI systemu – [pl.iptv.tv.ui.TvResolution]. */
+    override fun attachBaseContext(newBase: android.content.Context) { super.attachBaseContext(pl.iptv.tv.ui.TvResolution.wrap(newBase)) }
+    override fun applyOverrideConfiguration(o: android.content.res.Configuration?) { super.applyOverrideConfiguration(pl.iptv.tv.ui.TvResolution.adjust(this, o)) }
+
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var box: LinearLayout
     private val recheck = object : Runnable {
@@ -31,6 +35,7 @@ class LockActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        pl.iptv.tv.ui.TvResolution.applyMetrics(resources); pl.iptv.tv.ui.TvResolution.applyMetrics(applicationContext.resources)   // (7.20) siatka TV 960 × 540 dp
         super.onCreate(savedInstanceState)
         window.decorView.setBackgroundColor(Ui.bg)
         box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; setPadding(Ui.dp(28), Ui.dp(24), Ui.dp(28), Ui.dp(24)) }

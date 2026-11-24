@@ -98,6 +98,8 @@ object Playback {
 
     /** Tylko testy: symulacja błędu odtwarzania. */
     fun simulateError(code: Int) = recovery.onPlayerError(androidx.media3.common.PlaybackException("test", null, code))
+    /** Tylko testy: dowolny błąd odtwarzania (np. błąd renderera dźwięku). */
+    fun simulateError(e: androidx.media3.common.PlaybackException) = recovery.onPlayerError(e)
 
     /**
      * (7.4) Pomiar płynności kanału: czas od przełączenia do pierwszej klatki, zgubione klatki, przycięcia (buforowanie po
@@ -121,6 +123,9 @@ object Playback {
     private val measure = object : androidx.media3.exoplayer.analytics.AnalyticsListener {
         override fun onDroppedVideoFrames(t: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, count: Int, elapsedMs: Long) {
             stats?.let { it.dropped += count }
+            // (7.20) klatkowanie przy płynnym dźwięku → tryb zgodności kanału (FrameDropWatchdog)
+            if (dropWatch.onDropped(count, elapsedMs, android.os.SystemClock.uptimeMillis()))
+                main.post { onFrameDrops(FrameDropWatchdog.rate(count, elapsedMs)) }
         }
         override fun onDownstreamFormatChanged(t: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
                                                data: androidx.media3.exoplayer.source.MediaLoadData) {
@@ -134,8 +139,20 @@ object Playback {
                                                initializedTimestampMs: Long, initializationDurationMs: Long) {
             videoDecoder = decoderName
             android.util.Log.i(TAG, "dekoder obrazu $decoderName (inicjalizacja $initializationDurationMs ms)")
+            if (announcePending) main.post { announce(decoderName) }       // (7.20) po zmianie silnika – który dekoder przejął obraz
+        }
+        override fun onAudioDecoderInitialized(t: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, decoderName: String,
+                                               initializedTimestampMs: Long, initializationDurationMs: Long) {
+            audioDecoder = decoderName
+        }
+        // (7.20) nowa sesja dźwięku (np. po zmianie ścieżki / tunelowaniu) – efekt wyrównywania głośności na nowej sesji
+        override fun onAudioSessionIdChanged(t: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, audioSessionId: Int) {
+            ChannelLoudness.attach(audioSessionId)
         }
     }
+
+    /** (7.20) Po zmianie przełącznika „Wyrównywanie głośności kanałów” – od razu na bieżącej sesji. */
+    fun applyLoudness() { player?.let { ChannelLoudness.attach(it.audioSessionId) } ?: ChannelLoudness.release() }
 
     private val recovery = object : androidx.media3.common.Player.Listener {
         override fun onIsPlayingChanged(playing: Boolean) { isPlayingNow = playing }
@@ -158,6 +175,9 @@ object Playback {
                 android.util.Log.w(TAG, "poza oknem na żywo – powrót na bieżące miejsce • ${diagnostics()}")
                 p.seekToDefaultPosition(); p.prepare(); return
             }
+            // (7.20) błąd dekodera obrazu (inicjalizacja / dekodowanie – CodecException) na kanale na żywo: od razu dekoder
+            // programowy dla tego kanału (zapamiętany), kanał od nowa w tle – bez komunikatu błędu i bez prób innych ustawień
+            if (decoderFallbackFor(e)) return
             hadError = true
             android.util.Log.w(TAG, "błąd ${e.errorCodeName}, próba ${retries + 1}")
             // zawieszone połączenia poprzedniej próby zamknięte od razu (zwalniają miejsce u dostawcy przed ponowieniem)
@@ -193,6 +213,7 @@ object Playback {
                 liveLoad?.takeIf { it.onRebuffer(android.os.SystemClock.uptimeMillis()) }?.let { sessionRebufferBoostMs = it.boostMs; android.util.Log.i("Playback", "bufor po przycięciu: ${it.rebufferMs} ms (adaptacja)") }
             }
             lastState = s
+            dropWatch.onState(s, android.os.SystemClock.uptimeMillis())
             if (s == androidx.media3.common.Player.STATE_READY) { retries = 0; reachedReady = true }
             // początek buforowania liczony tylko przy przejściu do niego (READY→BUFFERING→BUFFERING nie zeruje licznika)
             if (s == androidx.media3.common.Player.STATE_BUFFERING) { if (bufferingSince == 0L) bufferingSince = android.os.SystemClock.uptimeMillis() }
@@ -222,6 +243,16 @@ object Playback {
                 val pos = p.currentPosition
                 stuck = if (frames == lastFrames && pos != lastPos) stuck + 1 else 0     // obraz stoi, a czas (dźwięk) płynie
                 lastFrames = frames; lastPos = pos
+                // (7.20) obraz stoi ≥ 3 s, a dźwięk gra (READY + isPlaying): najpierw tryb zgodności kanału (programowy + TextureView,
+                // zapamiętany); dawne kroki (nowa powierzchnia po 4 s, programowy na sesję po 8 s) – gdy już w trybie zgodności
+                val fps = p.videoFormat?.frameRate ?: -1f
+                if (stuck > 0 && p.playbackState == androidx.media3.common.Player.STATE_READY && (fps <= 0f || fps >= FREEZE_MIN_FPS) &&
+                    FrameDropWatchdog.frozenLongEnough(stuck.toLong() * WATCHDOG_MS) &&
+                    enterCompatibility("obraz stoi ${stuck.toLong() * WATCHDOG_MS} ms przy płynącym dźwięku")) {
+                    // nowy odtwarzacz ma już własny cykl strażnika (create); ten sam – cykl dalej
+                    if (player === p) { main.removeCallbacks(this); main.postDelayed(this, WATCHDOG_MS) }
+                    return
+                }
                 if (stuck.toLong() * WATCHDOG_MS == FREEZE_SURFACE_MS) target?.let { v -> v.player = null; v.player = p }
                 if (stuck.toLong() * WATCHDOG_MS >= FREEZE_SWITCH_MS) { stuck = 0; onFrozen() }
             } else stuck = 0
@@ -270,7 +301,8 @@ object Playback {
     /** Ten sam odtwarzacz (dekodery / kolejka); sam rodzaj strumienia (HLS / TS) zmienia tylko źródło. */
     fun sameEngine(a: pl.iptv.tv.data.EngineProfile?, b: pl.iptv.tv.data.EngineProfile?): Boolean {
         val none = pl.iptv.tv.data.EngineProfile()
-        return (a?.copy(container = 0) ?: none) == (b?.copy(container = 0) ?: none)
+        // (7.20) sama powierzchnia obrazu (TextureView / SurfaceView) – ten sam odtwarzacz, podmieniany tylko widok
+        return (a?.copy(container = 0, surface = 0) ?: none) == (b?.copy(container = 0, surface = 0) ?: none)
     }
 
     /** Opóźnienie kolejnej próby po błędzie: dostawca – 2, 4, 6, 8 s; sieć – 2, 4, 8, 16 s. */
@@ -321,6 +353,7 @@ object Playback {
         // aktywne żądania przerwane; bezczynne połączenia z puli zostają – nowy odtwarzacz użyje ich od razu
         // (bez ponownego łączenia, które mogłoby trafić na martwy adres serwera)
         calls?.close(); calls = null
+        ChannelLoudness.release()                       // (7.20) efekt zwolniony razem z sesją
         isPlayingNow = false; bufferingSince = 0; stuck = 0; lastFrames = -1; lastPos = -1; headless = false
     }
 
@@ -351,17 +384,107 @@ object Playback {
     fun canJudgeFreeze(hasTarget: Boolean, attached: Boolean, shown: Boolean) = hasTarget && attached && shown
     /** Po automatycznym przejściu na dekoder programowy (komunikat na ekranie). */
     var onDecoderFallback: (() -> Unit)? = null
-    /** Co ile ms strażnik sprawdza obraz. */
-    const val WATCHDOG_MS = 2_000L
+    /** Co ile ms strażnik sprawdza obraz. (7.20) 1 s (dawniej 2 s) – zamrożenie 3 s wykrywane na czas ([FrameDropWatchdog.FREEZE_COMPAT_MS]). */
+    const val WATCHDOG_MS = 1_000L
+    /** (7.20) Kanały z obrazem poniżej tylu kl/s (np. stała plansza radia) – bez trybu zgodności z powodu „stojącego” obrazu. */
+    const val FREEZE_MIN_FPS = 5f
     /** Po tylu ms zamrożonego obrazu – nowa powierzchnia obrazu (często wystarcza). */
     const val FREEZE_SURFACE_MS = 4_000L
     /** Po tylu ms zamrożonego obrazu – przejście na dekoder programowy (lub odświeżenie strumienia, gdy już programowy). */
     const val FREEZE_SWITCH_MS = 8_000L
 
+    /** (7.20) Renderer obrazu zgłasza zrzucone klatki co tyle (Media3 domyślnie 50). */
+    const val DROP_NOTIFY_FRAMES = 10
+    /** (7.20) Maksymalny czas dołączania obrazu do zegara dźwięku (korekta dryfu A/V po starcie i przełączeniu). */
+    const val VIDEO_JOINING_MS = 5_000L
+
+    /** (7.20) Strategia zmiany odświeżania przez Media3: przy wyłączonym AFR – OFF (bez zmiany trybu matrycy). */
+    fun frameRateStrategy(autoFrameRate: Boolean): Int =
+        if (autoFrameRate) androidx.media3.common.C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS
+        else androidx.media3.common.C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF
+
+    /** (7.20) Obraz na TextureView wg [RenderSurfaceMode] (AUTO – tylko kanał z profilem trybu zgodności). */
+    val wantsTextureView: Boolean get() = RenderSurfaceMode.current.texture(profile?.surface == 1)
+    /** (7.20) Zmieniła się wymagana powierzchnia obrazu (TextureView / SurfaceView) – ekran odtwarzacza podmienia PlayerView. */
+    var onSurfaceTypeChanged: (() -> Unit)? = null
+
+    /** (7.20) Strażnik zrzucanych klatek bieżącego kanału. */
+    val dropWatch = FrameDropWatchdog()
+    /** (7.20) Po automatycznym przejściu klatkującego kanału na tryb zgodności (komunikat na ekranie). */
+    var onFrameDropFallback: ((pl.iptv.tv.data.EngineProfile, String) -> Unit)? = null
+
+    /**
+     * (7.20) Tryb zgodności dla kanału z klatkującym obrazem: dekoder programowy obrazu + TextureView (profil kanału wyłącza
+     * tunelowanie), zapisany w „Zapamiętanych silnikach kanałów” i od razu zastosowany. Null – nic do zmiany (już zgodność,
+     * wyłączone w Ustawieniach, nie kanał na żywo).
+     */
+    fun compatibilityProfileFor(current: pl.iptv.tv.data.EngineProfile?, softwareAlready: Boolean): pl.iptv.tv.data.EngineProfile? {
+        val base = current ?: pl.iptv.tv.data.EngineProfile()
+        if ((base.software || softwareAlready) && (base.surface == 1 || RenderSurfaceMode.current == RenderSurfaceMode.TEXTURE_VIEW)) return null
+        return base.copy(software = true, surface = 1)
+    }
+
+    /**
+     * (7.20) Przejście bieżącego kanału na żywo na tryb zgodności (zrzucane klatki albo stojący obraz przy płynącym dźwięku):
+     * profil zapisany w „Zapamiętanych silnikach kanałów”, kanał od nowa (nowy odtwarzacz z dekoderem programowym, PlayerView
+     * na TextureView). False – nic do zrobienia (wyłączone, nie kanał na żywo, już tryb zgodności).
+     */
+    private fun enterCompatibility(reason: String): Boolean {
+        val c = lastCtx ?: return false; val ch = lastChannel ?: return false; val u = url ?: return false
+        if (!pl.iptv.tv.data.Prefs.dropWatchdog || u != ch.url || channelKey != ch.key) return false
+        val next = compatibilityProfileFor(profile, softwareDecoding) ?: return false
+        android.util.Log.w(TAG, "$reason – tryb zgodności dla ${ch.name}: ${next.label} • ${diagnostics()}")
+        ChannelEngines.save(ch.key, u, next)
+        play(c, ch, u, force = true, mime = lastMime)
+        onFrameDropFallback?.invoke(next, FALLBACK_STUTTER)
+        return true
+    }
+
+    /** (7.20) Kody błędów dekodera, po których kanał od razu przechodzi na dekoder programowy. */
+    val SOFTWARE_FALLBACK_ERRORS = setOf(androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+        androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED)
+
+    /**
+     * (7.20) Błąd dekodera obrazu na kanale na żywo ([SOFTWARE_FALLBACK_ERRORS]; błąd dekodera dźwięku – zwykła obsługa):
+     * profil kanału + dekoder programowy, zapis w „Zapamiętanych silnikach kanałów”, ponowny start w tle. False – już programowy,
+     * dobór silnika wyłączony albo nie kanał na żywo (dalej dawna obsługa: dobór / komunikat).
+     */
+    private fun decoderFallbackFor(e: androidx.media3.common.PlaybackException): Boolean {
+        if (e.errorCode !in SOFTWARE_FALLBACK_ERRORS) return false
+        val format = (e as? androidx.media3.exoplayer.ExoPlaybackException)?.takeIf { it.type == androidx.media3.exoplayer.ExoPlaybackException.TYPE_RENDERER }?.rendererFormat
+        if (format?.sampleMimeType?.let { MimeTypes.isVideo(it) } == false) return false
+        val c = lastCtx ?: return false; val ch = lastChannel ?: return false; val u = url ?: return false
+        if (!pl.iptv.tv.data.Prefs.engineOptimizer || u != ch.url || channelKey != ch.key || softwareDecoding || profile?.software == true) return false
+        val next = (profile ?: pl.iptv.tv.data.EngineProfile()).copy(software = true)
+        android.util.Log.w(TAG, "błąd dekodera ${e.errorCodeName} – dekoder programowy dla ${ch.name} • ${diagnostics()}")
+        ChannelEngines.save(ch.key, u, next)
+        calls?.cancelActive()
+        // nowy odtwarzacz po wyjściu z obsługi błędu (nie w jego wywołaniu zwrotnym); idempotentne z obserwatorem ustawień
+        main.post { if (url == u) { reloadIfNeeded(); onFrameDropFallback?.invoke(next, FALLBACK_DECODER) } }
+        return true
+    }
+
+    /** (7.20) Powody przejścia kanału na inne ustawienia silnika (komunikat na ekranie). */
+    const val FALLBACK_STUTTER = "stutter"
+    const val FALLBACK_DECODER = "decoder"
+
+    private fun onFrameDrops(rate: Float) =
+        enterCompatibility("klatkowanie obrazu (${"%.1f".format(java.util.Locale.ROOT, rate)} kl/s zrzuconych, dźwięk płynny)")
+
+    /** Tylko testy: zgłoszenie klatkowania jak przez strażnika. */
+    fun simulateFrameDrops(rate: Float = 20f) = onFrameDrops(rate)
+    /** Tylko testy: obraz stoi przy płynącym dźwięku od [ms] – jak strażnik (true – przejście na tryb zgodności). */
+    fun simulateStalledFrames(ms: Long = FrameDropWatchdog.FREEZE_COMPAT_MS): Boolean =
+        FrameDropWatchdog.frozenLongEnough(ms) && enterCompatibility("obraz stoi ${ms} ms przy płynącym dźwięku")
+
     /** Kolejność dekoderów: sprzętowe (akceleracja) przed programowymi – albo odwrotnie w trybie zgodności. */
     fun codecSelector(software: Boolean) = androidx.media3.exoplayer.mediacodec.MediaCodecSelector { mime, secure, tunneling ->
         val all = androidx.media3.exoplayer.mediacodec.MediaCodecUtil.getDecoderInfos(mime, secure, tunneling)
-        all.sortedBy { if (it.softwareOnly == software) 0 else 1 }       // sortowanie stabilne – kolejność systemu w grupie zostaje
+        // (7.20) tryb programowy obrazu: kodeki SoC (OMX.MTK / c2.mtk / amlogic / realtek / qcom …) i sprzętowe odrzucone –
+        // samo sortowanie zostawiało je na liście i Media3 (zapasowy dekoder) potrafił wrócić na klatkujący kodek TCL
+        if (software && androidx.media3.common.MimeTypes.isVideo(mime))
+            SoftwareCodecs.pick(all, { it.name }, { it.hardwareAccelerated }, { it.softwareOnly })
+        else all.sortedBy { if (it.softwareOnly == software) 0 else 1 }       // sortowanie stabilne – kolejność systemu w grupie zostaje
     }
 
     /** Opis bieżącego dekodera obrazu (np. „c2.mtk.avc.decoder – sprzętowy”). */
@@ -388,10 +511,114 @@ object Playback {
         return create(c)
     }
 
+    // ---- (7.20) jedno źródło ustawień silnika i przebudowa w locie ----
+
+    /** Ustawienia, z którymi zbudowano bieżący odtwarzacz ([PlayerEngineConfig.playerKey]); null – brak odtwarzacza. */
+    @Volatile private var appliedKey: List<Any?>? = null
+    private var lastConfig: PlayerEngineConfig? = null
+    /** Po przebudowie w locie: pigułka „Zastosowano: …” po zainicjowaniu dekodera obrazu (albo po [ANNOUNCE_FALLBACK_MS]). */
+    @Volatile private var announcePending = false
+    /** Pigułka statusu (ekran na wierzchu – [BaseActivity]); tekst np. „Zastosowano: Dekoder programowy (c2.android.avc)”. */
+    var onEngineApplied: ((String) -> Unit)? = null
+    /** Licznik przebudów w locie (testy). */
+    @Volatile var hotReloads = 0; private set
+    const val ANNOUNCE_FALLBACK_MS = 1_500L
+
+    init {
+        // zmiana w Ustawieniach, w oknie silnika odtwarzacza, profilu kanału (strażnik, dobór) – od razu w odtwarzaczu.
+        // Obserwacja [EngineConfigRepository.effectiveConfig] przez [EngineConfigRepository.observe]: każda zmiana to osobne
+        // zadanie na głównym wątku (po bieżącym kodzie – np. play() po zapisie profilu kończy się przed oceną), a wyjątek
+        // czy zgubione zadanie nie kończy obserwacji (długo żyjący kolektor korutyny po zgubionym wznowieniu stawał na zawsze).
+        EngineConfigRepository.observe { c ->
+            main.post { runCatching { onConfig(c) }.onFailure { e -> android.util.Log.w(TAG, "zmiana ustawień silnika: ${e.javaClass.simpleName}: ${e.message}") } }
+        }
+        lastConfig = EngineConfigRepository.current
+    }
+
+    private fun onConfig(c: PlayerEngineConfig) {
+        val prev = lastConfig; lastConfig = c
+        if (prev == null) return
+        if (c.loudness != prev.loudness) applyLoudness()
+        if (c.autoFrameRate != prev.autoFrameRate) player?.let { runCatching { it.setVideoChangeFrameRateStrategy(frameRateStrategy(c.autoFrameRate)) } }
+        if (c.surfaceMode != prev.surfaceMode || c.textureView != prev.textureView) onSurfaceTypeChanged?.invoke()
+        reloadIfNeeded(announce = true)
+    }
+
+    /**
+     * Przebudowa odtwarzacza, gdy zmieniły się parametry budowy ([PlayerEngineConfig.playerKey]) bieżącego kanału: nowe
+     * RenderersFactory / MediaCodecSelector / LoadControl, ten sam adres (VOD / archiwum – ta sama pozycja), widok bez zmian.
+     * Wywoływana z obserwatora [EngineConfigRepository.effectiveConfig]; idempotentna (drugie wywołanie – nic).
+     */
+    fun reloadIfNeeded(announce: Boolean = false): Boolean {
+        val c = lastCtx ?: return false; val ch = lastChannel ?: return false
+        if (player == null || url == null || appliedKey == null) return false
+        val cfg = EngineConfigRepository.current
+        if (cfg.channelKey != ch.key || cfg.playerKey == appliedKey) return false
+        hotReload(c, announce)
+        return true
+    }
+
+    private fun hotReload(c: Context, announce: Boolean) {
+        val ch = lastChannel ?: return; val u = url ?: return
+        android.util.Log.i(TAG, "ustawienia silnika zmienione – przebudowa odtwarzacza w locie (${ch.name})")
+        // ręczna zmiana – znowu ustawienia użytkownika (bez awaryjnego programowego z tej sesji)
+        sessionSoftware = false; softwareChannel = null; frozenChannels.clear()
+        ChannelEngineOptimizer.cancel()
+        profile = ChannelEngines.get(ch.key)?.let { e -> e.profile?.let { if (e.streamUrl == u) it else it.copy(container = 0) } }
+        hotReloads++
+        announcePending = announce
+        if (announce) main.postDelayed(announceFallback, ANNOUNCE_FALLBACK_MS)
+        rebuild(c)
+        onSurfaceTypeChanged?.invoke()
+    }
+
+    private val announceFallback = Runnable { if (announcePending) announce(videoDecoder) }
+
+    private fun announce(decoder: String?) {
+        announcePending = false; main.removeCallbacks(announceFallback)
+        val text = appliedText(EngineConfigRepository.current, decoder)
+        android.util.Log.i(TAG, text)
+        onEngineApplied?.invoke(text)
+    }
+
+    /** Treść pigułki po zmianie silnika, np. „Zastosowano: Dekoder programowy (c2.android.avc)”. */
+    fun appliedText(cfg: PlayerEngineConfig, decoder: String?): String {
+        val kind = when { cfg.tunneling -> "Tunelowanie"; cfg.software || sessionSoftware -> "Dekoder programowy"; else -> "Dekoder sprzętowy" }
+        val short = decoder?.removeSuffix(".decoder")?.takeIf { it.isNotBlank() }
+        return "Zastosowano: $kind" + (short?.let { " ($it)" } ?: "") + (if (cfg.textureView) " • TextureView" else "")
+    }
+
+    /** Dekoder dźwięku bieżącego kanału (np. c2.android.aac.decoder, ffmpegLib). */
+    @Volatile var audioDecoder: String? = null; private set
+
+    /** Kodeki na żywo dla okna silnika: „Wideo: c2.android.avc.decoder • 1080p50 | Audio: FFmpeg AC3”. */
+    fun codecSummary(): String {
+        val p = player ?: return "Wideo: — | Audio: —"
+        val vf = p.videoFormat; val af = p.audioFormat
+        val video = if (vf == null) "brak obrazu" else listOfNotNull(videoDecoder ?: vf.sampleMimeType,
+            if (vf.height > 0) "${vf.height}p" + (vf.frameRate.takeIf { it > 0f }?.let { kotlin.math.round(it).toInt().toString() } ?: "") else null).joinToString(" • ")
+        val codec = af?.sampleMimeType?.let { audioCodecName(it) }
+        val audio = when {
+            af == null -> "brak"
+            audioDecoder?.contains("ffmpeg", ignoreCase = true) == true -> "FFmpeg" + (codec?.let { " $it" } ?: "")
+            else -> listOfNotNull(audioDecoder, codec).joinToString(" ").ifBlank { "?" }
+        }
+        return "Wideo: $video | Audio: $audio"
+    }
+
+    /** Krótka nazwa formatu dźwięku (AC3, E-AC3, AAC, MP2…). */
+    fun audioCodecName(mime: String): String = when (mime) {
+        MimeTypes.AUDIO_AC3 -> "AC3"; MimeTypes.AUDIO_E_AC3, MimeTypes.AUDIO_E_AC3_JOC -> "E-AC3"; MimeTypes.AUDIO_AAC -> "AAC"
+        MimeTypes.AUDIO_MPEG, MimeTypes.AUDIO_MPEG_L2 -> "MP2/MP3"; MimeTypes.AUDIO_DTS, MimeTypes.AUDIO_DTS_HD -> "DTS"
+        MimeTypes.AUDIO_OPUS -> "Opus"; MimeTypes.AUDIO_AC4 -> "AC4"; else -> mime.substringAfter('/').uppercase(java.util.Locale.ROOT)
+    }
+
     private fun create(c: Context): ExoPlayer = buildPlayer(c, profile).also { p ->
+        appliedKey = EngineConfigRepository.current.playerKey       // (7.20) z tymi ustawieniami zbudowano odtwarzacz
         player = p; p.addListener(recovery); listeners.forEach { p.addListener(it) }; p.addAnalyticsListener(measure)
         if (pl.iptv.tv.BuildConfig.DEBUG) p.addAnalyticsListener(loadLog)
         main.removeCallbacks(watchdog); main.postDelayed(watchdog, 3000)
+        ChannelLoudness.attach(p.audioSessionId)        // (7.20) wyrównywanie głośności (sesja dźwięku tego odtwarzacza)
     }
 
     /**
@@ -422,9 +649,16 @@ object Playback {
             // kłopot z samym dźwiękiem AC3 / E-AC3 / DTS / MP2 nie przenosi całego obrazu na procesor)
             override fun buildVideoRenderers(context: Context, extensionRendererMode: Int, mediaCodecSelector: androidx.media3.exoplayer.mediacodec.MediaCodecSelector,
                                              enableDecoderFallback: Boolean, eventHandler: android.os.Handler, eventListener: androidx.media3.exoplayer.video.VideoRendererEventListener,
-                                             allowedVideoJoiningTimeMs: Long, out: java.util.ArrayList<androidx.media3.exoplayer.Renderer>) =
-                super.buildVideoRenderers(context, EXTENSION_RENDERER_MODE_OFF, mediaCodecSelector, enableDecoderFallback, eventHandler, eventListener, allowedVideoJoiningTimeMs, out)
+                                             allowedVideoJoiningTimeMs: Long, out: java.util.ArrayList<androidx.media3.exoplayer.Renderer>) {
+                // (7.20) jak DefaultRenderersFactory przy OFF (sam MediaCodecVideoRenderer), ale zrzucone klatki zgłaszane co
+                // DROP_NOTIFY_FRAMES (domyślnie co 50) – strażnik klatkowania widzi problem po 2–3 s, nie po kilkunastu
+                out.add(androidx.media3.exoplayer.video.MediaCodecVideoRenderer(context, getCodecAdapterFactory(), mediaCodecSelector,
+                    allowedVideoJoiningTimeMs, enableDecoderFallback, eventHandler, eventListener, DROP_NOTIFY_FRAMES))
+            }
         }
+        // (7.20) dłuższe dołączanie obrazu do zegara dźwięku – po opróżnieniu startowego bufora dekoder nie wpada w pętlę
+        // agresywnego odrzucania klatek (dryf A/V korygowany łagodnie)
+        renderers.setAllowedVideoJoiningTimeMs(VIDEO_JOINING_MS)
         val P = pl.iptv.tv.data.Prefs
         val engine = P.playerEngine
         val software = softwareDecoding || profile?.software == true
@@ -492,6 +726,9 @@ object Playback {
             .setTrackSelector(selector)
             .setLoadControl(adaptive)
             .apply { if (looper != null) setLooper(looper) }
+            // (7.20) AFR wyłączone → Media3 nie zmienia odświeżania matrycy (Surface.setFrameRate) – na TCL przy 50i/50p
+            // wymuszany niekompatybilny tryb dawał klatkowanie; z AFR – domyślnie tylko bezszwowe przełączanie
+            .setVideoChangeFrameRateStrategy(frameRateStrategy(P.autoFrameRate))
             .apply {
                 // odtwarzacz testowy: bez blokady Wi-Fi i bez przejmowania dźwięku (nie przerywa niczego, co gra)
                 if (!probe) setWakeMode(androidx.media3.common.C.WAKE_MODE_NETWORK)          // Wi-Fi nie usypia podczas oglądania
@@ -690,6 +927,8 @@ object Playback {
     fun play(c: Context, ch: Channel, streamUrl: String, force: Boolean = false, mime: String? = null): Boolean {
         // inny kanał niż dobierany w tle – dobór przerwany (odtwarzacz testowy zwolniony)
         ChannelEngineOptimizer.cancelUnless(streamUrl)
+        // (7.20) profil tego kanału w jednym źródle ustawień (okno silnika, Ustawienia, przebudowa w locie)
+        EngineConfigRepository.bindChannel(ch.key)
         // zapamiętany profil silnika kanału (Room, odczyt z pamięci); rodzaj strumienia tylko dla adresu, dla którego go dobrano
         val want = ChannelEngines.get(ch.key)?.let { e -> e.profile?.let { if (e.streamUrl == streamUrl) it else it.copy(container = 0) } }
         // (7.3) awaryjny dekoder programowy tylko dla kanału, na którym obraz zamarzł – inny kanał znów na sprzętowym
@@ -704,6 +943,7 @@ object Playback {
             // (7.3) sam rodzaj strumienia (HLS / TS) – ten sam odtwarzacz, bez przebudowy (płynne przełączanie)
             val view = target
             val rebuild = !sameEngine(want, profile) || switchEngine
+            val texBefore = wantsTextureView
             profile = want
             if (player != null && rebuild) {
                 releasePlayer(); url = null
@@ -711,6 +951,8 @@ object Playback {
                 view?.let { it.player = np; target = it }
                 onPlayerChanged?.invoke(np)
             }
+            // (7.20) po ewentualnej przebudowie: ekran podmienia PlayerView (TextureView ↔ SurfaceView) i podłącza odtwarzacz
+            if (texBefore != wantsTextureView) onSurfaceTypeChanged?.invoke()
         }
         val p = get(c)
         main.removeCallbacks(retry)
@@ -741,6 +983,7 @@ object Playback {
             closeStats(); stats = ChannelStats(ch.name, engineLabel())
         }
         url = streamUrl; channelKey = ch.key; lastMime = mime
+        dropWatch.reset()
         retries = 0; stuck = 0; bufferingSince = 0; hadError = false; reachedReady = false
         // po błędzie: świeża powierzchnia obrazu (to samo, co wcześniej dawało dopiero otwarcie menu)
         if (clean) main.post { target?.let { v -> if (v.player === p) { v.player = null; v.player = p } } }
@@ -903,5 +1146,6 @@ object Playback {
         sessionSoftware = false; softwareChannel = null; frozenChannels.clear()          // ręczna zmiana silnika / wyjście – znowu ustawienia użytkownika
         sessionRebufferBoostMs = 0; liveLoad = null                                         // (7.17) adaptacja bufora – od nowa
         url = null; channelKey = null; target = null; lastMime = null
+        appliedKey = null; announcePending = false; main.removeCallbacks(announceFallback)
     }
 }

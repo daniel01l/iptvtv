@@ -17,6 +17,10 @@ import kotlinx.coroutines.launch
 
 /** Wspólna baza: tło (kolor lub zdjęcie), styl motywu, animacje przejść. */
 open class BaseActivity : AppCompatActivity() {
+    /** (7.20) Siatka interfejsu TV 960 × 540 dp (1920 × 1080) niezależnie od DPI systemu – [pl.iptv.tv.ui.TvResolution]. */
+    override fun attachBaseContext(newBase: android.content.Context) { super.attachBaseContext(pl.iptv.tv.ui.TvResolution.wrap(newBase)) }
+    override fun applyOverrideConfiguration(o: android.content.res.Configuration?) { super.applyOverrideConfiguration(pl.iptv.tv.ui.TvResolution.adjust(this, o)) }
+
     protected lateinit var rootFrame: FrameLayout
     private lateinit var bgImage: ImageView
     private lateinit var dim: View
@@ -43,7 +47,10 @@ open class BaseActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        pl.iptv.tv.ui.TvResolution.applyMetrics(resources); pl.iptv.tv.ui.TvResolution.applyMetrics(applicationContext.resources)   // (7.20) siatka TV 960 × 540 dp
         applyOrientation(); super.onCreate(savedInstanceState)
+        // (7.20) TV: pełny ekran bez pasków systemowych – siatka 960 × 540 dp to cały ekran (MainActivity – także bez wygaszania)
+        TvResolution.fullscreen(this, keepScreenOn = this is MainActivity)
         // tło okna od razu w kolorze motywu: zanim ekran się narysuje, widać tło motywu, nie stały ciemny kolor (mignięcie „czarnego ekranu”)
         if (!isPlayerScreen) window.setBackgroundDrawable(Ui.bgDrawable())
         // X25: dźwięk przy przejściu fokusu pilotem (motyw sprawdzany przy każdym zdarzeniu – działa też po zmianie motywu)
@@ -84,7 +91,7 @@ open class BaseActivity : AppCompatActivity() {
     }
 
     override fun onStart() { super.onStart(); miniBar?.let { b -> b.start(); if (b.shown) if (::content.isInitialized) content.let { insetScrollers(it, Ui.dp(MiniPlayerBar.CONTENT_INSET_DP)) } } }
-    override fun onStop() { miniBar?.stop(); super.onStop() }
+    override fun onStop() { miniBar?.stop(); EngineStatusPill.hide(this); super.onStop() }
 
     /** Obraz kanału w tle tego ekranu odpięty od wspólnego odtwarzacza (singleton nie trzyma zniszczonego ekranu). */
     override fun onDestroy() { videoView?.let { Playback.detach(it) }; super.onDestroy() }
@@ -125,6 +132,7 @@ open class BaseActivity : AppCompatActivity() {
     }
 
     override fun onResume() {
+        TvResolution.applyMetrics(resources)          // (7.20) system potrafi przywrócić metryki po powrocie na ekran
         X25Theme.refreshLauncher(this)
         super.onResume()
         applyOrientation()
@@ -139,6 +147,9 @@ open class BaseActivity : AppCompatActivity() {
             else -> Playback.resumeAfterApp(this)
         }
         if (::rootFrame.isInitialized && appliedVersion != Ui.version) applyTheme()
+        // (7.20) zmiana silnika weszła w życie – pigułka statusu na ekranie, który jest na wierzchu
+        val self = java.lang.ref.WeakReference(this)
+        Playback.onEngineApplied = { text -> self.get()?.takeIf { !it.isFinishing && !it.isDestroyed }?.let { EngineStatusPill.show(it, text) } }
         updateVideo()
     }
 

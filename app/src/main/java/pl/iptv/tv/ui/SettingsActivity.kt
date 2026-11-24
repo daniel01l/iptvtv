@@ -17,6 +17,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.launch
 import pl.iptv.tv.R
 import pl.iptv.tv.data.Parental
@@ -31,6 +32,8 @@ import java.util.Date
 class SettingsActivity : BaseActivity() {
     override val ps5Hints = true
     private lateinit var container: LinearLayout
+    /** (7.20) Ustawienia silnika, z którymi zbudowano ekran (obserwacja [EngineConfigRepository.effectiveConfig]). */
+    private var seenEngine: PlayerEngineConfig? = null
     private lateinit var sticky: LinearLayout
     private lateinit var scroll: ScrollView
     private val tabs = mutableListOf<TextView>()
@@ -47,6 +50,13 @@ class SettingsActivity : BaseActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // (7.20) to samo źródło ustawień silnika co okno w odtwarzaczu: zmiana z innego miejsca (odtwarzacz, strażnik, profil)
+        // – sekcja odświeżana od razu; własne zmiany ekranu już są w [seenEngine] (bez podwójnej przebudowy)
+        lifecycleScope.launch {
+            repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                EngineConfigRepository.effectiveConfig.collect { c -> if (seenEngine != null && c.global != seenEngine && ::container.isInitialized) build(keepFocus = true) }
+            }
+        }
         tab = savedInstanceState?.getInt("tab") ?: intent.getIntExtra("tab", 0)
         val narrow = resources.configuration.screenWidthDp < 700
         val root = LinearLayout(this).apply {
@@ -201,6 +211,7 @@ class SettingsActivity : BaseActivity() {
     /** Buduje bieżącą kartę; zachowuje fokus na tym samym wierszu (po tytule). */
     private fun build(keepFocus: Boolean = false, key: Any? = null) {
         if (tab !in TAB_NAMES.indices) tab = 0
+        seenEngine = EngineConfigRepository.current.global
         val focusKey = key ?: if (keepFocus) currentKey() else null
         buildNow(focusKey)
     }
@@ -388,6 +399,38 @@ class SettingsActivity : BaseActivity() {
      * Wiersz wyboru. Wygląd ([look]) – dawne okno z boku (podgląd motywu na żywo widoczny pod spodem); pozostałe – (7.17) okno
      * „Obsidian Stream” z kartami ([Dialogs.choiceCards], opisy [descriptions]); po zamknięciu fokus wraca na ten wiersz.
      */
+    /**
+     * (7.20) „Zapamiętane silniki kanałów”: okno „Obsidian Stream” (karty bez linii) z listą kanałów i ich ustawieniami;
+     * pierwsza karta – wyczyszczenie całej pamięci doboru, kanał – reset tylko jego ustawień (po potwierdzeniu). Po zmianie
+     * okno otwierane ponownie z aktualną listą.
+     */
+    internal fun showChannelEngines(): android.app.Dialog {
+        val E = pl.iptv.tv.data.ChannelEngines
+        val entries = E.entries()
+        val names = pl.iptv.tv.data.Repository.channels.associate { it.key to it.name }
+        val options = listOf("Wyczyść całą pamięć doboru") + entries.map { names[it.channelKey] ?: it.channelKey }
+        val descriptions = listOf(if (entries.isEmpty()) "Brak zapamiętanych kanałów" else "${E.count - E.failedCount} dobranych, ${E.failedCount} niedziałających") +
+            entries.map { e -> if (e.testedFailed) "Nie działał na żadnym silniku – ponowny test po dobie" else (e.profile?.label ?: "ustawienia domyślne") }
+        var dialog: android.app.Dialog? = null
+        val k = lastKey ?: currentKey()
+        dialog = Dialogs.choiceCards(this, "Zapamiętane silniki kanałów", options, -1, descriptions,
+            onDismiss = { k?.let { key -> (findByKey(container, key) ?: findByKey(sticky, key))?.requestFocus() } }) { i ->
+            if (i == 0) {
+                if (entries.isEmpty()) return@choiceCards
+                Dialogs.confirm(this, "Zapamiętane silniki", "Usunąć dobrane ustawienia silnika wszystkich kanałów? Kanały, które nie ruszą, zostaną przetestowane ponownie.") {
+                    E.clear(); ChannelEngineOptimizer.resetSession(); dialog?.dismiss(); build(keepFocus = true)
+                }
+            } else {
+                val e = entries[i - 1]
+                Dialogs.confirm(this, options[i], "Przywrócić domyślne ustawienia silnika tego kanału? Przy kolejnym włączeniu zostanie dobrany od nowa, jeśli będzie trzeba.") {
+                    ChannelEngineOptimizer.resetChannel(e.channelKey, e.streamUrl)
+                    dialog?.dismiss(); build(keepFocus = true); showChannelEngines()
+                }
+            }
+        }
+        return dialog
+    }
+
     private fun choice(title: String, options: List<String>, get: () -> Int, look: Boolean = true, descriptions: List<String> = emptyList(), set: (Int) -> Unit) =
         row(title, options.getOrNull(get()) ?: "") {
             if (look) Dialogs.choiceLive(this, title, options, get()) { set(it); lookChanged() }
@@ -1012,40 +1055,32 @@ class SettingsActivity : BaseActivity() {
         // (7.17) bufor dla każdego urządzenia ze stanem ochrony (np. „2 s (tryb szybki)”, „+1,5 s ochrony” po przycięciach)
         val bufs = EngineProfiles.BUFFER_VALUES
         choice("Bufor – minimum", bufs.map { if (it == Prefs.bufMinS) EngineProfiles.bufferLabel(it) else EngineProfiles.bufferLabel(it, 0) },
-            { bufs.indexOf(Prefs.bufMinS).coerceAtLeast(0) }, look = false,
+            { bufs.indexOf(EngineConfigRepository.current.bufMinS).coerceAtLeast(0) }, look = false,
             descriptions = bufs.map { when { it == 0 -> "Start po 1 s, po przycięciu 2 s – ustawienie zalecane"; it <= 3 -> "Najszybsze przełączanie kanałów; po częstych przycięciach zapas rośnie sam"; it <= 5 -> "Szybki start i mniej przycięć"; else -> "Najmniej przycięć przy słabym łączu, dłuższy start" } }) {
-            Prefs.bufMinS = bufs[it]; Playback.stop()
+            EngineConfigRepository.setBufMin(bufs[it])           // (7.20) jedno źródło ustawień – odtwarzacz przebudowany w locie
         }
-        choice("Silnik odtwarzania", Playback.ENGINES, { Prefs.playerEngine.coerceIn(Playback.ENGINES.indices) }, look = false,
+        choice("Silnik odtwarzania", Playback.ENGINES, { EngineConfigRepository.current.engine.coerceIn(Playback.ENGINES.indices) }, look = false,
             descriptions = listOf("Obraz dekoduje układ graficzny – najmniejsze obciążenie", "Gdy sprzętowy daje zielony / czarny obraz – większe obciążenie procesora",
                 "Obraz i dźwięk synchronizowane sprzętowo (włącza akcelerację i kolejkę asynchroniczną)")) {
-            Prefs.playerEngine = it
-            // (7.17) tunelowanie wymaga dekodera sprzętowego i asynchronicznej kolejki – obie opcje włączane od razu
-            if (it == Playback.ENGINE_TUNNELING) { Prefs.hwAccel = true; Prefs.asyncDecoder = 1 }
-            Playback.stop(); build(keepFocus = true)
+            // (7.17) tunelowanie wymaga dekodera sprzętowego i asynchronicznej kolejki – obie opcje włączane od razu (repozytorium)
+            EngineConfigRepository.setEngine(it); build(keepFocus = true)
         }
         note("Dekoder sprzętowy: obraz dekoduje układ graficzny (najmniejsze obciążenie, zalecany). Programowy: gdy sprzętowy daje zielony/czarny obraz lub nie obsługuje formatu (większe obciążenie procesora). Tunelowanie: obraz i dźwięk synchronizowane sprzętowo – na zgodnych Android TV najpłynniejszy obraz; synchronizacja dźwięku z ustawień może wtedy nie działać.")
         // (7.17) spójność z tunelowaniem: inna kolejka albo wyłączona akceleracja – powrót do dekodera sprzętowego bez tunelowania
-        choice("Kolejka dekodera", listOf("Automatycznie", "Asynchroniczna (szybsza)", "Synchroniczna (gdy obraz zamarza)"), { Prefs.asyncDecoder.coerceIn(0, 2) }, look = false,
+        choice("Kolejka dekodera", listOf("Automatycznie", "Asynchroniczna (szybsza)", "Synchroniczna (gdy obraz zamarza)"), { EngineConfigRepository.current.asyncDecoder.coerceIn(0, 2) }, look = false,
             descriptions = listOf("Wybór Media3 wg urządzenia", "Szybsze dekodowanie (wymagana przy tunelowaniu)", "Na telewizorach, na których obraz staje przy działającym dźwięku")) {
-            Prefs.asyncDecoder = it
-            if (it != 1 && Prefs.playerEngine == Playback.ENGINE_TUNNELING) { Prefs.playerEngine = 0; build(keepFocus = true) }
-            Playback.stop()
+            EngineConfigRepository.setAsyncDecoder(it); build(keepFocus = true)
         }
-        toggle("Akceleracja sprzętowa obrazu", { Prefs.hwAccel }) {
-            Prefs.hwAccel = it
-            if (!it && Prefs.playerEngine == Playback.ENGINE_TUNNELING) { Prefs.playerEngine = 0; build(keepFocus = true) }
-            Playback.stop()
+        toggle("Akceleracja sprzętowa obrazu", { EngineConfigRepository.current.hwAccel }) {
+            EngineConfigRepository.setHwAccel(it)
         }
         note("Wyłączona akceleracja = dekoder programowy (gdy obraz ma artefakty lub jest zielony). Silnik i akceleracja zmienisz też podczas oglądania: przytrzymaj OK.")
-        toggle("Zapasowy dekoder przy błędzie", { Prefs.decoderFallback }) { Prefs.decoderFallback = it; Playback.stop() }
+        toggle("Zapasowy dekoder przy błędzie", { EngineConfigRepository.current.decoderFallback }) { EngineConfigRepository.setDecoderFallback(it) }
         toggle("Dekoder programowy, gdy obraz zamarza", { Prefs.freezeFallback }) { Prefs.freezeFallback = it; Playback.stop() }
         note("Gdy obraz stoi, a dźwięk gra (ok. ${Playback.FREEZE_SWITCH_MS / 1000} s), odtwarzacz sam przechodzi na dekoder programowy – do zamknięcia aplikacji albo ręcznej zmiany silnika.")
         toggle("Dobór silnika dla niedziałających kanałów", { Prefs.engineOptimizer }) { Prefs.engineOptimizer = it }
         row("Zapamiętane silniki kanałów", "${pl.iptv.tv.data.ChannelEngines.count - pl.iptv.tv.data.ChannelEngines.failedCount} dobranych, ${pl.iptv.tv.data.ChannelEngines.failedCount} niedziałających") {
-            Dialogs.confirm(this, "Zapamiętane silniki", "Usunąć dobrane ustawienia silnika wszystkich kanałów? Kanały, które nie ruszą, zostaną przetestowane ponownie.") {
-                pl.iptv.tv.data.ChannelEngines.clear(); ChannelEngineOptimizer.resetSession(); build(keepFocus = true)
-            }
+            showChannelEngines()
         }
         note("Kanał bez obrazu po ${Playback.START_CHECK_MS / 1000} s albo z błędem dekodera: odtwarzacz sprawdza po kolei inne ustawienia (dekoder programowy, dźwięk FFmpeg, kolejka dekodera, HLS / TS – po ok. ${ChannelEngineOptimizer.PROBE_MS / 1000} s na próbę, w tle) i zapamiętuje działające dla tego kanału. Gdy nic nie pomaga (np. serwer nie działa), kanał nie jest testowany ponownie przez dobę.")
         // (7.17) przełączanie kanałów – dla każdego urządzenia (dawniej tylko w trybie słabszych urządzeń)
@@ -1055,9 +1090,19 @@ class SettingsActivity : BaseActivity() {
             Prefs.zapDelayMs = zapDelays[it]
         }
         note("Czyszczenie dekodera: każdy kanał startuje na świeżym dekoderze (pomaga, gdy obraz zacina się po ▲▼). Opóźnienie startu: szybkie przewijanie kanałów nie uruchamia każdego po drodze (domyślnie 250 ms, w trybie słabszych urządzeń 450 ms).")
-        toggle("Dopasowanie odświeżania ekranu (Auto Frame Rate)", { Prefs.autoFrameRate }) { Prefs.autoFrameRate = it }
+        toggle("Dopasowanie odświeżania ekranu (Auto Frame Rate)", { EngineConfigRepository.current.autoFrameRate }) { EngineConfigRepository.setAutoFrameRate(it) }
         note("Automatycznie przełącza odświeżanie TV na 50 Hz / 24 Hz dla idealnej płynności ruchu (wg klatek kanału). Po wyjściu z odtwarzacza ekran wraca do zwykłego trybu; działa, gdy telewizor ma taki tryb.")
-        toggle("Niskie opóźnienie na żywo", { Prefs.lowLatency }) { Prefs.lowLatency = it; Playback.stop() }
+        // (7.20) klatkowanie po 2–3 s przy płynnym dźwięku (kanały 50 kl/s / 1080i50, np. TCL z Google TV)
+        val surfaces = RenderSurfaceMode.entries
+        choice("Powierzchnia obrazu", surfaces.map { it.label }, { EngineConfigRepository.current.surface.ordinal }, look = false, descriptions = surfaces.map { it.description }) {
+            EngineConfigRepository.setSurfaceMode(RenderSurfaceMode.entries[it])
+        }
+        note("Automatycznie: wydajny SurfaceView, a TextureView dla kanałów, które klatkowały – pomaga, gdy telewizor z Google TV źle usuwa przeplot (1080i50).")
+        toggle("Tryb zgodności dla klatkujących kanałów", { Prefs.dropWatchdog }) { Prefs.dropWatchdog = it }
+        note("Gdy podczas oglądania (od 2,5 s po włączeniu) dekoder zrzuca ponad 8 klatek na sekundę albo obraz stoi przez 3 s, a dźwięk gra płynnie, kanał sam przechodzi na dekoder programowy z TextureView (bez tunelowania) – ustawienie trafia do „Zapamiętanych silników kanałów”.")
+        toggle("Wyrównywanie głośności kanałów", { EngineConfigRepository.current.loudness }) { EngineConfigRepository.setLoudness(it) }
+        note("Łagodne podbicie (+3 dB) cichych ścieżek (np. AC3 / E-AC3) – mniejsze różnice głośności między kanałami. Na części urządzeń (np. z tunelowaniem) efekt jest niedostępny i opcja nic nie zmienia.")
+        toggle("Niskie opóźnienie na żywo", { EngineConfigRepository.current.lowLatency }) { EngineConfigRepository.setLowLatency(it) }
         note("Niskie opóźnienie: start po 0,5 s buforu i odtwarzanie bliżej bieżącej chwili transmisji (mniejsze opóźnienie, przy słabym łączu częstsze buforowanie).")
         row("Bieżący dekoder", Playback.decoderInfo().take(60)) { Dialogs.confirm(this, "Bieżący dekoder", Playback.decoderInfo()) {} }
         note("Zmiana silnika lub dekodera zatrzymuje odtwarzanie – następny kanał startuje z nowymi ustawieniami.")
@@ -1081,6 +1126,23 @@ class SettingsActivity : BaseActivity() {
             note("Program TV i opisy: zmiana działa po następnym pobraniu EPG.")
             row("↺ Przywróć domyślne parametry") { Prefs.resetLowPerfParams(); Playback.stop(); build(keepFocus = true) }
         }
+
+        // (7.20) rzędy „Top 10” platform w Stremio: odświeżanie domyślnie co 4 dni (96 h), zmiana ręczna i pobranie od razu
+        header("Stremio – Top 10")
+        val T = pl.iptv.tv.data.StremioTop10
+        val hours = T.HOUR_CHOICES
+        fun hLabel(h: Int) = if (h % 24 == 0) (h / 24).let { d -> if (d == 1) "co 1 dzień" else "co $d dni" } + " ($h h)" else "co $h h"
+        choice("Odświeżanie Top 10", hours.map { hLabel(it) }, { hours.indexOf(Prefs.stremioTop10Hours).let { if (it < 0) hours.indexOf(T.DEFAULT_HOURS) else it } }, look = false,
+            descriptions = hours.map { if (it == T.DEFAULT_HOURS) "Zalecane – rankingi platform zmieniają się wolno" else "" }) { Prefs.stremioTop10Hours = hours[it] }
+        row("Odśwież Top 10 teraz") {
+            if (!pl.iptv.tv.data.StremioTmdb.available) { toast("Top 10 wymaga klucza TMDB (keystore/tmdb.properties)"); return@row }
+            T.init(this); toast("Pobieranie Top 10…")
+            lifecycleScope.launch {
+                val changed = runCatching { T.refreshStale(T.rows(null), force = true) }.getOrDefault(emptyList())
+                toast("Top 10 odświeżone (${changed.size} z ${T.rows(null).size} rzędów zmienionych)")
+            }
+        }
+        note("Netflix, HBO Max, Prime Video, Disney+ i Paramount+ – osobno filmy i seriale (ranking popularności w Polsce z TMDB). Rzędy wczytują się od razu z pamięci urządzenia, a sieć tylko w tle, gdy minie wybrany czas.")
     }
 
     // ================= System =================

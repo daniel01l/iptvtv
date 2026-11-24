@@ -42,8 +42,16 @@ class V52Test {
         pl.iptv.tv.data.Prefs.engineOptimizer = true
         ChannelEngineOptimizer.resetSession(); ChannelEngineOptimizer.probeOverride = { kotlinx.coroutines.delay(10_000); false }
         assertTrue(Playback.play(ctx, ch(2), ch(2).url, force = true))
+        // 7.20: najpierw od razu dekoder programowy dla kanału (zapamiętany, kanał od nowa w tle), bez komunikatu
+        pl.iptv.tv.data.ChannelEngines.forget("k2")
+        Playback.simulateError(PlaybackException.ERROR_CODE_DECODER_INIT_FAILED)
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertEquals(2, fatal); assertFalse(ChannelEngineOptimizer.running)
+        assertEquals(true, pl.iptv.tv.data.ChannelEngines.profileFor("k2")?.software)
+        // błąd dekodera już na programowym – dobór silnika w tle
         Playback.simulateError(PlaybackException.ERROR_CODE_DECODER_INIT_FAILED)
         assertEquals(2, fatal); assertFalse(Playback.retryPending); assertTrue(ChannelEngineOptimizer.running)
+        pl.iptv.tv.data.ChannelEngines.forget("k2")
         ChannelEngineOptimizer.probeOverride = null
         Playback.onFatal = null; Playback.stop()
         assertFalse(ChannelEngineOptimizer.running)

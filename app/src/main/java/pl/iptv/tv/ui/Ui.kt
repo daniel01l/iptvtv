@@ -432,7 +432,9 @@ object Ui {
     private val iconPrefix = Regex("^(?:[\\p{So}\\p{Sk}\\p{Sm}\\p{Cn}\\p{Co}&&[^\\x00-\\x7F]]|[\\uFE0F\\u200D\\u20E3]|\\s)+")
     fun stripIcon(t: String): String = t.replace(iconPrefix, "").ifEmpty { t }
 
-    fun dp(v: Number): Int =(v.toFloat() * Resources.getSystem().displayMetrics.density + 0.5f).toInt()
+    /** dp → px; (7.20) na TV w siatce 960 × 540 dp ([TvResolution.density]), inaczej gęstość systemu. */
+    fun dp(v: Number): Int =(v.toFloat() * density + 0.5f).toInt()
+    val density: Float get() = TvResolution.density ?: Resources.getSystem().displayMetrics.density
     fun withAlpha(c: Int, a: Int) = (c and 0x00FFFFFF) or (a.coerceIn(0, 255) shl 24)
     fun shade(c: Int, f: Float): Int {
         fun ch(v: Int) = (if (f > 0) v + (255 - v) * f else v * (1 + f)).toInt().coerceIn(0, 255)

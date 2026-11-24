@@ -11,10 +11,15 @@ import java.io.File
 
 /** Odtwarzanie nagrania z pliku (przewijanie paskiem sterowania). */
 class RecordingPlayerActivity : AppCompatActivity() {
+    /** (7.20) Siatka interfejsu TV 960 × 540 dp (1920 × 1080) niezależnie od DPI systemu – [pl.iptv.tv.ui.TvResolution]. */
+    override fun attachBaseContext(newBase: android.content.Context) { super.attachBaseContext(pl.iptv.tv.ui.TvResolution.wrap(newBase)) }
+    override fun applyOverrideConfiguration(o: android.content.res.Configuration?) { super.applyOverrideConfiguration(pl.iptv.tv.ui.TvResolution.adjust(this, o)) }
+
     companion object { const val EXTRA_FILE = "file" }
     private var player: ExoPlayer? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        pl.iptv.tv.ui.TvResolution.applyMetrics(resources); pl.iptv.tv.ui.TvResolution.applyMetrics(applicationContext.resources)   // (7.20) siatka TV 960 × 540 dp
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(PlayerView(this).also { it.id = android.R.id.content + 1 })

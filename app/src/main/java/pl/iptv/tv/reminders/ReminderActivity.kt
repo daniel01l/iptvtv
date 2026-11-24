@@ -16,6 +16,10 @@ import pl.iptv.tv.ui.Ui
 
 /** Okno przypomnienia wyświetlane nad wszystkim (także nad odtwarzanym obrazem). */
 class ReminderActivity : AppCompatActivity() {
+    /** (7.20) Siatka interfejsu TV 960 × 540 dp (1920 × 1080) niezależnie od DPI systemu – [pl.iptv.tv.ui.TvResolution]. */
+    override fun attachBaseContext(newBase: android.content.Context) { super.attachBaseContext(pl.iptv.tv.ui.TvResolution.wrap(newBase)) }
+    override fun applyOverrideConfiguration(o: android.content.res.Configuration?) { super.applyOverrideConfiguration(pl.iptv.tv.ui.TvResolution.adjust(this, o)) }
+
     companion object {
         private const val K = "keys"; private const val T = "titles"; private const val S = "starts"; private const val E = "subs"
         fun intent(c: Context, due: List<Reminder>) = Intent(c, ReminderActivity::class.java)
@@ -28,6 +32,7 @@ class ReminderActivity : AppCompatActivity() {
     private val handler = Handler(Looper.getMainLooper())
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        pl.iptv.tv.ui.TvResolution.applyMetrics(resources); pl.iptv.tv.ui.TvResolution.applyMetrics(applicationContext.resources)   // (7.20) siatka TV 960 × 540 dp
         super.onCreate(savedInstanceState)
         val keys = intent.getStringArrayExtra(K) ?: return finish()
         val titles = intent.getStringArrayExtra(T) ?: return finish()

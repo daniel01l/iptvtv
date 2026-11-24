@@ -152,7 +152,7 @@ class X25DashboardActivity : BaseActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) { override fun handleOnBackPressed() = onBack() })
-        setContent { X25ThemeProvider { SmoothScrolling { Dashboard() } } }
+        setContent { TvResolution1080pProvider { X25ThemeProvider { SmoothScrolling { Dashboard() } } } }
         lifecycleScope.launch {
             if (!StubeHistory.cacheLoaded) runCatching { StubeHistory.loadCache() }
             tiles = X25Store.load(); loaded = true

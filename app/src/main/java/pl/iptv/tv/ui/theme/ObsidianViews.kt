@@ -100,7 +100,7 @@ object ObsidianViews {
         val r = Ui.dp(AppNavRail.ITEM_RADIUS.value.toInt()).toFloat()
         val on = round(ACCENT, r)
         addState(FOCUSED, on); addState(PRESSED, on)
-        val stroke = Math.round(AppNavRail.SELECTED_STROKE.value * android.content.res.Resources.getSystem().displayMetrics.density).coerceAtLeast(1)
+        val stroke = Math.round(AppNavRail.SELECTED_STROKE.value * Ui.density).coerceAtLeast(1)
         val chosen = round((ACCENT and 0x00FFFFFF) or (Math.round(AppNavRail.SELECTED_FILL_ALPHA * 255) shl 24), r, stroke, ACCENT)
         addState(SELECTED, chosen); addState(ACTIVATED, chosen)
         addState(intArrayOf(), ColorDrawable(0))

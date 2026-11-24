@@ -36,7 +36,8 @@ object EngineProfiles {
         Prefs.lowPerf = v.lowPerf; Prefs.bufMinS = v.bufMinS; Prefs.cleanDecoderOnZap = v.cleanDecoder; Prefs.zapDelayMs = v.zapDelayMs
         Prefs.asyncDecoder = v.asyncDecoder; Prefs.decoderFallback = v.decoderFallback; Prefs.playerEngine = v.engine; Prefs.hwAccel = v.hwAccel
         if (v.lowPerf) { Prefs.lowMaxHeight = v.lowMaxHeight; Prefs.lowBufMb = v.lowBufMb }
-        Playback.stop()
+        // (7.20) bez zatrzymania: zapis ustawień odświeża EngineConfigRepository, a Playback przebudowuje odtwarzacz w locie
+        EngineConfigRepository.refresh()
     }
 
     private fun current() = Values(Prefs.lowPerf, Prefs.bufMinS, Prefs.cleanDecoderOnZap, Prefs.zapDelayMs, Prefs.asyncDecoder, Prefs.decoderFallback,

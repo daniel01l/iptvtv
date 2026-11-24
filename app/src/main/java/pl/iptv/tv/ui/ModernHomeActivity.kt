@@ -185,7 +185,7 @@ class ModernHomeActivity : BaseActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) { override fun handleOnBackPressed() = onBack() })
-        setContent { ModernThemeProvider { Home() } }
+        setContent { TvResolution1080pProvider { ModernThemeProvider { Home() } } }
         pendingFocus = HERO_PLAY
         lifecycleScope.launch {
             if (!StubeHistory.cacheLoaded) runCatching { StubeHistory.loadCache() }

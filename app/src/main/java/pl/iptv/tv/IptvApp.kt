@@ -90,8 +90,12 @@ class IptvApp : Application(), coil.ImageLoaderFactory {
         startActivity(android.content.Intent(this, pl.iptv.tv.ui.LockActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
+    /** (7.20) Kontekst aplikacji w tej samej siatce TV 960 × 540 dp co aktywności ([pl.iptv.tv.ui.TvResolution]). */
+    override fun attachBaseContext(base: android.content.Context) { super.attachBaseContext(pl.iptv.tv.ui.TvResolution.wrap(base)) }
+
     override fun onCreate() {
         super.onCreate()
+        pl.iptv.tv.ui.TvResolution.applyMetrics(resources)       // (7.20) kontekst aplikacji w siatce TV
         started = 0
         if (android.os.Build.FINGERPRINT != "robolectric") dropOldImageCache()
         Repository.init(this)

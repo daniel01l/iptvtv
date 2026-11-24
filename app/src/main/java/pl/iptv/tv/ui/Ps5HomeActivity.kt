@@ -152,7 +152,7 @@ class Ps5HomeActivity : BaseActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) { override fun handleOnBackPressed() = onBack() })
-        setContent { PS5ThemeProvider { SmoothScrolling { Home() } } }
+        setContent { TvResolution1080pProvider { PS5ThemeProvider { SmoothScrolling { Home() } } } }
         pendingFocus = "a:" + apps().first().key
         lifecycleScope.launch {
             if (!StubeHistory.cacheLoaded) runCatching { StubeHistory.loadCache() }

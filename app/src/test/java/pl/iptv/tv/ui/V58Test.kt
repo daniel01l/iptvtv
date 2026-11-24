@@ -138,14 +138,13 @@ class V58Test {
         repeat(6) { key(a, KeyEvent.KEYCODE_DPAD_RIGHT) }
         assertEquals("Silnik i akceleracja", a.findViewById<TextView>(R.id.miniLabel).text.toString())
         key(a, KeyEvent.KEYCODE_DPAD_CENTER)
-        val d = ShadowDialog.getLatestDialog() as androidx.appcompat.app.AlertDialog
+        // (7.20) okno silnika z kartami (EngineSheet) – bez pozycji „Szybkie menu ikon” (otwarte z menu ikon)
+        val d = EngineSheet.shown!!
         assertTrue(d.isShowing)
-        val lv = all(d.window!!.decorView).filterIsInstance<android.widget.ListView>().first()
-        val labels = (0 until lv.adapter.count).map { lv.adapter.getItem(it).toString() }
-        assertTrue(labels.toString(), labels[0].startsWith("▶ Silnik:"))
-        assertTrue(labels.toString(), labels[1].startsWith("⚡ Akceleracja sprzętowa"))
-        assertFalse(labels.any { it.contains("Szybkie menu ikon") })
-        lv.performItemClick(lv.getChildAt(1), 1, 1); idle()
+        val tags = all(d.window!!.decorView).mapNotNull { it.tag as? String }.filter { it.startsWith("engine:") }
+        assertTrue(tags.toString(), tags.take(2) == listOf("engine:engine", "engine:hw"))
+        assertFalse(all(d.window!!.decorView).any { it.contentDescription == "Szybkie menu ikon" })
+        all(d.window!!.decorView).first { it.tag == "engine:hw" }.performClick(); idle()
         assertFalse(Prefs.hwAccel); Prefs.hwAccel = true
         d.dismiss(); idle()
         c.pause().stop().destroy()

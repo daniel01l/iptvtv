@@ -48,6 +48,16 @@ object Prefs {
     var bufMinS: Int get() = int("buf_min", 0); set(v) = putInt("buf_min", v)
     /** (7.17) Dopasowanie odświeżania ekranu do klatek kanału (AFR) – domyślnie wyłączone. */
     var autoFrameRate: Boolean get() = bool("afr", false); set(v) = putBool("afr", v)
+    /**
+     * (7.20) Powierzchnia obrazu Live TV ([pl.iptv.tv.ui.RenderSurfaceMode]): 0 – automatycznie (SurfaceView, TextureView dla
+     * kanałów w trybie zgodności), 1 – zawsze SurfaceView, 2 – zawsze TextureView (błędy usuwania przeplotu 1080i50 na części
+     * TV z Google TV). Dawny przełącznik `tex_view` = wł. → 2.
+     */
+    var surfaceMode: Int get() = optInt("surface_mode") ?: if (bool("tex_view", false)) 2 else 0; set(v) = putInt("surface_mode", v)
+    /** (7.20) Wyrównywanie głośności kanałów (LoudnessEnhancer na sesji dźwięku odtwarzacza, łagodne podbicie) – domyślnie wył. */
+    var loudnessLeveling: Boolean get() = bool("loudness", false); set(v) = putBool("loudness", v)
+    /** (7.20) Strażnik zrzucanych klatek – klatkujący kanał sam przechodzi na tryb zgodności (zapamiętany dla kanału). */
+    var dropWatchdog: Boolean get() = bool("drop_watchdog", true); set(v) = putBool("drop_watchdog", v)
 
     // ---- silnik odtwarzania ----
     /** 0 = Media3 sprzętowy (domyślny), 1 = Media3 programowy (zgodność), 2 = Media3 tunelowanie (Android TV). */
@@ -80,9 +90,14 @@ object Prefs {
     private fun str(k: String, d: String = "") = sp.getString(k, d) ?: d
     private fun put(k: String, v: String) = sp.edit().putString(k, v).apply()
     private fun bool(k: String, d: Boolean) = sp.getBoolean(k, d)
-    private fun putBool(k: String, v: Boolean) = sp.edit().putBoolean(k, v).apply()
+    private fun putBool(k: String, v: Boolean) { sp.edit().putBoolean(k, v).apply(); if (k in ENGINE_KEYS) onEngineChanged?.invoke() }
     private fun int(k: String, d: Int) = sp.getInt(k, d)
-    private fun putInt(k: String, v: Int) = sp.edit().putInt(k, v).apply()
+    private fun putInt(k: String, v: Int) { sp.edit().putInt(k, v).apply(); if (k in ENGINE_KEYS) onEngineChanged?.invoke() }
+
+    /** (7.20) Klucze ustawień silnika odtwarzania – każdy zapis powiadamia [pl.iptv.tv.ui.EngineConfigRepository] (jedno źródło prawdy). */
+    val ENGINE_KEYS = setOf("engine", "hw_accel", "async_dec", "surface_mode", "afr", "buf_min", "low_latency", "loudness", "low_perf", "dec_fallback")
+    /** (7.20) Ustawia [pl.iptv.tv.ui.EngineConfigRepository]: zmiana któregoś z [ENGINE_KEYS] (z Ustawień, odtwarzacza, profili, testów). */
+    @Volatile var onEngineChanged: (() -> Unit)? = null
 
     /** Wartość opcjonalna – null oznacza „domyślna z motywu”. */
     fun optInt(k: String): Int? = if (sp.contains(k)) sp.getInt(k, 0) else null
@@ -184,6 +199,8 @@ object Prefs {
     var stremioGuest: Boolean get() = bool("stremio_guest", false); set(v) = putBool("stremio_guest", v)
     /** (7.17) Biblioteka Stremio (tytuły dodane przyciskiem „Dodaj do biblioteki”) – JSON, [StremioLibrary]. */
     var stremioLibrary: String get() = str("stremio_library"); set(v) = put("stremio_library", v)
+    /** (7.20) Co ile godzin rzędy „Top 10” Stremio są pobierane od nowa (domyślnie 96 h = 4 dni). */
+    var stremioTop10Hours: Int get() = int("stremio_top10_h", 96); set(v) = putInt("stremio_top10_h", v)
     /** Odtwarzacz: rozmiar napisów (indeks), kolor (indeks), opóźnienie (ms), dopasowanie obrazu, preferowany język napisów. */
     var stremioSubSize: Int get() = int("stremio_sub_size", 1); set(v) = putInt("stremio_sub_size", v)
     var stremioSubColor: Int get() = int("stremio_sub_color", 0); set(v) = putInt("stremio_sub_color", v)

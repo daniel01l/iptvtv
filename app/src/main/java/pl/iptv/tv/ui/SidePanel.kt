@@ -19,6 +19,7 @@ import androidx.recyclerview.widget.RecyclerView
 import coil.load
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import pl.iptv.tv.R
 import pl.iptv.tv.data.Channel
 import pl.iptv.tv.data.QueueItem
 import pl.iptv.tv.data.Repository
@@ -36,7 +37,10 @@ class SidePanel(private val a: Activity, private val tabs: List<Tab>, private va
     /** Pozycja listy: miniatura (lub ikona), tytuł, podpis, postęp 0..1 (null – bez paska). */
     data class Entry(
         val key: String, val title: String, val sub: String = "", val thumb: String = "", val icon: String = "",
-        val badge: String = "", val progress: Float? = null, val onLong: (() -> Unit)? = null, val onClick: () -> Unit,
+        val badge: String = "", val progress: Float? = null, val onLong: (() -> Unit)? = null,
+        /** (7.20) Pozycja obejrzana – pod tytułem ✓ „Obejrzano” w kolorze akcentu motywu ([WatchedMark]). */
+        val watched: Boolean = false,
+        val onClick: () -> Unit,
     )
     class Tab(val title: String, val empty: String, val load: suspend () -> List<Entry>)
 
@@ -182,7 +186,7 @@ class SidePanel(private val a: Activity, private val tabs: List<Tab>, private va
     private inner class EntryAdapter : RecyclerView.Adapter<EntryAdapter.VH>() {
         var items: List<Entry> = emptyList()
         inner class VH(val row: LinearLayout, val thumb: ImageView, val icon: TextView, val badge: TextView, val bar: WatchBar,
-                       val title: TextView, val sub: TextView) : RecyclerView.ViewHolder(row)
+                       val title: TextView, val sub: TextView, val watched: TextView) : RecyclerView.ViewHolder(row)
 
         override fun getItemCount() = items.size
 
@@ -214,9 +218,11 @@ class SidePanel(private val a: Activity, private val tabs: List<Tab>, private va
             val col = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; setPadding(Ui.dp(12), 0, 0, 0) }
             val title = TextView(c).apply { textSize = 15f; maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
             val sub = TextView(c).apply { tag = "text2"; textSize = 13f; maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
-            col.addView(title); col.addView(sub)
+            // (7.20) znacznik obejrzenia: ikona ✓ w kółku i „Obejrzano” w kolorze akcentu aktywnego motywu
+            val watched = WatchedMark.label(c)
+            col.addView(title); col.addView(sub); col.addView(watched, LinearLayout.LayoutParams(-2, -2).apply { topMargin = Ui.dp(3) })
             row.addView(col, LinearLayout.LayoutParams(0, -2, 1f))
-            val vh = VH(row, thumb, icon, badge, bar, title, sub)
+            val vh = VH(row, thumb, icon, badge, bar, title, sub, watched)
             row.setOnClickListener { items.getOrNull(vh.bindingAdapterPosition)?.onClick?.invoke() }
             row.setOnLongClickListener { items.getOrNull(vh.bindingAdapterPosition)?.onLong?.invoke(); true }
             Ui.style(row)
@@ -231,7 +237,8 @@ class SidePanel(private val a: Activity, private val tabs: List<Tab>, private va
             h.badge.text = e.badge; h.badge.visibility = if (e.badge.isBlank()) View.GONE else View.VISIBLE
             h.bar.fraction = e.progress ?: 0f; h.bar.visibility = if (e.progress != null && e.progress > 0f) View.VISIBLE else View.GONE
             h.title.text = e.title; h.sub.text = e.sub; h.sub.visibility = if (e.sub.isBlank()) View.GONE else View.VISIBLE
-            h.row.contentDescription = e.title
+            h.watched.visibility = if (e.watched) View.VISIBLE else View.GONE
+            h.row.contentDescription = e.title + if (e.watched) ", obejrzano" else ""
         }
     }
 }
@@ -297,4 +304,45 @@ object QueueUi {
     }
 
     fun toast(a: Activity, s: String) = I18n.makeToast(a, s, android.widget.Toast.LENGTH_SHORT).show()
+}
+
+/**
+ * (7.20) Znacznik obejrzanej pozycji (odcinek, część filmu): ikona ✓ w kółku (odpowiednik `CheckCircle`, rysowana – projekt
+ * nie ma material-icons) i etykieta „Obejrzano” w kolorze akcentu aktywnego motywu ([CardSheet.palette]).
+ */
+object WatchedMark {
+    const val TAG = "watched_mark"
+    const val TEXT = "Obejrzano"
+
+    fun label(c: android.content.Context) = TextView(c).apply {
+        // akcent motywu; na zaznaczonym wierszu (wypełnienie zaznaczenia, często w kolorze akcentu) – tekst zaznaczenia
+        val pal = CardSheet.palette()
+        val colors = android.content.res.ColorStateList(arrayOf(intArrayOf(android.R.attr.state_focused), intArrayOf()), intArrayOf(pal.focusText, pal.accent))
+        tag = "keepcolor"; setTag(R.id.row_key, TAG); text = TEXT; textSize = 12f; setTypeface(typeface, android.graphics.Typeface.BOLD)
+        setTextColor(colors); isDuplicateParentStateEnabled = true
+        setCompoundDrawablesRelative(CheckCircle(colors).apply { setBounds(0, 0, Ui.dp(14), Ui.dp(14)) }, null, null, null)
+        compoundDrawablePadding = Ui.dp(5); visibility = View.GONE
+    }
+
+    /** Kółko w akcencie z białym znakiem ✓. */
+    class CheckCircle(private val colors: android.content.res.ColorStateList) : android.graphics.drawable.Drawable() {
+        private val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        private val path = android.graphics.Path()
+        private var color = colors.defaultColor
+        override fun isStateful() = true
+        override fun onStateChange(state: IntArray): Boolean { val c = colors.getColorForState(state, colors.defaultColor); if (c == color) return false; color = c; invalidateSelf(); return true }
+        override fun draw(cv: android.graphics.Canvas) {
+            val b = bounds; val r = minOf(b.width(), b.height()) / 2f; val cx = b.exactCenterX(); val cy = b.exactCenterY()
+            p.style = android.graphics.Paint.Style.FILL; p.color = color; cv.drawCircle(cx, cy, r, p)
+            p.style = android.graphics.Paint.Style.STROKE; p.strokeWidth = r * 0.28f; p.strokeCap = android.graphics.Paint.Cap.ROUND
+            p.strokeJoin = android.graphics.Paint.Join.ROUND
+            // znak ✓ w kolorze kontrastowym do kółka (jasne kółko – ciemny znak)
+            p.color = if (androidx.core.graphics.ColorUtils.calculateLuminance(color) > 0.6) android.graphics.Color.BLACK else android.graphics.Color.WHITE
+            path.reset(); path.moveTo(cx - r * 0.45f, cy + r * 0.02f); path.lineTo(cx - r * 0.1f, cy + r * 0.36f); path.lineTo(cx + r * 0.48f, cy - r * 0.32f)
+            cv.drawPath(path, p)
+        }
+        override fun setAlpha(alpha: Int) { p.alpha = alpha }
+        override fun setColorFilter(cf: android.graphics.ColorFilter?) { p.colorFilter = cf }
+        @Deprecated("Deprecated in Java") override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
+    }
 }

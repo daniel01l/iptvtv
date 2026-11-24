@@ -227,15 +227,9 @@ class PlayerActivity : BaseActivity() {
                 }
             }
         })
-        playerView.setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { vis ->
-            if (isCatchup && vis == View.VISIBLE) {
-                fillCatchupBar(); hideOverlay.run()
-                // pełny panel: zaznaczony ▶‖; sam pasek postępu: bez zaznaczenia (◄ ► dalej przewijają)
-                if (barFull) playerView.findViewById<View>(androidx.media3.ui.R.id.exo_play_pause)?.let { b -> b.post { b.requestFocus() } }
-            }
-            if (isCatchup && vis != View.VISIBLE) setBarFull(true)
-        })
-        setupCatchupBar()
+        // (7.20) powierzchnia obrazu wg ustawień (TextureView / SurfaceView) – przed konfiguracją widoku
+        ensureSurfaceType(configure = false)
+        configurePlayerView()
         // (7.17) nowy pasek OSD wyłączony w Live TV (PlayerOsd.liveTv): pasek informacji, nawigacja i funkcje jak w 7.16 (styl paska z Ustawień)
         if (pl.iptv.tv.ui.theme.ObsidianViews.active && PlayerOsd.enabled && PlayerOsd.liveTv) setupOsd()
     }
@@ -263,6 +257,53 @@ class PlayerActivity : BaseActivity() {
      * Nakładka OSD w Compose nad obrazem (ten sam [PlayerView] i wspólny odtwarzacz [Playback] – bez nowej instancji
      * ExoPlayera). Pod panelami kanałów / listą kanałów, nad obrazem.
      */
+    /** Słuchacze i pasek archiwum na bieżącym [playerView] (także po podmianie powierzchni obrazu). */
+    private fun configurePlayerView() {
+        playerView.setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { vis ->
+            if (isCatchup && vis == View.VISIBLE) {
+                fillCatchupBar(); hideOverlay.run()
+                // pełny panel: zaznaczony ▶‖; sam pasek postępu: bez zaznaczenia (◄ ► dalej przewijają)
+                if (barFull) playerView.findViewById<View>(androidx.media3.ui.R.id.exo_play_pause)?.let { b -> b.post { b.requestFocus() } }
+            }
+            if (isCatchup && vis != View.VISIBLE) setBarFull(true)
+        })
+        setupCatchupBar()
+    }
+
+    /** (7.20) Pełny bufor wideo ([TvResolution.nativeVideoBuffer]); tryb słabszych urządzeń z limitem rozdzielczości – rozmiar z układu. */
+    fun applyNativeVideoBuffer(w: Int, h: Int): Boolean = TvResolution.nativeVideoBuffer(playerView.videoSurfaceView as? android.view.SurfaceView, w, h,
+        TvResolution.displayHeightPx(this), limited = Prefs.lowPerf && Prefs.lowMaxHeight > 0)
+
+    /** (7.20) Czy obraz jest teraz na TextureView. */
+    val usesTextureView: Boolean get() = playerView.videoSurfaceView is android.view.TextureView
+
+    /**
+     * (7.20) PlayerView z powierzchnią wymaganą przez [Playback.wantsTextureView] (ustawienie albo profil kanału – błędy
+     * sprzętowego usuwania przeplotu 1080i50 na części TV z Google TV). Typ powierzchni PlayerView ustala się tylko przy
+     * tworzeniu – widok podmieniany w tym samym miejscu, odtwarzacz przenoszony bez przerywania ([Playback.attach]).
+     */
+    private fun ensureSurfaceType(configure: Boolean = true) {
+        val want = Playback.wantsTextureView
+        val old = playerView
+        if (usesTextureView == want) return
+        val parent = old.parent as? android.view.ViewGroup ?: return
+        val nv = layoutInflater.inflate(if (want) R.layout.player_view_texture else R.layout.player_view_surface, parent, false) as PlayerView
+        parent.addView(nv, parent.indexOfChild(old), old.layoutParams)
+        playerView = nv
+        if (configure) {
+            configurePlayerView()
+            playerView.setKeepContentOnPlayerReset(true)
+            playerView.useController = isCatchup
+            applyAspect()
+        }
+        if (player != null) Playback.attach(nv)      // obraz przeniesiony ze starego widoku (switchTargetView)
+        else old.player = null
+        player?.videoSize?.let { v -> nv.post { applyNativeVideoBuffer(v.width, v.height) } }
+        val hadFocus = old.hasFocus()
+        parent.removeView(old)
+        if (hadFocus) nv.requestFocus()
+    }
+
     private fun setupOsd() {
         val s = OsdState()
         s.progress = ::osdProgress
@@ -287,7 +328,7 @@ class PlayerActivity : BaseActivity() {
         val root = findViewById<android.widget.FrameLayout>(R.id.playerRoot)
         osdView = androidx.compose.ui.platform.ComposeView(this).apply {
             setViewCompositionStrategy(androidx.compose.ui.platform.ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
-            setContent { PlayerOsdOverlay(s, lowPerf = Prefs.lowPerf) }
+            setContent { TvResolution1080pProvider { PlayerOsdOverlay(s, lowPerf = Prefs.lowPerf) } }
         }
         root.addView(osdView, root.indexOfChild(overlay) + 1, android.widget.FrameLayout.LayoutParams(-1, -1))
     }
@@ -409,7 +450,7 @@ class PlayerActivity : BaseActivity() {
     override fun onResume() {
         super.onResume()
         // ekran w pełni widoczny – obraz zawsze z powrotem na tę powierzchnię
-        playerView.post { if (player != null) { Playback.reattach(playerView); if (isCatchup) playerView.showController() } }
+        playerView.post { if (player != null) { ensureSurfaceType(); Playback.reattach(playerView); if (isCatchup) playerView.showController() } }
         handler.removeCallbacks(scoresTick); handler.postDelayed(scoresTick, 2000)
         showGoals(pl.iptv.tv.data.Scores.takeGoals())          // gole wykryte, gdy odtwarzacz był w tle (menu, przewodnik)
     }
@@ -423,6 +464,7 @@ class PlayerActivity : BaseActivity() {
         // odtwarzacz zostaje (kanał gra dalej w menu/ustawieniach); odłączamy tylko obraz i słuchacza
         Playback.removeListener(listener)
         Playback.onFatal = null; Playback.onPlayerChanged = null; Playback.onDecoderFallback = null; ChannelEngineOptimizer.onStatus = null
+        Playback.onSurfaceTypeChanged = null; Playback.onFrameDropFallback = null
         Playback.detach(playerView)
         player = null
     }
@@ -503,6 +545,8 @@ class PlayerActivity : BaseActivity() {
     // ---------------- odtwarzanie ----------------
 
     private val listener = object : Player.Listener {
+            // (7.20) interfejs w siatce 1080p, obraz w pełnej rozdzielczości materiału (np. 4K na matrycy 4K) – bufor powierzchni wideo
+            override fun onVideoSizeChanged(v: androidx.media3.common.VideoSize) { applyNativeVideoBuffer(v.width, v.height) }
             override fun onPlayerError(error: PlaybackException) {
                 // archiwum: serwer zrywa strumień przy końcu programu – to koniec, nie błąd
                 val p = player
@@ -711,6 +755,13 @@ class PlayerActivity : BaseActivity() {
         player = p
         Playback.onPlayerChanged = { np -> player = np; Playback.attach(playerView) }
         Playback.onDecoderFallback = { toast("Obraz zamarzał – przełączono na dekoder programowy (do zmiany silnika lub zamknięcia aplikacji)") }
+        // (7.20) klatkujący kanał (zrzucane klatki przy płynnym dźwięku) – tryb zgodności zapamiętany dla kanału
+        Playback.onSurfaceTypeChanged = { ensureSurfaceType() }
+        Playback.onFrameDropFallback = { prof, why ->
+            errorTv.visibility = View.GONE          // odzyskiwanie w tle – bez komunikatu błędu
+            toast(if (why == Playback.FALLBACK_DECODER) "Błąd dekodera – kanał przełączony na dekoder programowy (zapamiętany)"
+                else "Obraz klatkował – tryb zgodności dla kanału: ${prof.label} (zapamiętany)")
+        }
         // dobór silnika dla kanału, który nie ruszył – postęp na ekranie, wynik jako krótki komunikat
         ChannelEngineOptimizer.onStatus = { s ->
             when (s) {
@@ -1923,50 +1974,18 @@ class PlayerActivity : BaseActivity() {
     private fun onHoldOk() { if (Prefs.okLongAction == 0) playbackMenu() else openMini() }
 
     /**
-     * Menu odtwarzania (przytrzymanie OK): silnik odtwarzania i akceleracja sprzętowa przełączane na żywo –
-     * kanał startuje od razu z nowymi ustawieniami (archiwum wraca w to samo miejsce).
+     * (7.20) Okno silnika (przytrzymanie OK / kafelek „Silnik i akceleracja”): [EngineSheet] – te same ustawienia i metody
+     * zapisu co Ustawienia ([EngineConfigRepository]); zmiana działa od razu (przebudowa odtwarzacza w locie, archiwum – ta
+     * sama pozycja), na górze na żywo kodeki obrazu i dźwięku.
      */
     private fun playbackMenu() {
         closePanels(); hideOverlay.run()
-        Dialogs.menuLive(this, "Odtwarzanie") {
-            val eng = Prefs.playerEngine.coerceIn(Playback.ENGINES.indices)
-            listOfNotNull(
-                "▶ Silnik: ${Playback.ENGINES[eng].substringAfter("– ").substringBefore(" (")}" to {
-                    Prefs.playerEngine = (eng + 1) % Playback.ENGINES.size; restartEngine()
-                },
-                (if (Prefs.hwAccel) "⚡ Akceleracja sprzętowa: ✔ włączona" else "⚡ Akceleracja sprzętowa: ✖ wyłączona") to {
-                    Prefs.hwAccel = !Prefs.hwAccel; restartEngine()
-                },
-                "⇄ Kolejka dekodera: " + listOf("automatycznie", "asynchroniczna", "synchroniczna")[Prefs.asyncDecoder.coerceIn(0, 2)] to {
-                    Prefs.asyncDecoder = (Prefs.asyncDecoder.coerceIn(0, 2) + 1) % 3; restartEngine()
-                },
-                // (7.5) ustawienia silnika bieżącego kanału: ręczne dopasowanie (kanał się zacina) i usunięcie zapamiętanych
-                channelEngineEntry(),
-                "🔧 Dopasowanie silnika (automatyczne)" to { Ui.dismissOpenDialogs(this); manualEngineFit() },
-                pl.iptv.tv.data.ChannelEngines.get(list[pos].key)?.let { _ ->
-                    "♻ Usuń dopasowane ustawienia" to {
-                        val ch = list[pos]
-                        ChannelEngineOptimizer.resetChannel(ch.key, Playback.url ?: ch.url)
-                        Ui.dismissOpenDialogs(this); restartEngine(); toast("Kanał ${ch.name}: ustawienia domyślne")
-                    }
-                },
-                "ℹ Bieżący dekoder" to { Dialogs.confirm(this, "Bieżący dekoder", Playback.decoderInfo()) {} },
-                if (Prefs.miniMenuEnabled && Prefs.okLongAction == 0) "▦ Szybkie menu ikon" to {
-                    Ui.dismissOpenDialogs(this); openMini()
-                } else null,
-            )
-        }
-    }
-
-    /** Opis zapamiętanych ustawień silnika bieżącego kanału (pozycja informacyjna w menu). */
-    private fun channelEngineEntry(): Pair<String, () -> Unit> {
-        val e = pl.iptv.tv.data.ChannelEngines.get(list[pos].key)
-        val t = when {
-            e == null -> "Kanał: ustawienia domyślne"
-            e.testedFailed -> "Kanał: nie otworzył się na żadnym silniku"
-            else -> "Kanał: " + (e.profile?.label ?: "ustawienia domyślne")
-        }
-        return "ℹ $t" to {}
+        val extras = listOfNotNull(
+            "Dopasowanie silnika (automatyczne)" to { manualEngineFit() },
+            "Bieżący dekoder – szczegóły" to { Dialogs.confirm(this, "Bieżący dekoder", Playback.decoderInfo()) {} },
+            if (Prefs.miniMenuEnabled && Prefs.okLongAction == 0) "Szybkie menu ikon" to { openMini() } else null,
+        )
+        EngineSheet.show(this, list.getOrNull(pos), { Playback.url }, extras)
     }
 
     /**
@@ -1983,16 +2002,6 @@ class PlayerActivity : BaseActivity() {
             ChannelEngineOptimizer.ManualStart.LIMIT -> toast("Dopasowanie dla tego kanału było już wykonane – usuń ustawienia albo uruchom aplikację ponownie")
             ChannelEngineOptimizer.ManualStart.CRASHED -> toast("Poprzednie dopasowanie tego kanału przerwało aplikację – zmień silnik ręcznie")
         }
-    }
-
-    /** Nowy odtwarzacz z bieżącymi ustawieniami silnika (ten sam kanał; archiwum – ta sama pozycja). */
-    private fun restartEngine() {
-        val at = if (isCatchup) player?.currentPosition ?: 0L else 0L
-        Playback.removeListener(listener)
-        Playback.stop(); player = null           // stary odtwarzacz, dekodery i połączenia całkowicie zwolnione
-        initPlayer(); playCurrent()
-        if (isCatchup && at > 0) player?.seekTo(at)
-        toast("Silnik: ${Playback.ENGINES[Prefs.playerEngine.coerceIn(Playback.ENGINES.indices)].substringAfter("– ")} • akceleracja ${if (Prefs.hwAccel) "wł." else "wył."}")
     }
 
     private fun openMini() {

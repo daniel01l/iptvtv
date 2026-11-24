@@ -99,7 +99,7 @@ class STubeSearchActivity : BaseActivity() {
         super.onCreate(savedInstanceState)
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
         if (savedInstanceState == null) intent.getStringExtra(EXTRA_QUERY)?.trim()?.takeIf { it.isNotEmpty() }?.let { vm.setQuery(it) }
-        setContent { Screen() }
+        setContent { TvResolution1080pProvider { Screen() } }
     }
 
     override fun onResume() { super.onResume(); vm.refreshHistory() }

@@ -36,8 +36,10 @@ class PlayerIcon(private val kind: String, private val tint: ColorStateList = Co
         const val NEWS = "news"; const val TRENDING = "trending"; const val SPORT = "sport"; const val KIDS = "kids"; const val HEADLINES = "headlines"; const val GAMES = "games"
         // (7.17) wyszukiwanie głosowe
         const val MIC = "mic"
+        // (7.20) „Do obejrzenia” (odpowiedniki BookmarkAdd / BookmarkAdded)
+        const val BOOKMARK_ADD = "bookmark_add"; const val BOOKMARK_ADDED = "bookmark_added"
         val ALL = listOf(SPEED, QUALITY, AUDIO, CC, EQ, CHAPTERS, QUEUE, PIP, AUTOPLAY, NEXT, DELAY, STYLE, ASPECT, INFO, RELATED,
-            PLAY, PAUSE, PREV, REW, FWD, AUDIO_ONLY, SHUFFLE, REPEAT, REPEAT_ONE, LYRICS, VIDEO, MUSIC, STOP, SEARCH, HOME, PHONE, REFRESH, CLOSE, USER, NEWS, TRENDING, SPORT, KIDS, HEADLINES, GAMES, PLUG, CINEMA, CHECK, STAR, TVSET, FILM, EYE, PLUS, EDIT, MIC)
+            PLAY, PAUSE, PREV, REW, FWD, AUDIO_ONLY, SHUFFLE, REPEAT, REPEAT_ONE, LYRICS, VIDEO, MUSIC, STOP, SEARCH, HOME, PHONE, REFRESH, CLOSE, USER, NEWS, TRENDING, SPORT, KIDS, HEADLINES, GAMES, PLUG, CINEMA, CHECK, STAR, TVSET, FILM, EYE, PLUS, EDIT, MIC, BOOKMARK_ADD, BOOKMARK_ADDED)
     }
 
     private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
@@ -125,6 +127,15 @@ class PlayerIcon(private val kind: String, private val tint: ColorStateList = Co
             FILM -> { rect(0.16f, 0.1f, 0.84f, 0.9f, 0.06f); line(0.34f, 0.1f, 0.34f, 0.9f); line(0.66f, 0.1f, 0.66f, 0.9f); line(0.16f, 0.34f, 0.34f, 0.34f); line(0.16f, 0.5f, 0.34f, 0.5f); line(0.16f, 0.66f, 0.34f, 0.66f); line(0.66f, 0.34f, 0.84f, 0.34f); line(0.66f, 0.5f, 0.84f, 0.5f); line(0.66f, 0.66f, 0.84f, 0.66f) }
             EYE -> { r.set(x(0.06f), y(0.26f), x(0.94f), y(0.74f)); c.drawOval(r, p); c.drawCircle(x(0.5f), y(0.5f), s * 0.12f, f) }
             PLUS -> { line(0.5f, 0.18f, 0.5f, 0.82f); line(0.18f, 0.5f, 0.82f, 0.5f) }
+            // zakładka (wstążka z wcięciem u dołu): pusta z „+” / wypełniona z „✓”
+            BOOKMARK_ADD, BOOKMARK_ADDED -> {
+                path.reset(); path.moveTo(x(0.24f), y(0.1f)); path.lineTo(x(0.76f), y(0.1f)); path.lineTo(x(0.76f), y(0.92f)); path.lineTo(x(0.5f), y(0.72f)); path.lineTo(x(0.24f), y(0.92f)); path.close()
+                if (kind == BOOKMARK_ADDED) {
+                    c.drawPath(path, f)
+                    val k = android.graphics.Paint(p).apply { color = if (androidx.core.graphics.ColorUtils.calculateLuminance(this@PlayerIcon.color) > 0.6) android.graphics.Color.BLACK else android.graphics.Color.WHITE }
+                    c.drawLine(x(0.36f), y(0.42f), x(0.47f), y(0.53f), k); c.drawLine(x(0.47f), y(0.53f), x(0.66f), y(0.32f), k)
+                } else { c.drawPath(path, p); line(0.5f, 0.26f, 0.5f, 0.54f); line(0.36f, 0.4f, 0.64f, 0.4f) }
+            }
             EDIT -> { line(0.2f, 0.78f, 0.3f, 0.5f); line(0.3f, 0.5f, 0.68f, 0.12f); line(0.68f, 0.12f, 0.88f, 0.32f); line(0.88f, 0.32f, 0.5f, 0.7f); line(0.5f, 0.7f, 0.2f, 0.78f); line(0.12f, 0.92f, 0.88f, 0.92f) }
             else -> c.drawCircle(x(0.5f), y(0.5f), s * 0.3f, p)
         }

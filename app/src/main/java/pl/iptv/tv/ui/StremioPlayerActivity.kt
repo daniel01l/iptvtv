@@ -45,6 +45,7 @@ import pl.iptv.tv.data.Prefs
 import pl.iptv.tv.data.Repository
 import pl.iptv.tv.data.StremioApi
 import pl.iptv.tv.data.StremioProgress
+import pl.iptv.tv.data.StremioMetaPreview
 import pl.iptv.tv.data.StremioResume
 import pl.iptv.tv.data.StremioStore
 import pl.iptv.tv.data.StremioStream
@@ -62,6 +63,10 @@ import pl.iptv.tv.data.StubeHistory
  */
 @OptIn(UnstableApi::class)
 class StremioPlayerActivity : AppCompatActivity() {
+    /** (7.20) Siatka interfejsu TV 960 × 540 dp (1920 × 1080) niezależnie od DPI systemu – [pl.iptv.tv.ui.TvResolution]. */
+    override fun attachBaseContext(newBase: android.content.Context) { super.attachBaseContext(pl.iptv.tv.ui.TvResolution.wrap(newBase)) }
+    override fun applyOverrideConfiguration(o: android.content.res.Configuration?) { super.applyOverrideConfiguration(pl.iptv.tv.ui.TvResolution.adjust(this, o)) }
+
     companion object {
         const val EXTRA_TYPE = "type"; const val EXTRA_META = "meta"; const val EXTRA_NAME = "name"; const val EXTRA_POSTER = "poster"
         const val EXTRA_VIDEO = "video"; const val EXTRA_LABEL = "label"; const val EXTRA_STREAM = "stream"
@@ -120,6 +125,7 @@ class StremioPlayerActivity : AppCompatActivity() {
     private var resumeMs = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        pl.iptv.tv.ui.TvResolution.applyMetrics(resources); pl.iptv.tv.ui.TvResolution.applyMetrics(applicationContext.resources)   // (7.20) siatka TV 960 × 540 dp
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         // jedno odtwarzanie naraz: telewizja i film STube w tle zatrzymane
@@ -127,6 +133,7 @@ class StremioPlayerActivity : AppCompatActivity() {
         val json = intent.getStringExtra(EXTRA_STREAM)
         videoId = intent.getStringExtra(EXTRA_VIDEO).orEmpty(); label = intent.getStringExtra(EXTRA_LABEL).orEmpty()
         setContentView(build())
+        loadRelated()
         if (json.isNullOrBlank()) resolveAndStart()
         else { stream = StremioStream.fromJson(JSONObject(json)); startChecked(resume = true) }
     }
@@ -230,6 +237,12 @@ class StremioPlayerActivity : AppCompatActivity() {
     lateinit var seekBadge: TextView; private set
     lateinit var playBtn: TextView; private set
     private lateinit var pipBtn: TextView
+    /** (7.20) „Inne odcinki / części” – widoczna tylko, gdy są inne odcinki serialu albo co najmniej 2 części filmu. */
+    lateinit var partsBtn: TextView; private set
+    /** (7.20) Części serii filmu / bajki (z bieżącym), chronologicznie; seriale – pusta. */
+    var relatedParts: List<StremioMetaPreview> = emptyList(); private set
+    /** Pierwsza widoczna ikona funkcji (ukryta „Inne części” – „Audio”). */
+    fun firstIcon(): View? = (0 until topBar.childCount).map { topBar.getChildAt(it) }.firstOrNull { it.visibility == View.VISIBLE && it.isFocusable }
     /** Przesunięcie z bieżącej serii ◄► (wskaźnik „+30 s”). */
     var seekAccum = 0L; private set
     private val hideBar = Runnable { setBar(Bar.HIDDEN) }
@@ -278,11 +291,13 @@ class StremioPlayerActivity : AppCompatActivity() {
         // ikony funkcji (7.4): zaznaczona wysuwa swój podpis
         fun btn(icon: String, t: String, a: () -> Unit) = iconButton(icon, t) { a(); scheduleHide() }
             .also { topBar.addView(it, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(10) }) }
-        btn(PlayerIcon.QUEUE, if (type == "series") "Odcinki serialu" else "Inne części filmu") { openEpisodesPanel() }
+        // (7.20) kolejność od lewej: Inne odcinki / części (tylko gdy są), Audio, Napisy, dalej pozostałe ikony.
+        // Ukryta pierwsza ikona (GONE) nie zostawia dziury – fokus zaczyna się od „Audio” ([firstIcon]).
+        partsBtn = btn(PlayerIcon.QUEUE, if (type == "series") "Inne odcinki" else "Inne części") { openEpisodesPanel() }.apply { visibility = View.GONE }
+        btn(PlayerIcon.AUDIO, "Ścieżka dźwięku") { audioMenu() }
         btn(PlayerIcon.CC, "Napisy") { subtitlesMenu() }
         btn(PlayerIcon.DELAY, "Opóźnienie napisów") { delayMenu() }
         btn(PlayerIcon.STYLE, "Styl napisów") { styleMenu() }
-        btn(PlayerIcon.AUDIO, "Ścieżka dźwięku") { audioMenu() }
         btn(PlayerIcon.ASPECT, "Dopasowanie obrazu") { aspectMenu() }
         pipBtn = btn(PlayerIcon.PIP, "Okno") { enterPip() }.apply { visibility = if (pipSupported && !Tutorial.isTv(this@StremioPlayerActivity)) View.VISIBLE else View.GONE }
         buttonsRow.addView(topBar)
@@ -529,6 +544,10 @@ class StremioPlayerActivity : AppCompatActivity() {
         p.setMediaItem(item)
         p.addListener(object : Player.Listener {
             override fun onCues(cueGroup: CueGroup) { if (externalSub == null) showEmbeddedCues(cueGroup.cues) }
+            // (7.20) interfejs w siatce 1080p, obraz 4K w pełnej rozdzielczości (bufor powierzchni wideo = rozmiar materiału)
+            override fun onVideoSizeChanged(v: androidx.media3.common.VideoSize) {
+                TvResolution.nativeVideoBuffer(playerView.videoSurfaceView as? android.view.SurfaceView, v.width, v.height, TvResolution.displayHeightPx(this@StremioPlayerActivity), limited = false)
+            }
             override fun onPlaybackStateChanged(state: Int) { if (state == Player.STATE_ENDED) onEnded() }
             override fun onPlayerError(error: PlaybackException) {
                 // poza wywołaniem słuchacza – odtwarzacz jest zwalniany i budowany od nowa
@@ -965,9 +984,42 @@ class StremioPlayerActivity : AppCompatActivity() {
 
     var sidePanel: SidePanel? = null; private set
 
+    /** (7.20) Bieżący tytuł jako pozycja katalogu (rok z metadanych – kolejność części). */
+    private fun currentPreview(): StremioMetaPreview {
+        val m = StremioMetas.cached(type, metaId)
+        return StremioMetaPreview(metaId, type, m?.name ?: intent.getStringExtra(EXTRA_NAME).orEmpty(), m?.poster ?: intent.getStringExtra(EXTRA_POSTER).orEmpty(),
+            releaseInfo = m?.releaseInfo.orEmpty())
+    }
+
     /**
-     * Panel boczny (jak kolejka w STube): serial – odcinki bieżącego sezonu ze znaczkiem „Obejrzany”, film – inne części serii
-     * (sequele / prequele), jeśli istnieją. Wybór odcinka od razu go uruchamia, wybór części otwiera jej szczegóły.
+     * (7.20) Czy pokazać ikonę „Inne odcinki / części”: serial – metadane z więcej niż jednym odcinkiem, film / bajka – co najmniej
+     * 2 części serii (kolekcja TMDB albo wyszukiwanie po tytule, razem z bieżącym). Pojedynczy film – ikona całkowicie ukryta.
+     */
+    private fun loadRelated() = lifecycleScope.launch {
+        val series = type == "series"
+        val episodes = if (series) (StremioMetas.get(type, metaId)?.videos?.size ?: 0) else 0
+        if (!series) { StremioMetas.get(type, metaId); relatedParts = runCatching { StremioMetas.relatedParts(currentPreview()) }.getOrDefault(emptyList()) }
+        if (isFinishing || isDestroyed) return@launch
+        val show = StremioMetas.hasOtherParts(series, episodes, relatedParts.size)
+        val had = partsBtn.isFocused
+        partsBtn.visibility = if (show) View.VISIBLE else View.GONE
+        if (had && !show) firstIcon()?.requestFocus()
+    }
+
+    /** (7.20) Pozycja panelu obejrzana (✓ „Obejrzano”) i postęp rozpoczętej (pasek) – z Biblioteki (obejrzane + postęp). */
+    data class WatchState(val watched: Boolean, val progress: Float?)
+
+    /** Stan obejrzenia odcinka [videoIdOf] / części filmu: zapisane obejrzane, postęp z ≥ progu „Następny” = obejrzane, rozpoczęte – pasek. */
+    fun watchState(id: String, done: Set<String>, p: StremioProgress?): WatchState {
+        val started = p?.takeIf { it.videoId == id || (it.videoId.isBlank() && it.metaId == id) || it.metaId == id && type != "series" }
+        val watched = id in done || started?.pastNextThreshold == true
+        return WatchState(watched, started?.fraction?.takeIf { !watched && it > 0f })
+    }
+
+    /**
+     * Panel boczny (jak kolejka w STube): serial – odcinki bieżącego sezonu, film / bajka – wszystkie części serii od najstarszej.
+     * (7.20) Przy każdej pozycji znacznik „Obejrzano” (✓ w kolorze akcentu motywu) i pasek postępu rozpoczętej. Wybór odcinka od
+     * razu go uruchamia, wybór innej części otwiera jej szczegóły; bieżąca pozycja – „▶ teraz”.
      */
     fun openEpisodesPanel() {
         val series = type == "series"
@@ -976,14 +1028,21 @@ class StremioPlayerActivity : AppCompatActivity() {
                 val m = StremioMetas.get(type, metaId) ?: return@Tab emptyList()
                 val cur = m.videos.firstOrNull { it.id == videoId }
                 val done = StremioStore.watchedIds(metaId)
+                val prog = StremioStore.progressOf(metaId)
                 m.episodes(cur?.season ?: m.seasons.firstOrNull() ?: 1).map { e ->
+                    val w = watchState(e.id, done, prog)
                     SidePanel.Entry(e.id, "${e.episode}. " + e.title.ifBlank { "Odcinek ${e.episode}" }, listOfNotNull(e.released.ifBlank { null }, if (e.id == videoId) "▶ teraz" else null).joinToString(" · "),
-                        e.thumbnail, badge = if (e.id in done) "✓ Obejrzany" else "") { if (e.id != videoId) playEpisode(e) else sidePanel?.close() }
+                        e.thumbnail, progress = w.progress, watched = w.watched) { if (e.id != videoId) playEpisode(e) else sidePanel?.close() }
                 }
             } else {
-                val name = intent.getStringExtra(EXTRA_NAME).orEmpty()
-                StremioMetas.parts(name, metaId).map { p ->
-                    SidePanel.Entry(p.id, p.name, p.releaseInfo, p.poster) { startActivity(StremioDetailActivity.intent(this@StremioPlayerActivity, p, null)); finish() }
+                val parts = relatedParts.ifEmpty { StremioMetas.relatedParts(currentPreview()).also { relatedParts = it } }
+                parts.map { p ->
+                    val w = if (p.id == metaId) watchState(videoId.ifBlank { metaId }, StremioStore.watchedIds(metaId), StremioStore.progressOf(metaId))
+                        else watchState(p.id, StremioStore.watchedIds(p.id), StremioStore.progressOf(p.id))
+                    SidePanel.Entry(p.id, p.name, listOfNotNull(p.releaseInfo.ifBlank { null }, if (p.id == metaId) "▶ teraz" else null).joinToString(" · "),
+                        p.poster, progress = w.progress, watched = w.watched) {
+                        if (p.id == metaId) sidePanel?.close() else { startActivity(StremioDetailActivity.intent(this@StremioPlayerActivity, p, null)); finish() }
+                    }
                 }
             }
         }
@@ -1040,7 +1099,7 @@ class StremioPlayerActivity : AppCompatActivity() {
                     else if (okDown && !okLong) { handler.removeCallbacks(holdOk); holdOk.run() }
                     return true
                 }
-                KeyEvent.KEYCODE_DPAD_UP -> if (!full && !nextCard.isFocused) { setBar(Bar.FULL); topBar.getChildAt(0)?.requestFocus(); return true }
+                KeyEvent.KEYCODE_DPAD_UP -> if (!full && !nextCard.isFocused) { setBar(Bar.FULL); firstIcon()?.requestFocus(); return true }
                 KeyEvent.KEYCODE_DPAD_DOWN -> if (!full && !nextCard.isFocused) { setBar(Bar.FULL); return true }
                 KeyEvent.KEYCODE_BACK -> if (bar != Bar.HIDDEN) { setBar(Bar.HIDDEN); backHid = true; return true }
             }

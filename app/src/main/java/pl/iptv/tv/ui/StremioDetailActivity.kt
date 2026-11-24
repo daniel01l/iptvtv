@@ -58,6 +58,9 @@ class SourcePrepared(val byQuality: List<Pair<String, List<StremioStream>>>, val
 class StremioDetailActivity : BaseActivity() {
     override val pausesLiveTv = true
     companion object {
+        /** (7.20) Przycisk „Do obejrzenia” (BookmarkAdd) / po dodaniu „✓ Na liście do obejrzenia” (BookmarkAdded). */
+        const val WATCHLIST_ADD = "Do obejrzenia"
+        const val WATCHLIST_ADDED = "✓ Na liście do obejrzenia"
         const val EXTRA_TYPE = "type"; const val EXTRA_ID = "id"; const val EXTRA_NAME = "name"; const val EXTRA_POSTER = "poster"; const val EXTRA_VIDEO = "video"
         fun intent(c: Context, m: StremioMetaPreview, videoId: String? = null) = Intent(c, StremioDetailActivity::class.java)
             .putExtra(EXTRA_TYPE, m.type).putExtra(EXTRA_ID, m.id).putExtra(EXTRA_NAME, m.name).putExtra(EXTRA_POSTER, m.poster).putExtra(EXTRA_VIDEO, videoId)
@@ -96,6 +99,7 @@ class StremioDetailActivity : BaseActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setThemedContent(build())
+        updateLibraryButton()                 // (7.20) stan „Do obejrzenia” od razu (oba układy)
         title.text = intent.getStringExtra(EXTRA_NAME)
         intent.getStringExtra(EXTRA_POSTER)?.takeIf { it.isNotBlank() }?.let { poster.load(it) { crossfade(false); fitTo(poster, Ui.dp(170), Ui.dp(252)) } }
         lifecycleScope.launch {
@@ -169,27 +173,28 @@ class StremioDetailActivity : BaseActivity() {
     /** Zwiastun: z metadanych (YouTube) w odtwarzaczu STube, bez niego – wyszukiwanie zwiastuna w STube. */
     private fun trailer() {
         val m = meta ?: return
-        val id = m.trailers.firstOrNull()
-        when {
-            id != null -> X25Actions.playVideo(this, pl.iptv.tv.data.YtVideo(id, "Zwiastun – ${m.name}", m.name))
-            pl.iptv.tv.BuildConfig.FULL_EDITION -> startActivity(Intent(this, STubeActivity::class.java).putExtra(STubeActivity.EXTRA_QUERY, "${m.name} ${m.releaseInfo.take(4)} zwiastun".trim()))
-        }
+        StremioTrailer.play(this, m.name, m.releaseInfo, m.trailers.firstOrNull())
     }
 
     private fun preview(): StremioMetaPreview = meta?.let { StremioMetaPreview(it.id, it.type, it.name, it.poster, releaseInfo = it.releaseInfo, imdbRating = it.imdbRating) }
         ?: StremioMetaPreview(metaId, type, intent.getStringExtra(EXTRA_NAME).orEmpty(), intent.getStringExtra(EXTRA_POSTER).orEmpty())
 
+    /** (7.20) „Do obejrzenia” (lista na urządzeniu – [pl.iptv.tv.data.StremioLibrary]; rząd „Do obejrzenia” w Bibliotece). */
     private fun toggleLibrary() {
         val now = pl.iptv.tv.data.StremioLibrary.toggle(preview())
         updateLibraryButton()
-        I18n.makeToast(this, if (now) "Dodano do biblioteki" else "Usunięto z biblioteki", android.widget.Toast.LENGTH_SHORT).show()
+        I18n.makeToast(this, if (now) "Dodano do listy do obejrzenia" else "Usunięto z listy do obejrzenia", android.widget.Toast.LENGTH_SHORT).show()
     }
 
     private fun updateLibraryButton() {
         val b = libraryBtn ?: return
         val inLib = pl.iptv.tv.data.StremioLibrary.contains(metaId)
-        b.text = (if (inLib) "W bibliotece" else "Dodaj do biblioteki").uppercase()
-        (b.compoundDrawables[0] as? PlayerIcon)?.let { b.setCompoundDrawables(PlayerIcon(if (inLib) PlayerIcon.CHECK else PlayerIcon.PLUS, b.textColors).apply { setBounds(0, 0, Ui.dp(18), Ui.dp(18)) }, null, null, null) }
+        val label = if (inLib) WATCHLIST_ADDED else WATCHLIST_ADD
+        b.text = if (obsidian) label.uppercase() else label
+        b.contentDescription = label
+        val size = if (obsidian) 18 else 20
+        b.setCompoundDrawables(PlayerIcon(if (inLib) PlayerIcon.BOOKMARK_ADDED else PlayerIcon.BOOKMARK_ADD, if (obsidian) b.textColors
+            else android.content.res.ColorStateList(arrayOf(intArrayOf(android.R.attr.state_focused), intArrayOf()), intArrayOf(Ui.focusText, Ui.text))).apply { setBounds(0, 0, Ui.dp(size), Ui.dp(size)) }, null, null, null)
     }
 
     /**
@@ -221,7 +226,7 @@ class StremioDetailActivity : BaseActivity() {
         val cta = LinearLayout(this).apply { setPadding(0, Ui.dp(16), 0, Ui.dp(4)); clipChildren = false; clipToPadding = false }
         watchBtn = ctaPill("Oglądaj", PlayerIcon.PLAY, primary = true) { watch() }
         trailerBtn = ctaPill("Zwiastun", PlayerIcon.FILM, primary = false) { trailer() }.apply { visibility = if (pl.iptv.tv.BuildConfig.FULL_EDITION) View.VISIBLE else View.GONE }
-        libraryBtn = ctaPill("Dodaj do biblioteki", PlayerIcon.PLUS, primary = false) { toggleLibrary() }
+        libraryBtn = ctaPill(WATCHLIST_ADD, PlayerIcon.BOOKMARK_ADD, primary = false) { toggleLibrary() }
         listOf(watchBtn!!, trailerBtn!!, libraryBtn!!).forEach { cta.addView(it, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = Ui.dp(12) }) }
         hero.addView(cta); hero.addView(resume)
         root.addView(hero, LinearLayout.LayoutParams((resources.displayMetrics.widthPixels * 0.62f).toInt(), -2))
@@ -284,6 +289,9 @@ class StremioDetailActivity : BaseActivity() {
         val descScroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false; addView(desc) }
         left.addView(title); left.addView(metaLine)
         left.addView(resume, LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(8) })
+        // (7.20) „Do obejrzenia” we wszystkich motywach (w „Obsidian Stream” – pigułka obok OGLĄDAJ / Zwiastun)
+        libraryBtn = StremioUi.button(this, WATCHLIST_ADD, PlayerIcon.BOOKMARK_ADD) { toggleLibrary() }
+        left.addView(libraryBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(8) })
         left.addView(descScroll, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = Ui.dp(8) })
         root.addView(left, LinearLayout.LayoutParams(Ui.dp(290), -1))
         // środek: sezony i odcinki (tylko seriale)

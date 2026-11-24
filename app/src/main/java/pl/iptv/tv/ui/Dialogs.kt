@@ -63,25 +63,26 @@ object Dialogs {
     }
 
     /**
-     * (7.17) Okno wyboru „Obsidian Stream” (Ustawienia: silnik, kolejka, rozdzielczość…): nieprzezroczysty panel `#0F141F` 97 %
-     * z zaokrągleniem 20 dp i krawędzią specular, przyciemnienie ekranu 80 %, opcje jako osobne karty 14 dp (wskaźnik wyboru,
-     * etykieta, krótki opis z [descriptions]) co 8 dp – bez linii oddzielających. Fokus od razu na wybranej opcji, ▼ z ostatniej –
-     * „Gotowe”, WSTECZ zamyka; wybór działa od razu ([onPick]), [onDismiss] – powrót fokusu na wiersz ustawień.
+     * (7.17) Okno wyboru z kartami (Ustawienia: silnik, kolejka, rozdzielczość…): panel z zaokrągleniem 20 dp i krawędzią
+     * specular, przyciemnienie ekranu 80 %, opcje jako osobne karty 14 dp (wskaźnik wyboru, etykieta, krótki opis z
+     * [descriptions]) co 8 dp – bez linii oddzielających. (7.20) Kolory z aktywnego motywu ([CardSheet.palette]): „Obsidian
+     * Stream” – `#0F141F` 96 %, inne motywy – panel, tekst, akcent i zaznaczenie motywu. Fokus od razu na wybranej opcji,
+     * ▼ z ostatniej – „Gotowe”, WSTECZ zamyka; wybór działa od razu ([onPick]), [onDismiss] – powrót fokusu na wiersz ustawień.
      */
     fun choiceCards(a: Activity, title: String, options: List<String>, selected: Int, descriptions: List<String> = emptyList(),
                     onDismiss: (() -> Unit)? = null, onPick: (Int) -> Unit): android.app.Dialog {
-        val O = pl.iptv.tv.ui.theme.ObsidianViews
-        val accent = if (O.active) O.ACCENT else Ui.accent
+        val pal = CardSheet.palette()
         val d = android.app.Dialog(a)
         d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
         var current = selected
         val root = android.widget.LinearLayout(a).apply {
             orientation = android.widget.LinearLayout.VERTICAL
-            background = android.graphics.drawable.GradientDrawable().apply { setColor(CHOICE_PANEL); cornerRadius = Ui.dp(20).toFloat(); setStroke(Ui.dp(1), O.SPECULAR) }
+            background = CardSheet.panelBg(pal)
             setPadding(Ui.dp(22), Ui.dp(20), Ui.dp(22), Ui.dp(18))
         }
-        root.addView(android.widget.TextView(a).apply { text = title; textSize = 20f; setTextColor(O.TEXT); setTypeface(typeface, android.graphics.Typeface.BOLD); setPadding(Ui.dp(4), 0, 0, Ui.dp(12)) })
-        val list = android.widget.LinearLayout(a).apply { orientation = android.widget.LinearLayout.VERTICAL; setPadding(Ui.dp(4), Ui.dp(4), Ui.dp(4), Ui.dp(4)) }
+        root.addView(android.widget.TextView(a).apply { text = title; textSize = 20f; setTextColor(pal.text); setTypeface(typeface, android.graphics.Typeface.BOLD); setPadding(Ui.dp(4), 0, 0, Ui.dp(12)) })
+        // odstęp wokół kart – obwódka i powiększenie fokusu nieucięte (CardSheet.focusScale)
+        val list = android.widget.LinearLayout(a).apply { orientation = android.widget.LinearLayout.VERTICAL; setPadding(Ui.dp(CardSheet.ROOM_X_DP), Ui.dp(CardSheet.ROOM_Y_DP), Ui.dp(CardSheet.ROOM_X_DP), Ui.dp(CardSheet.ROOM_Y_DP)); clipToPadding = false; clipChildren = false }
         val scroll = android.widget.ScrollView(a).apply { isFillViewport = true; isVerticalScrollBarEnabled = false; clipToPadding = false; addView(list) }
         val cards = mutableListOf<android.view.View>()
         val radios = mutableListOf<Radio>()
@@ -90,61 +91,47 @@ object Dialogs {
             val card = android.widget.LinearLayout(a).apply {
                 orientation = android.widget.LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL
                 isFocusable = true; isClickable = true; id = android.view.View.generateViewId(); contentDescription = label
-                background = android.graphics.drawable.StateListDrawable().apply {
-                    fun r(fill: Int, stroke: Int = 0, sc: Int = 0) = android.graphics.drawable.GradientDrawable().apply { setColor(fill); cornerRadius = Ui.dp(14).toFloat(); if (stroke > 0) setStroke(stroke, sc) }
-                    addState(intArrayOf(android.R.attr.state_focused), r(accent, Ui.dp(2), 0x66FFFFFF))
-                    addState(intArrayOf(android.R.attr.state_pressed), r(accent))
-                    addState(intArrayOf(android.R.attr.state_activated), r((accent and 0x00FFFFFF) or 0x2E000000, Ui.dp(2).coerceAtLeast(2) * 3 / 4, accent))
-                    addState(intArrayOf(), r(0x0FFFFFFF))
-                }
+                background = CardSheet.cardBg(pal)
                 setPadding(Ui.dp(16), Ui.dp(12), Ui.dp(16), Ui.dp(12))
             }
-            val radio = Radio(a, accent).also { radios += it }
+            val radio = Radio(a, pal).also { radios += it }
             card.addView(radio, android.widget.LinearLayout.LayoutParams(Ui.dp(22), Ui.dp(22)).apply { marginEnd = Ui.dp(14) })
             val col = android.widget.LinearLayout(a).apply { orientation = android.widget.LinearLayout.VERTICAL }
-            col.addView(android.widget.TextView(a).apply { text = label; textSize = 16f; setTextColor(O.TEXT); setTypeface(typeface, android.graphics.Typeface.BOLD) })
+            col.addView(android.widget.TextView(a).apply { text = label; textSize = 16f; setTextColor(CardSheet.textColors(pal)); isDuplicateParentStateEnabled = true; setTypeface(typeface, android.graphics.Typeface.BOLD) })
             descriptions.getOrNull(i)?.takeIf { it.isNotBlank() }?.let { s ->
-                col.addView(android.widget.TextView(a).apply { text = s; textSize = 13f; setTextColor(android.content.res.ColorStateList(arrayOf(intArrayOf(android.R.attr.state_focused), intArrayOf()), intArrayOf(0xE6FFFFFF.toInt(), O.TEXT2))); isDuplicateParentStateEnabled = true; setPadding(0, Ui.dp(2), 0, 0) })
+                col.addView(android.widget.TextView(a).apply { text = s; textSize = 13f; setTextColor(CardSheet.textColors(pal, secondary = true)); isDuplicateParentStateEnabled = true; setPadding(0, Ui.dp(2), 0, 0) })
             }
+            col.isDuplicateParentStateEnabled = true
             card.addView(col, android.widget.LinearLayout.LayoutParams(0, -2, 1f))
             card.setOnClickListener { current = i; mark(); onPick(i) }
+            CardSheet.focusScale(card)
             cards += card
             list.addView(card, android.widget.LinearLayout.LayoutParams(-1, -2).apply { if (i < options.size - 1) bottomMargin = Ui.dp(8) })
         }
         root.addView(scroll, android.widget.LinearLayout.LayoutParams(-1, -2, 1f))   // długa lista – przewijana, okno nie wyższe niż ekran
-        val done = android.widget.TextView(a).apply {
-            text = "Gotowe"; textSize = 15f; gravity = android.view.Gravity.CENTER; isFocusable = true; isClickable = true; id = android.view.View.generateViewId()
-            setTypeface(typeface, android.graphics.Typeface.BOLD); setTextColor(O.pillText())
-            background = O.pill(rest = 0x1FFFFFFF); setPadding(Ui.dp(28), Ui.dp(10), Ui.dp(28), Ui.dp(10))
-            setOnClickListener { d.dismiss() }
-        }
+        val done = CardSheet.pill(a, "Gotowe", pal) { d.dismiss() }
         root.addView(done, android.widget.LinearLayout.LayoutParams(-2, -2).apply { gravity = android.view.Gravity.END; topMargin = Ui.dp(14) })
         // ▼ z ostatniej opcji – „Gotowe”, ▲ z „Gotowe” – ostatnia opcja; pierwsza opcja nie ucieka w górę
         cards.lastOrNull()?.let { last -> last.nextFocusDownId = done.id; done.nextFocusUpId = last.id; done.nextFocusLeftId = done.id; done.nextFocusRightId = done.id }
         cards.firstOrNull()?.let { it.nextFocusUpId = it.id }
         mark()
         d.setContentView(root)
-        d.window?.let { w ->
-            w.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
-            w.addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND); w.setDimAmount(CHOICE_DIM)
-            val dm = a.resources.displayMetrics
-            w.setLayout(minOf(Ui.dp(560), (dm.widthPixels * 0.9f).toInt()), android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
-        }
+        CardSheet.window(d, a)
         d.setOnShowListener {
             I18n.attach(d.window)
-            cards.getOrNull(current)?.let { c -> c.requestFocus(); scroll.post { scroll.smoothScrollTo(0, (c.top - Ui.dp(24)).coerceAtLeast(0)) } }
+            (cards.getOrNull(current) ?: cards.firstOrNull())?.let { c -> c.requestFocus(); scroll.post { scroll.smoothScrollTo(0, (c.top - Ui.dp(24)).coerceAtLeast(0)) } }
         }
         d.setOnDismissListener { onDismiss?.invoke() }
         d.show()
         return d
     }
 
-    /** Panel okna wyboru: `#0F141F` 97 %; przyciemnienie ekranu pod oknem 80 %. */
-    const val CHOICE_PANEL = 0xF70F141F.toInt()
+    /** Panel okna wyboru „Obsidian Stream”: `#0F141F` 96 % ([CardSheet.OBSIDIAN_PANEL]); przyciemnienie ekranu pod oknem 80 %. */
+    const val CHOICE_PANEL = CardSheet.OBSIDIAN_PANEL
     const val CHOICE_DIM = 0.8f
 
-    /** Wskaźnik wyboru (okrąg; wybrana opcja – wypełniony środek). */
-    private class Radio(c: android.content.Context, private val accent: Int) : android.view.View(c) {
+    /** Wskaźnik wyboru (okrąg; wybrana opcja – wypełniony środek) w kolorach motywu. */
+    private class Radio(c: android.content.Context, private val pal: CardSheet.Palette) : android.view.View(c) {
         var on = false
         private val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
         init { isDuplicateParentStateEnabled = true }
@@ -152,7 +139,7 @@ object Dialogs {
             val r = minOf(width, height) / 2f; val cx = width / 2f; val cy = height / 2f
             val focused = (parent as? android.view.View)?.isFocused == true
             p.style = android.graphics.Paint.Style.STROKE; p.strokeWidth = Ui.dp(2).toFloat()
-            p.color = if (focused) android.graphics.Color.WHITE else if (on) accent else pl.iptv.tv.ui.theme.ObsidianViews.TEXT2
+            p.color = if (focused) pal.focusText else if (on) pal.accent else pal.text2
             cv.drawCircle(cx, cy, r - p.strokeWidth, p)
             if (on) { p.style = android.graphics.Paint.Style.FILL; cv.drawCircle(cx, cy, r * 0.45f, p) }
         }

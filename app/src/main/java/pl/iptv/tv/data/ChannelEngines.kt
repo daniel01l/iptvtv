@@ -16,9 +16,11 @@ import java.util.concurrent.ConcurrentHashMap
  * [container] – rodzaj strumienia (0 – rozpoznanie automatyczne, 1 – HLS, 2 – zwykły strumień TS). Profil wyłącza tunelowanie.
  */
 data class EngineProfile(val software: Boolean = false, val ffmpeg: Boolean = false, val async: Int = 0, val container: Int = 0,
-                         val buffer: Int = 0) {
-    /** (7.5) [buffer] – 0: zwykły zapas, 1: duży (start 3 s, po przycięciu 8 s, do 90 s) dla zacinających się kanałów. */
-    fun encode() = "sw=${b(software)};ff=${b(ffmpeg)};async=$async;fmt=$container" + if (buffer != 0) ";buf=$buffer" else ""
+                         val buffer: Int = 0, val surface: Int = 0) {
+    /** (7.5) [buffer] – 0: zwykły zapas, 1: duży (start 3 s, po przycięciu 8 s, do 90 s) dla zacinających się kanałów.
+     *  (7.20) [surface] – 0: SurfaceView, 1: TextureView (błędy sprzętowego usuwania przeplotu na części TV z Google TV). */
+    fun encode() = "sw=${b(software)};ff=${b(ffmpeg)};async=$async;fmt=$container" + (if (buffer != 0) ";buf=$buffer" else "") +
+        (if (surface != 0) ";surf=$surface" else "")
     private fun b(v: Boolean) = if (v) 1 else 0
 
     /** Opis dla użytkownika (komunikat na ekranie, ustawienia). */
@@ -28,13 +30,14 @@ data class EngineProfile(val software: Boolean = false, val ffmpeg: Boolean = fa
         when (async) { 1 -> "kolejka asynchroniczna"; 2 -> "kolejka synchroniczna"; else -> null },
         when (container) { 1 -> "strumień HLS"; 2 -> "strumień TS"; else -> null },
         if (buffer == 1) "duży bufor" else null,
+        if (surface == 1) "obraz TextureView" else null,
     ).joinToString(", ")
 
     companion object {
         fun decode(s: String): EngineProfile? = runCatching {
             val m = s.split(';').filter { '=' in it }.associate { it.substringBefore('=') to it.substringAfter('=') }
             EngineProfile(m["sw"] == "1", m["ff"] == "1", m["async"]?.toInt()?.coerceIn(0, 2) ?: 0, m["fmt"]?.toInt()?.coerceIn(0, 2) ?: 0,
-                m["buf"]?.toInt()?.coerceIn(0, 1) ?: 0)
+                m["buf"]?.toInt()?.coerceIn(0, 1) ?: 0, m["surf"]?.toInt()?.coerceIn(0, 1) ?: 0)
         }.getOrNull()
     }
 }
@@ -90,7 +93,7 @@ object ChannelEngines {
         val l = runCatching { dao()?.all() }.getOrNull() ?: emptyList()
         // scalanie (bez czyszczenia): wynik zapisany tuż po starcie, zanim baza zdążyła się wczytać, zostaje
         l.forEach { mem.putIfAbsent(it.channelKey, it) }
-        loaded = true
+        loaded = true; onChanged?.invoke()
     }
 
     private var loadJob: kotlinx.coroutines.Job? = null
@@ -109,24 +112,30 @@ object ChannelEngines {
     fun markFailed(channelKey: String, url: String) = put(ChannelEngine(channelKey, url, "", testedFailed = true))
 
     fun forget(channelKey: String) {
-        mem.remove(channelKey)
+        mem.remove(channelKey); onChanged?.invoke()
         StubeHistory.scope.launch { runCatching { dao()?.delete(channelKey) } }
     }
 
+    /** (7.20) Zmiana zapamiętanych ustawień (zapis, reset kanału, wyczyszczenie) – [pl.iptv.tv.ui.EngineConfigRepository] odświeża stan. */
+    @Volatile var onChanged: (() -> Unit)? = null
+
     fun clear() {
-        mem.clear()
+        mem.clear(); onChanged?.invoke()
         StubeHistory.scope.launch { runCatching { dao()?.clear() } }
     }
+
+    /** (7.20) Zapamiętane kanały (okno w Ustawieniach): dobrane najpierw, potem niedziałające; w grupie – najnowsze pierwsze. */
+    fun entries(): List<ChannelEngine> = mem.values.sortedWith(compareBy<ChannelEngine> { it.testedFailed }.thenByDescending { it.updatedAt })
 
     val count: Int get() = mem.size
     val failedCount: Int get() = mem.values.count { it.testedFailed }
 
     private fun put(e: ChannelEngine) {
-        mem[e.channelKey] = e
+        mem[e.channelKey] = e; onChanged?.invoke()
         StubeHistory.scope.launch { runCatching { dao()?.upsert(e) } }
     }
 
     /** Testy: tylko pamięć (bez czekania na zapis). */
     /** Testy: czekanie na wczytywanie z [loadAsync] (start aplikacji) – inaczej mogło dopisać wiersze w trakcie testu. */
-    fun resetForTest() { loadJob?.let { j -> kotlinx.coroutines.runBlocking { j.join() } }; loadJob = null; mem.clear(); loaded = false }
+    fun resetForTest() { loadJob?.let { j -> kotlinx.coroutines.runBlocking { j.join() } }; loadJob = null; mem.clear(); loaded = false; onChanged?.invoke() }
 }

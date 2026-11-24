@@ -44,7 +44,11 @@ class StremioActivity : BaseActivity() {
         // (7.17) kolejność zakładek: Odkrywaj (domyślna), Filmy, Seriale, Biblioteka
         const val FILTER_ALL = 0; const val FILTER_MOVIES = 1; const val FILTER_SERIES = 2; const val FILTER_LIBRARY = 3
         val FILTER_NAMES = listOf("Odkrywaj", "Filmy", "Seriale", "Biblioteka")
-        const val LIBRARY_ROW = "Moja biblioteka"
+        /** (7.20) Lista „Do obejrzenia” ([pl.iptv.tv.data.StremioLibrary]) – rząd w Bibliotece (dawniej „Moja biblioteka”). */
+        const val LIBRARY_ROW = "Do obejrzenia"
+        const val WATCHLIST_REMOVE = "Usuń z listy do obejrzenia"
+        /** Menu plakatu czeka na metadane (zwiastun) najwyżej tyle. */
+        const val TITLE_MENU_META_MS = 4_000L
         const val CONTINUE_ROW = "Kontynuuj oglądanie"
         const val WATCHED_ROW = "Obejrzane"
         /** (7.17) Katalog techniczny wtyczki (nazwa, id wtyczki i katalogu, adres) – bez rzędu na tablicy. */
@@ -77,6 +81,8 @@ class StremioActivity : BaseActivity() {
     private lateinit var infoTitle: TextView
     private lateinit var infoMeta: TextView
     private lateinit var infoDesc: TextView
+    /** (7.20) Tytuł, którego opis jest w panelu (wczytanie opisu po chwili trafia tylko do niego). */
+    private var infoId = ""
     private lateinit var infoBox: LinearLayout
     private val jobs = mutableListOf<Job>()
     private var focusJob: Job? = null
@@ -517,7 +523,7 @@ class StremioActivity : BaseActivity() {
                 fillContinue(addRow(CONTINUE_ROW))
                 fillLibrary(addRow(LIBRARY_ROW))
                 fillWatched(addRow(WATCHED_ROW))
-                if (rows.isEmpty()) rowsBox.addView(StremioUi.text(this@StremioActivity, "Biblioteka jest pusta – dodaj tytuł przyciskiem „Dodaj do biblioteki” w jego opisie.", 16f, "text2")
+                if (rows.isEmpty()) rowsBox.addView(StremioUi.text(this@StremioActivity, "Biblioteka jest pusta – dodaj tytuł przyciskiem „Do obejrzenia” w jego opisie albo przytrzymaj OK na plakacie.", 16f, "text2")
                     .apply { setPadding(Ui.dp(6), Ui.dp(20), 0, 0) })
                 return@launch
             }
@@ -533,6 +539,8 @@ class StremioActivity : BaseActivity() {
                     if (first && !userMoved && autoFocusAllowed()) { first = false; focusRow(r) }
                 }
             }
+            // (7.20) Top 10 platform (Odkrywaj – 10 rzędów, Filmy / Seriale – po 5): od razu z pamięci podręcznej, sieć tylko w tle
+            if (q == null) addTop10Rows(type) { r -> if (first && !userMoved && autoFocusAllowed()) { first = false; focusRow(r) } }
             // (7.12) katalogi usługowych wtyczek (AIOStreams / ElfHosted, Store RD / PM) nie są pokazywane na tablicy
             fun hidden(a: StremioAddon, c: StremioAddon.Catalog) = isHiddenCatalog(a, c)
             fun wanted(c: StremioAddon.Catalog) = type == null || c.type == type
@@ -563,6 +571,51 @@ class StremioActivity : BaseActivity() {
         }
     }
 
+    /**
+     * (7.20) Rzędy „Top 10 Filmy / Seriale – [Platforma]” ([pl.iptv.tv.data.StremioTop10]): zapisane pozycje od razu (bez sieci),
+     * a nieaktualne (≥ 4 dni) lub puste – pobierane w tle i podmieniane w miejscu (fokus zostaje). Bez klucza TMDB i bez zapisu
+     * rząd się nie pojawia; pusty wynik – rząd usuwany. Plakaty z odznaką pozycji „#1”–„#10”.
+     */
+    private fun addTop10Rows(type: String?, onFilled: (Row) -> Unit) {
+        val T = pl.iptv.tv.data.StremioTop10
+        T.init(this)
+        val canFetch = pl.iptv.tv.data.StremioTmdb.available
+        val byKey = LinkedHashMap<String, Row>()
+        val specs = T.rows(type)
+        for (s in specs) {
+            val c = T.cached(s)
+            if ((c == null || c.items.isEmpty()) && !canFetch) continue
+            val r = addRow(s.title)
+            byKey[s.key] = r
+            c?.items?.takeIf { it.isNotEmpty() }?.let { fillTop10(r, it); onFilled(r) }
+        }
+        if (!canFetch || byKey.isEmpty()) return
+        jobs += lifecycleScope.launch {
+            specs.filter { it.key in byKey && T.isStale(it) }.forEach { s ->
+                launch {
+                    val l = runCatching { T.refresh(s) }.getOrNull()
+                    val r = byKey[s.key] ?: return@launch
+                    if (r !in rows) return@launch
+                    if (l.isNullOrEmpty()) { if (r.adapter.items.isEmpty()) removeRow(r) } else { fillTop10(r, l); onFilled(r) }
+                }
+            }
+        }
+    }
+
+    private fun fillTop10(r: Row, list: List<StremioMetaPreview>) {
+        val tiles = list.take(pl.iptv.tv.data.StremioTop10.SIZE).mapIndexed { i, m -> StremioTile(m, rank = i + 1) }
+        if (tiles == r.adapter.items) return
+        val old = r.adapter.items.size
+        r.adapter.items.clear(); r.adapter.items += tiles
+        when {
+            old == 0 -> r.adapter.notifyItemRangeInserted(0, tiles.size)
+            old == tiles.size -> r.adapter.notifyItemRangeChanged(0, tiles.size)        // te same widoki – fokus zostaje
+            else -> r.adapter.notifyDataSetChanged()
+        }
+        r.status.visibility = View.GONE
+        if (rowsHaveFocus()) anchorFocusedRow()
+    }
+
     private var refreshingAddons = false
 
     private fun refreshAddons() {
@@ -586,6 +639,7 @@ class StremioActivity : BaseActivity() {
     }
 
     private fun rowIcon(title: String): String = when {
+        title.startsWith("Top 10") -> PlayerIcon.STAR
         title == "Kontynuuj oglądanie" -> PlayerIcon.PLAY
         title == "Obejrzane" -> PlayerIcon.CHECK
         title == IN_CINEMAS -> PlayerIcon.CINEMA
@@ -641,7 +695,7 @@ class StremioActivity : BaseActivity() {
     /** (7.17) Typ katalogów dla filtru (Filmy – „movie”, Seriale – „series”, inne – wszystkie). */
     private val typeFilter: String? get() = when (filter) { FILTER_MOVIES -> "movie"; FILTER_SERIES -> "series"; else -> null }
 
-    /** (7.17) „Moja biblioteka”: tytuły dodane na ekranie szczegółów ([pl.iptv.tv.data.StremioLibrary]), najnowsze pierwsze. */
+    /** (7.17) „Do obejrzenia” (7.20; dawniej „Moja biblioteka”): tytuły dodane w szczegółach lub z menu plakatu ([pl.iptv.tv.data.StremioLibrary]), najnowsze pierwsze. */
     private fun fillLibrary(r: Row) {
         val tiles = pl.iptv.tv.data.StremioLibrary.all().map { StremioTile(it) }
         if (tiles.isEmpty()) { removeRow(r); return }
@@ -707,21 +761,34 @@ class StremioActivity : BaseActivity() {
     }
 
     /** (7.12) Przytrzymanie plakatu: cały film / serial jako obejrzany albo nieobejrzany (serial – wszystkie odcinki sezonów). */
+    /**
+     * Menu tytułu (przytrzymanie OK na plakacie). (7.20) Okno z kartami w kolorach motywu ([CardSheet.actions]):
+     * „Do obejrzenia” / „Usuń z listy do obejrzenia”, „Zwiastun” (gdy metadane mają zwiastun), oznaczenie obejrzenia.
+     */
     private fun titleMenu(t: StremioTile) {
         val m = t.meta
         lifecycleScope.launch {
-            val meta = if (m.type == "series") StremioMetas.get("series", m.id) else null
-            val done = StremioStore.isTitleWatched(m, meta)
-            Dialogs.menu(this@StremioActivity, m.name, listOf(
-                (if (done) "↺ Odznacz jako obejrzany" else "✔ Oznacz jako obejrzany") to {
+            val meta = runCatching { kotlinx.coroutines.withTimeoutOrNull(TITLE_MENU_META_MS) { StremioMetas.get(m.type, m.id) } }.getOrNull()
+            val done = StremioStore.isTitleWatched(m, meta?.takeIf { m.type == "series" })
+            if (isFinishing || isDestroyed) return@launch
+            val onList = pl.iptv.tv.data.StremioLibrary.contains(m.id)
+            val items = buildList {
+                add(CardSheet.Action(if (onList) WATCHLIST_REMOVE else StremioDetailActivity.WATCHLIST_ADD, if (onList) PlayerIcon.BOOKMARK_ADDED else PlayerIcon.BOOKMARK_ADD, key = "watchlist") {
+                    val now = pl.iptv.tv.data.StremioLibrary.toggle(m)
+                    I18n.makeToast(this@StremioActivity, if (now) "Dodano do listy do obejrzenia: ${m.name}" else "Usunięto z listy do obejrzenia: ${m.name}", Toast.LENGTH_SHORT).show()
+                    if (filter == FILTER_LIBRARY && searchQuery == null) build(null)
+                })
+                meta?.trailers?.firstOrNull()?.let { yt -> add(CardSheet.Action("Zwiastun", PlayerIcon.FILM, key = "trailer") { StremioTrailer.play(this@StremioActivity, meta.name, meta.releaseInfo, yt) }) }
+                add(CardSheet.Action(if (done) "Odznacz jako obejrzany" else "Oznacz jako obejrzany", PlayerIcon.CHECK, key = "watched") {
                     lifecycleScope.launch {
-                        StremioStore.setTitleWatched(m, meta, !done)
+                        StremioStore.setTitleWatched(m, meta?.takeIf { m.type == "series" }, !done)
                         I18n.makeToast(this@StremioActivity, if (done) "Odznaczono: ${m.name}" else "Oznaczono jako obejrzany: ${m.name}", Toast.LENGTH_SHORT).show()
                         // rząd „Obejrzane” pojawia się dopiero po pierwszej pozycji – wtedy tablica wczytuje się od nowa
-                        if (searchQuery == null && rows.none { it.title == "Obejrzane" } && !done) build(null) else refreshContinue()
+                        if (searchQuery == null && rows.none { it.title == WATCHED_ROW } && !done) build(null) else refreshContinue()
                     }
-                },
-            ))
+                })
+            }
+            CardSheet.actions(this@StremioActivity, meta?.name ?: m.name, items, subtitle = StremioUi.typeName(m.type) + (m.releaseInfo.ifBlank { null }?.let { " · $it" } ?: ""))
         }
     }
 
@@ -731,12 +798,16 @@ class StremioActivity : BaseActivity() {
         infoTitle.text = m.name
         infoMeta.text = StremioUi.metaLine(m.type, m.releaseInfo, m.imdbRating, m.genres) + (t.progress?.let { p -> "   ·   ▶ " + listOfNotNull(p.videoLabel.ifBlank { null }, StremioUi.fmt(p.positionMs)).joinToString(" ") } ?: "")
         infoDesc.text = m.description
+        infoId = m.id
         focusJob?.cancel()
-        if (m.description.isBlank()) focusJob = lifecycleScope.launch {
+        // (7.20) aplikacja po polsku (z kluczem TMDB): opis, tytuł i gatunki z metadanych pl-PL zamiast angielskich z katalogu
+        val polish = pl.iptv.tv.data.StremioTmdb.polishWanted && pl.iptv.tv.data.StremioTmdb.available
+        if (m.description.isBlank() || polish) focusJob = lifecycleScope.launch {
             delay(350)
             val full = StremioMetas.get(m.type, m.id) ?: return@launch
-            if (infoTitle.text == m.name) {
-                infoDesc.text = full.description
+            if (infoId == m.id) {
+                if (polish) infoTitle.text = full.name.ifBlank { m.name }
+                infoDesc.text = full.description.ifBlank { m.description }
                 infoMeta.text = StremioUi.metaLine(m.type, full.releaseInfo, full.imdbRating, full.genres)
             }
         }

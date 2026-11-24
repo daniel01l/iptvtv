@@ -51,6 +51,10 @@ import coil.load
  * ▲▼ rozdziały, MENU – opcje. Błąd strumienia – okno: SmartTube / YouTube / Zamknij.
  */
 class YtPlayerActivity : AppCompatActivity() {
+    /** (7.20) Siatka interfejsu TV 960 × 540 dp (1920 × 1080) niezależnie od DPI systemu – [pl.iptv.tv.ui.TvResolution]. */
+    override fun attachBaseContext(newBase: android.content.Context) { super.attachBaseContext(pl.iptv.tv.ui.TvResolution.wrap(newBase)) }
+    override fun applyOverrideConfiguration(o: android.content.res.Configuration?) { super.applyOverrideConfiguration(pl.iptv.tv.ui.TvResolution.adjust(this, o)) }
+
     companion object {
         const val EXTRA_ID = "id"; const val EXTRA_TITLE = "title"
         const val EXTRA_CHANNEL = "channel"; const val EXTRA_THUMB = "thumb"; const val EXTRA_FROM_START = "from_start"
@@ -75,6 +79,13 @@ class YtPlayerActivity : AppCompatActivity() {
 
         /** Powrót do filmu grającego w tle (pełny ekran z mini-playera). */
         fun resumeIntent(c: Context) = Intent(c, YtPlayerActivity::class.java).putExtra(EXTRA_RESUME_CURRENT, true)
+
+        /**
+         * (7.20) Zwiastun ze Stremio: ten sam odtwarzacz, ale wyjście (WSTECZ, HOME) całkowicie go zatrzymuje i zwalnia
+         * (`stop()` + `release()`) – bez grania w tle, mini-odtwarzacza i okna PiP. Tylko dla zwiastunów Stremio.
+         */
+        const val EXTRA_TRAILER = "trailer"
+        fun trailerIntent(c: Context, v: YtVideo) = intent(c, v, fromStart = true).putExtra(EXTRA_TRAILER, true)
     }
 
     private lateinit var playerView: PlayerView
@@ -162,6 +173,7 @@ class YtPlayerActivity : AppCompatActivity() {
     override fun onPause() { super.onPause(); StubeTheme.exit() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        pl.iptv.tv.ui.TvResolution.applyMetrics(resources); pl.iptv.tv.ui.TvResolution.applyMetrics(applicationContext.resources)   // (7.20) siatka TV 960 × 540 dp
         super.onCreate(savedInstanceState)
         // kolory motywu STube (znaczniki rozdziałów, przyciski, okna)
         StubeTheme.enter()
@@ -308,6 +320,16 @@ class YtPlayerActivity : AppCompatActivity() {
         uiStarted = false
         YtEngine.listeners -= engineListener
         disconnect()
+        // (7.20) zwiastun Stremio: po wyjściu odtwarzacz całkowicie zatrzymany i zwolniony (bez tła i mini-odtwarzacza)
+        if (trailerMode) closeTrailer()
+    }
+
+    /** (7.20) Ekran otwarty jako zwiastun Stremio ([EXTRA_TRAILER]). */
+    val trailerMode: Boolean get() = intent?.getBooleanExtra(EXTRA_TRAILER, false) == true
+
+    private fun closeTrailer() {
+        YtEngine.stop(); YtEngine.releasePlayer()
+        if (!isFinishing) finish()
     }
 
     /** Ekran widoczny (między onStart i onStop) – odpowiedź kontrolera po onStop jest odrzucana. */
@@ -778,6 +800,7 @@ class YtPlayerActivity : AppCompatActivity() {
 
     /** Pływające okno w rogu: film gra dalej, a menu IPTV / STube można przeglądać pod spodem. */
     fun enterPip(): Boolean {
+        if (trailerMode) return false                    // (7.20) zwiastun Stremio – bez pływającego okna
         if (!pipSupported) { toast("Obraz w obrazie niedostępny na tym urządzeniu"); return false }
         playerView.hideController()
         val ratio = player?.videoSize?.let { v -> if (v.width > 0 && v.height > 0) Rational(v.width, v.height) else null } ?: Rational(16, 9)
@@ -794,7 +817,7 @@ class YtPlayerActivity : AppCompatActivity() {
         if (autoPipAllowed()) enterPip()
     }
 
-    private fun autoPipAllowed() = pipSupported && !Tutorial.isTv(this) && !YtEngine.audioOnly && !isInPip && player?.isPlaying == true
+    private fun autoPipAllowed() = !trailerMode && pipSupported && !Tutorial.isTv(this) && !YtEngine.audioOnly && !isInPip && player?.isPlaying == true
 
     /** Android 12+: płynne przejście w okno przy wyjściu z aplikacji (system animuje przejście zamiast przełączenia). */
     private fun updateAutoPip() {
