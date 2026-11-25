@@ -271,7 +271,12 @@ class YtPlayerActivity : AppCompatActivity() {
         seekBox.addView(seekProgress, LinearLayout.LayoutParams(-1, Ui.dp(6)))
         root.addView(seekBox, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
         playerView.setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { v -> onControllerVisibility(v) })
+        // (7.22) telefon pionowo: panel pod przypiętym obrazem 16:9 (Następne wideo / Tekst / Tryb muzyczny)
+        rootView = root
+        portraitPanel = YtPortraitPanel(this, portraitHost).apply { visibility = View.GONE }
+        root.addView(portraitPanel, root.indexOfChild(playerView) + 1, FrameLayout.LayoutParams(-1, -1))
         setContentView(root)
+        applyOrientationRequest(); applyOrientationLayout()
         // pasek postępu jak w YouTube: czerwony, ◄► na pasku przewija o 10 s
         PlayerChrome.styleTimeBar(playerView, PlayerChrome.YT_RED)
         fromStartPending = intent.getBooleanExtra(EXTRA_FROM_START, false) && savedInstanceState == null
@@ -718,6 +723,8 @@ class YtPlayerActivity : AppCompatActivity() {
         // przełącznik widoku muzycznego zawsze pod ręką (nie tylko przy tytułach z oznaczeniami muzyki)
         musicBtn.visibility = if (!want && !live && !isInPip) View.VISIBLE else View.GONE
         if (want && was && stage.findFocus() == null && panel?.isOpen != true && fallbackDialog?.isShowing != true) stage.focusDefault()
+        // (7.22) panel pionowy: tytuł, kanał, lista „Następne wideo”
+        if (portraitActive) portraitPanel?.bind(titleView.text.toString(), (current?.channel?.ifBlank { null } ?: video.channel), videoId)
     }
 
     /** Przełącznik widoku: muzyka (okładka, kolejka, tekst) ↔ teledysk (zwykły odtwarzacz wideo z paskiem). */
@@ -794,6 +801,117 @@ class YtPlayerActivity : AppCompatActivity() {
 
     // ---------------- obraz w obrazie (PiP) ----------------
 
+    // ---------------- (7.22) telefon pionowo (9:16) ----------------
+
+    private var rootView: FrameLayout? = null
+    /** Panel pod obrazem w pionie (null przed onCreate). */
+    var portraitPanel: YtPortraitPanel? = null; private set
+    /** Układ pionowy: wyłącznie telefon / tablet trzymany pionowo, poza oknem PiP (TV i poziomo – bez zmian). */
+    val portraitActive: Boolean get() = MobilePortraitScaffold.active(this) && !isInPip
+    /** Układ widoku muzycznego (szeroki / pionowy), w którym go zbudowano – po obrocie budowany od nowa. */
+    private var stageWideBuilt: Boolean? = null
+    private fun wideNow() = resources.displayMetrics.let { it.widthPixels >= it.heightPixels * 1.15f }
+
+    /**
+     * Telefon (nie TV): obrót także do pionu, gdy w Ustawieniach → Wygląd wybrano orientację pionową / automatyczną
+     * ([Prefs.orientation] 1 / 2); domyślnie jak dotąd – tylko poziomo. Ekran ma `configChanges` – obrót nie tworzy go od nowa,
+     * a film gra dalej w usłudze ([YtEngine]) bez ponownego startu strumienia.
+     */
+    private fun applyOrientationRequest() {
+        if (Tutorial.isTv(this)) return
+        val o = if (Prefs.orientation != 0) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_USER else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        if (requestedOrientation != o) runCatching { requestedOrientation = o }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applyOrientationLayout()
+    }
+
+    /**
+     * Pion: obraz 16:9 przypięty u góry (pod paskiem stanu), pod nim [YtPortraitPanel] z paskiem akcji przeniesionym z nakładki.
+     * Poziom / TV / PiP: dawny układ (obraz na cały ekran, tytuł i przyciski w nakładce). Ten sam odtwarzacz i widok obrazu.
+     */
+    fun applyOrientationLayout() {
+        val panel = portraitPanel ?: return
+        if (portraitActive) {
+            val top = rootView?.let { r -> androidx.core.view.ViewCompat.getRootWindowInsets(r)?.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars())?.top } ?: 0
+            val videoH = resources.displayMetrics.widthPixels * 9 / 16
+            playerView.layoutParams = FrameLayout.LayoutParams(-1, videoH, Gravity.TOP).apply { topMargin = top }
+            // (7.22) jednolity pasek ikon w strefie kciuka (pełne opcje – „Jakość” → „Więcej opcji”)
+            if (panel.actions.childCount == 0) panel.actions.addView(PortraitPlayerUi.bar(this, portraitIcons()), FrameLayout.LayoutParams(-1, -2))
+            panel.layoutParams = FrameLayout.LayoutParams(-1, -1).apply { topMargin = top + videoH }
+            panel.visibility = View.VISIBLE
+            infoBox.visibility = View.GONE
+            panel.bind(titleView.text.toString(), (current?.channel?.ifBlank { null } ?: video.channel), videoId)
+        } else {
+            playerView.layoutParams = FrameLayout.LayoutParams(-1, -1)
+            panel.visibility = View.GONE; panel.titleView.text = ""; panel.channelView.text = ""     // bez zdublowanego tytułu poza pionem
+        }
+        rebuildStageIfNeeded()
+    }
+
+    /** Widok muzyczny po obrocie: układ szeroki ↔ pionowy (duża okładka, sterowanie w zasięgu kciuka) – nowy widok, ten sam silnik. */
+    private fun rebuildStageIfNeeded() {
+        if (!::stage.isInitialized) return
+        val wide = wideNow()
+        val built = stageWideBuilt ?: wide.also { stageWideBuilt = it }
+        if (wide == built) return
+        stageWideBuilt = wide
+        val root = rootView ?: return
+        val idx = root.indexOfChild(stage).takeIf { it >= 0 } ?: return
+        root.removeView(stage)
+        stage = YtMusicStage(this, stageHost).apply { visibility = View.GONE }
+        root.addView(stage, idx, FrameLayout.LayoutParams(-1, -1))
+        stageSig = ""
+        updateStage()
+    }
+
+    /** Ostatnio otwarty arkusz (testy). */
+    var lastSheet: PortraitSheet? = null; private set
+
+    /** (7.22) Pasek ikon w pionie: Tryb muzyczny, Tekst, Jakość / prędkość, Silnik, Obróć. */
+    private fun portraitIcons() = listOf(
+        PortraitPlayerUi.Icon("music", PlayerIcon.MUSIC, "Muzyka") { setMusicView(!stageShown) },
+        PortraitPlayerUi.Icon("lyrics", PlayerIcon.LYRICS, "Tekst") { portraitPanel?.selectTab(YtPortraitPanel.TAB_LYRICS) },
+        PortraitPlayerUi.Icon("quality", PlayerIcon.SPEED, "Jakość") { lastSheet = qualitySheet() },
+        PortraitPlayerUi.Icon("engine", PlayerIcon.QUALITY, "Silnik") { lastSheet = PortraitPlayerUi.engineSheet(this, { PortraitPlayerUi.diagnostics(YtEngine.player) }) },
+        PortraitPlayerUi.Icon("rotate", PlayerIcon.ROTATE, "Obróć") { PortraitPlayerUi.rotateToLandscape(this) },
+    )
+
+    /** Jakość obrazu (Automatycznie / dostępne wysokości) i prędkość (kafelki), dalej pełne opcje odtwarzacza. */
+    private fun qualitySheet(): PortraitSheet {
+        val s = PortraitSheet(this, "Jakość i prędkość")
+        fun build() {
+            s.clear()
+            val qs = qualities(); val cur = Prefs.ytQuality
+            s.section("Jakość obrazu")
+            if (qs.isEmpty()) s.info("Jakość niedostępna dla tego filmu")
+            else s.tiles(listOf("Auto") + qs.map { "${it}p" }, if (cur == 0) 0 else qs.indexOf(cur).let { if (it < 0) 0 else it + 1 }) { i -> setQuality(if (i == 0) 0 else qs[i - 1]); build() }
+            if (!live) {
+                s.section("Prędkość odtwarzania")
+                val sp = Prefs.ytSpeedPct.takeIf { it in SPEEDS } ?: 100
+                s.tiles(SPEEDS.map { speedLabel(it) }, SPEEDS.indexOf(sp)) { i -> setSpeed(SPEEDS[i]); build() }
+            }
+            s.section("Więcej")
+            s.action("Audio, napisy, korektor i inne opcje") { optionsMenu() }
+        }
+        build(); s.show(); return s
+    }
+
+    private val portraitHost = object : YtPortraitPanel.Host {
+        override fun entries() = stageHost.entries()
+        override fun pick(e: YtMusicStage.Entry) = stageHost.pick(e)
+        override fun openMusic() = setMusicView(true)
+        override fun positionMs() = player?.currentPosition ?: 0L
+        override fun seekTo(ms: Long) { player?.seekTo(ms) }
+        override suspend fun lyrics(): YtLyrics.Result? {
+            val sec = (player?.duration?.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L) / 1000
+            return YtLyrics.find(titleView.text.toString(), stageArtist(), sec)
+        }
+        override fun lyricDelayMs() = YtLyrics.delayFor(videoId)
+    }
+
     val pipSupported: Boolean get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
         packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
     private val isInPip get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode
@@ -854,6 +972,8 @@ class YtPlayerActivity : AppCompatActivity() {
         if (inPip) { infoBox.visibility = View.GONE; upNextLabel.visibility = View.GONE; panel?.close(); hideAmbient() }
         // okno PiP zamknięte (✕) – koniec odtwarzania; rozwinięte – ekran wraca do zwykłego trybu
         else if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) { YtEngine.stop(); finish() }
+        // (7.22) PiP – sam obraz; powrót – układ pionowy / poziomy wg orientacji
+        applyOrientationLayout()
     }
 
     // ---------------- korektor ----------------
@@ -1152,7 +1272,8 @@ class YtPlayerActivity : AppCompatActivity() {
     }
 
     private fun onControllerVisibility(v: Int) {
-        infoBox.visibility = if (isInPip) View.GONE else v
+        // (7.22) telefon pionowo: tytuł i przyciski w panelu pod obrazem – bez nakładki na wideo
+        infoBox.visibility = if (isInPip || portraitActive) View.GONE else v
         updateChapterLabel(); updateUpNext(); updateShelf()
     }
 

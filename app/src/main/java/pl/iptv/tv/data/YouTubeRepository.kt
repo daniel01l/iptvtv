@@ -14,6 +14,8 @@ import pl.iptv.tv.BuildConfig
 data class YtVideo(
     val id: String, val title: String, val channel: String,
     val thumb: String = "", val publishedAt: String = "", val duration: String = "",
+    /** (7.22) Liczba wyświetleń (0 – nieznana) i awatar kanału (pionowy feed STube na telefonie). */
+    val views: Long = 0, val channelThumb: String = "",
 ) {
     val url get() = "https://www.youtube.com/watch?v=$id"
 }

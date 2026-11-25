@@ -91,6 +91,17 @@ object STubeScreen {
     const val PAYLOAD_PROGRESS = "progress"
     /** Wysokość paska obejrzenia na miniaturze (dp) – jak w YouTube: cienki pasek przy dolnej krawędzi. */
     const val PROGRESS_H = 4
+    /** (7.22) Awatar kanału na karcie pionowego feedu (dp). */
+    const val FEED_AVATAR_DP = 36
+
+    /** (7.22) „1,2 mln wyświetleń” / „35 tys. wyświetleń” / „870 wyświetleń”; 0 – null (nieznana). */
+    fun viewsLabel(n: Long): String? = when {
+        n <= 0 -> null
+        n >= 1_000_000_000 -> String.format(java.util.Locale("pl"), "%.1f mld wyświetleń", n / 1e9).replace(",0 ", " ")
+        n >= 1_000_000 -> String.format(java.util.Locale("pl"), "%.1f mln wyświetleń", n / 1e6).replace(",0 ", " ")
+        n >= 1_000 -> "${n / 1000} tys. wyświetleń"
+        else -> "$n wyświetleń"
+    }
     /** Biblioteka (playlisty), kanały z subskrypcji i rząd otwartej playlisty / kanału (wstawiany pod rząd, z którego otwarto). */
     const val ROW_LIBRARY = "library"; const val ROW_CHANNELS = "channels"; const val ROW_PLAYLIST = "playlist"
     /** „Twoje miksy” – gotowe playlisty z historii ([StubeMixes]); id playlisty miksu: [PL_MIX] + id. */
@@ -377,12 +388,72 @@ class STubeTileAdapter(private val row: STubeRow) : RecyclerView.Adapter<STubeTi
     var onFocus: (Int) -> Unit = {}
 
     class VH(val root: LinearLayout, val thumb: ImageView, val badge: TextView, val icon: ImageView, val title: TextView, val sub: TextView,
-             val progress: WatchBar?) : RecyclerView.ViewHolder(root)
+             val progress: WatchBar?, val avatar: ImageView? = null, val avatarText: TextView? = null) : RecyclerView.ViewHolder(root)
+
+    /** (7.22) Telefon pionowo: filmy jako karty pionowego feedu (miniatura 16:9 na całą szerokość, awatar, kanał, wyświetlenia). */
+    var feed = false
 
     override fun getItemCount() = row.tiles.size
-    override fun getItemViewType(position: Int) = if (row.tiles[position] is STubeTile.Channel) 1 else if (row.square) 2 else 0
+    override fun getItemViewType(position: Int) = if (feed && row.tiles[position] is STubeTile.Video) VIEW_FEED
+        else if (row.tiles[position] is STubeTile.Channel) 1 else if (row.square) 2 else 0
+
+    companion object {
+        const val VIEW_FEED = 3
+        /** Tag karty feedu (testy). */
+        const val FEED_TAG = "stube_feed"
+    }
+
+    /** (7.22) Karta pionowego feedu: [miniatura 16:9 + czas][awatar | tytuł (2 linie) / kanał · wyświetlenia · data]. */
+    private fun feedHolder(parent: ViewGroup): VH {
+        val c = parent.context
+        val pal = CardSheet.palette()
+        val w = (parent.width.takeIf { it > 0 } ?: c.resources.displayMetrics.widthPixels) - Ui.dp(20)
+        val h = w * 9 / 16
+        val root = LinearLayout(c).apply {
+            orientation = LinearLayout.VERTICAL; tag = "item"; isFocusable = true; isClickable = true; setTag(pl.iptv.tv.R.id.row_key, FEED_TAG)
+            setPadding(Ui.dp(4), Ui.dp(4), Ui.dp(4), Ui.dp(10))
+            layoutParams = RecyclerView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = Ui.dp(6) }
+        }
+        val frame = FrameLayout(c)
+        val thumb = ImageView(c).apply { scaleType = ImageView.ScaleType.CENTER_CROP; background = GradientDrawable().apply { setColor(Ui.withAlpha(Ui.text2, 0x30)) } }
+        frame.addView(thumb, FrameLayout.LayoutParams(w, h))
+        val icon = ImageView(c).apply { visibility = View.GONE }
+        frame.addView(icon, FrameLayout.LayoutParams(w, h))
+        val badge = TextView(c).apply {
+            tag = "keepcolor"; setTextColor(Color.WHITE); textSize = 12f; setTypeface(typeface, android.graphics.Typeface.BOLD); setPadding(Ui.dp(6), Ui.dp(2), Ui.dp(6), Ui.dp(2))
+            background = GradientDrawable().apply { setColor(0xCC000000.toInt()); cornerRadius = Ui.dp(4).toFloat() }
+        }
+        frame.addView(badge, FrameLayout.LayoutParams(-2, -2, Gravity.END or Gravity.BOTTOM).apply { setMargins(0, 0, Ui.dp(8), Ui.dp(8) + Ui.dp(STubeScreen.PROGRESS_H)) })
+        val progress = WatchBar(c).also { bar -> bar.visibility = View.GONE; frame.addView(bar, FrameLayout.LayoutParams(w, Ui.dp(STubeScreen.PROGRESS_H), Gravity.BOTTOM)) }
+        Ui.roundClip(frame, Ui.dp(12).toFloat())
+        root.addView(frame, LinearLayout.LayoutParams(w, h))
+        val meta = LinearLayout(c).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, Ui.dp(8), 0, 0) }
+        val av = Ui.dp(STubeScreen.FEED_AVATAR_DP)
+        val avatarBox = FrameLayout(c)
+        val avatarText = TextView(c).apply {
+            tag = "keepcolor"; gravity = Gravity.CENTER; textSize = 14f; setTypeface(typeface, android.graphics.Typeface.BOLD); setTextColor(pal.accent or 0xFF000000.toInt())
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(pal.chosenFill) }
+        }
+        val avatar = ImageView(c).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
+        avatarBox.addView(avatarText, FrameLayout.LayoutParams(av, av)); avatarBox.addView(avatar, FrameLayout.LayoutParams(av, av))
+        Ui.roundClip(avatar, av / 2f)
+        meta.addView(avatarBox, LinearLayout.LayoutParams(av, av).apply { marginEnd = Ui.dp(10) })
+        val col = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; isDuplicateParentStateEnabled = true }
+        val title = TextView(c).apply { textSize = 15f; maxLines = 2; ellipsize = TextUtils.TruncateAt.END; setTypeface(typeface, android.graphics.Typeface.BOLD) }
+        val sub = TextView(c).apply { tag = "text2"; textSize = 13f; maxLines = 2; ellipsize = TextUtils.TruncateAt.END; setPadding(0, Ui.dp(2), 0, 0) }
+        col.addView(title); col.addView(sub)
+        meta.addView(col, LinearLayout.LayoutParams(0, -2, 1f))
+        root.addView(meta, LinearLayout.LayoutParams(-1, -2))
+        val vh = VH(root, thumb, badge, icon, title, sub, progress, avatar, avatarText)
+        root.setOnClickListener { row.tiles.getOrNull(vh.bindingAdapterPosition)?.let(onClick) }
+        root.setOnLongClickListener { row.tiles.getOrNull(vh.bindingAdapterPosition)?.let(onLongClick); true }
+        root.setOnFocusChangeListener { _, f -> if (f && vh.bindingAdapterPosition >= 0) { row.lastFocus = vh.bindingAdapterPosition; onFocus(vh.bindingAdapterPosition) } }
+        Ui.style(root)
+        return vh
+    }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
+        if (viewType == VIEW_FEED) return feedHolder(parent)
         val c = parent.context
         val channel = viewType == 1; val sq = viewType == 2
         val lay = StubeTheme.layout
@@ -497,6 +568,14 @@ class STubeTileAdapter(private val row: STubeRow) : RecyclerView.Adapter<STubeTi
                 h.title.text = t.v.title; h.sub.visibility = if (StubeTheme.layout.showSub) View.VISIBLE else View.GONE
                 h.sub.text = t.v.channel + STubeScreen.ago(t.v.publishedAt)?.let { " · $it" }.orEmpty()
                 h.root.contentDescription = t.v.title
+                // (7.22) karta feedu: kanał · wyświetlenia · data, awatar kanału (bez awatara – inicjały w kolorze akcentu)
+                if (h.avatar != null) {
+                    h.sub.visibility = View.VISIBLE
+                    h.sub.text = listOfNotNull(t.v.channel.ifBlank { null }, STubeScreen.viewsLabel(t.v.views), STubeScreen.ago(t.v.publishedAt)).joinToString(" · ")
+                    h.avatarText?.text = initialsOf(t.v.channel)
+                    coil.util.CoilUtils.dispose(h.avatar); h.avatar.setImageDrawable(null)
+                    if (t.v.channelThumb.isNotBlank()) h.avatar.load(t.v.channelThumb) { crossfade(false); size(Ui.dp(STubeScreen.FEED_AVATAR_DP)) }
+                }
             }
             is STubeTile.Channel -> {
                 h.icon.visibility = View.GONE; h.badge.visibility = View.GONE

@@ -30,6 +30,8 @@ import java.text.DateFormat
 import java.util.Date
 
 class SettingsActivity : BaseActivity() {
+    /** (7.22) Telefon pionowo: zakładka „Więcej” dolnego paska. */
+    override val portraitTab get() = MobilePortraitScaffold.Tab.MORE
     override val ps5Hints = true
     private lateinit var container: LinearLayout
     /** (7.20) Ustawienia silnika, z którymi zbudowano ekran (obserwacja [EngineConfigRepository.effectiveConfig]). */
@@ -324,8 +326,8 @@ class SettingsActivity : BaseActivity() {
         val open = key in Prefs.settingsOpen        // domyślnie wszystkie sekcje zwinięte
         sectionIndex++
         val sec = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(Ui.dp(if (portraitPhone) 6 else 14), Ui.dp(4), Ui.dp(if (portraitPhone) 2 else 6), Ui.dp(4))
-            clipChildren = portraitPhone; clipToPadding = portraitPhone
+            orientation = LinearLayout.VERTICAL; setPadding(Ui.dp(if (narrowPortrait) 6 else 14), Ui.dp(4), Ui.dp(if (narrowPortrait) 2 else 6), Ui.dp(4))
+            clipChildren = narrowPortrait; clipToPadding = narrowPortrait
             visibility = if (open) View.VISIBLE else View.GONE
         }
         val h = TextView(this).apply {
@@ -358,7 +360,7 @@ class SettingsActivity : BaseActivity() {
     }
 
     /** Telefon w pionie (wąski ekran) – wiersze i podgląd mieszczą się w szerokości ekranu. */
-    private val portraitPhone get() = resources.configuration.screenWidthDp < 700 &&
+    private val narrowPortrait get() = resources.configuration.screenWidthDp < 700 &&
         resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT
 
     /** [raw] – tytuł to dane użytkownika (nazwa listy, kanału): bez usuwania znaków z początku. */
@@ -367,7 +369,7 @@ class SettingsActivity : BaseActivity() {
         val rk = key ?: "row|$shown"
         val r = LinearLayout(this).apply {
             tag = "item"; isFocusable = true; isClickable = true; gravity = Gravity.CENTER_VERTICAL
-            setPadding(Ui.dp(if (portraitPhone) 10 else 14), Ui.dp(12), Ui.dp(if (portraitPhone) 10 else 14), Ui.dp(12))
+            setPadding(Ui.dp(if (narrowPortrait) 10 else 14), Ui.dp(12), Ui.dp(if (narrowPortrait) 10 else 14), Ui.dp(12))
             setOnClickListener { lastKey = rk; onClick() }
         }
         r.setTag(R.id.row_key, rk)
@@ -375,7 +377,7 @@ class SettingsActivity : BaseActivity() {
         if (value != null) r.addView(TextView(this).apply {
             text = value; textSize = 15f; gravity = Gravity.END or Gravity.CENTER_VERTICAL
             // pion: wartość nie wypycha tytułu poza ekran (najwyżej 45% szerokości, zawijanie do 2 linii)
-            if (portraitPhone) { maxWidth = (resources.displayMetrics.widthPixels * 0.45f).toInt(); maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }
+            if (narrowPortrait) { maxWidth = (resources.displayMetrics.widthPixels * 0.45f).toInt(); maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }
             if (valueColor != null) { tag = "keepcolor"; setTextColor(valueColor) } else tag = "text2"
         }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
         target().addView(r, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = Ui.dp(4) })
@@ -782,6 +784,13 @@ class SettingsActivity : BaseActivity() {
         note("Motyw działa od razu na wszystkich ekranach (menu, odtwarzacz, pasek informacji, okna) – bez ponownego uruchamiania.")
         note("Własne zmiany wyglądu zapisują się same jako „Własny – <motyw>” przed przełączeniem na inny motyw – można do nich wrócić.")
         note("Wybór motywu ustawia kolory, czcionkę, animacje, pasek postępu i położenie paska informacji. Każdą z tych opcji możesz potem zmienić osobno.")
+        // (7.22) siatka interfejsu (TvResolution); okno kart w palecie aktywnego motywu (Dialogs.choiceCards)
+        header(UI_RESOLUTION_TITLE)
+        val uiModes = UiResolutionMode.entries
+        choice(UI_RESOLUTION_TITLE, uiModes.map { it.label }, { UiResolutionMode.current().ordinal }, look = false, descriptions = uiModes.map { it.description }) {
+            if (it != Prefs.uiResolution) { Prefs.uiResolution = it; TvResolution.modeChanged(this) }
+        }
+        note(UI_RESOLUTION_NOTE)
         header("Nowoczesny")
         if (ModernTheme.active) {
             toggle("Ekran główny jako ekran startowy", { Prefs.modernHome }) { Prefs.modernHome = it }
@@ -1103,6 +1112,12 @@ class SettingsActivity : BaseActivity() {
             EngineConfigRepository.setSurfaceMode(RenderSurfaceMode.entries[it])
         }
         note("Automatycznie: wydajny SurfaceView, a TextureView dla kanałów, które klatkowały – pomaga, gdy telewizor z Google TV źle usuwa przeplot (1080i50).")
+        // (7.22) limit rozdzielczości obrazu – to samo źródło co okno silnika w odtwarzaczu (zmiana w locie, bez przebudowy)
+        val limits = VideoResolutionLimit.entries
+        choice(MAX_VIDEO_TITLE, limits.map { it.label }, { EngineConfigRepository.current.maxVideoResolution.ordinal }, look = false, descriptions = limits.map { it.description }) {
+            EngineConfigRepository.setMaxVideoResolution(limits[it])
+        }
+        note(MAX_VIDEO_NOTE)
         toggle("Wyrównywanie głośności kanałów", { EngineConfigRepository.current.loudness }) { EngineConfigRepository.setLoudness(it) }
         note("Łagodne podbicie (+3 dB) cichych ścieżek (np. AC3 / E-AC3) – mniejsze różnice głośności między kanałami. Na części urządzeń (np. z tunelowaniem) efekt jest niedostępny i opcja nic nie zmienia.")
         toggle("Niskie opóźnienie na żywo", { EngineConfigRepository.current.lowLatency }) { EngineConfigRepository.setLowLatency(it) }
@@ -1138,14 +1153,18 @@ class SettingsActivity : BaseActivity() {
         choice("Odświeżanie Top 10", hours.map { hLabel(it) }, { hours.indexOf(Prefs.stremioTop10Hours).let { if (it < 0) hours.indexOf(T.DEFAULT_HOURS) else it } }, look = false,
             descriptions = hours.map { if (it == T.DEFAULT_HOURS) "Zalecane – rankingi platform zmieniają się wolno" else "" }) { Prefs.stremioTop10Hours = hours[it] }
         row("Odśwież Top 10 teraz") {
-            if (!pl.iptv.tv.data.StremioTmdb.available) { toast("Top 10 wymaga klucza TMDB (keystore/tmdb.properties)"); return@row }
+            if (!pl.iptv.tv.data.StremioTmdb.available) { toast("Top 10 wymaga klucza TMDB (Stremio → ★ Klucz TMDB)"); return@row }
             T.init(this); toast("Pobieranie Top 10…")
             lifecycleScope.launch {
                 val changed = runCatching { T.refreshStale(T.rows(null), force = true) }.getOrDefault(emptyList())
                 toast("Top 10 odświeżone (${changed.size} z ${T.rows(null).size} rzędów zmienionych)")
             }
         }
-        note("Netflix, HBO Max, Prime Video, Disney+ i Paramount+ – osobno filmy i seriale (ranking popularności w Polsce z TMDB). Rzędy wczytują się od razu z pamięci urządzenia, a sieć tylko w tle, gdy minie wybrany czas.")
+        // (7.22) wybór platform (to samo, co w oknie „Klucz TMDB” w Stremio)
+        if (pl.iptv.tv.data.StremioTmdb.available) row(TmdbKeyUi.PLATFORMS_TITLE, "${T.enabledPlatforms.size} z ${T.PLATFORMS.size}") {
+            TmdbKeyUi.showPlatforms(this) { build(keepFocus = true) }
+        }
+        note("Do 10 platform (Netflix, Max, Disney+, Prime Video, SkyShowtime, Apple TV+, CANAL+, Player, Polsat Box Go, TVP VOD) – osobno filmy i seriale (ranking popularności w Polsce z TMDB). Rzędy wczytują się od razu z pamięci urządzenia, a sieć tylko w tle, gdy minie wybrany czas.")
     }
 
     // ================= System =================
@@ -1929,6 +1948,12 @@ class SettingsActivity : BaseActivity() {
         private const val REQ_APK_INSTALL = 16; private const val REQ_APK_SEND = 17
         /** (7.22) Przełącznik strażnika klatkowania (Ustawienia i okno silnika w odtwarzaczu). */
         const val AUTO_STUTTER_TITLE = "Automatyczna korekta przy zacinaniu obrazu"
+        /** (7.22) Ustawienia → Wygląd. */
+        const val UI_RESOLUTION_TITLE = "Rozdzielczość interfejsu"
+        const val UI_RESOLUTION_NOTE = "Wielkość menu, okien i kafelków (obraz wideo bez zmian). Na telefonie trzymanym pionowo zawsze obowiązuje gęstość systemu."
+        /** (7.22) Ustawienia → Odtwarzanie → Silnik odtwarzania i akceleracja oraz okno silnika w odtwarzaczu. */
+        const val MAX_VIDEO_TITLE = "Maksymalna rozdzielczość obrazu"
+        const val MAX_VIDEO_NOTE = "Ogranicza jakość wybieraną ze strumieni wielojakościowych (HLS / DASH) – mniej danych i lżejszy dekoder. Kanał nadawany tylko w wyższej rozdzielczości gra dalej. Automatyczna – jak dotąd, bez limitu."
         const val AUTO_STUTTER_NOTE = "Gdy obraz wyraźnie klatkuje przez kilka sekund, odtwarzacz automatycznie dostosowuje tryb wyświetlania (bez przełączania kanałów HD/FHD na słaby dekoder programowy). Wyłącz, aby zachować pełną kontrolę ręczną."
         val TAB_NAMES = listOf("Listy", "Wygląd", "Menu i kanały", "Odtwarzanie", "Program TV", "Archiwum (catch-up)", "Kontrola rodzicielska",
             "Nagrywanie", "Wyniki i pogoda", "Pilot", "System", "Konto YouTube")

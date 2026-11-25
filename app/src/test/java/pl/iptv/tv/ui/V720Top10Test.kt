@@ -65,15 +65,15 @@ class V720Top10Test {
                     JSONObject().put("id", base + i).put(if (tv) "name" else "title", "Tytuł ${base + i}").put("poster_path", "/p${base + i}.jpg")
                         .put(if (tv) "first_air_date" else "release_date", "2024-01-0${i % 9 + 1}").put("vote_average", 7.5).put("overview", "Polski opis ${base + i}")
                 })))
-                if (p.startsWith("/tmdb/discover/")) synchronized(discovers) { discovers += p }
+                if (p.startsWith("/tmdb/discover/") && p.contains("with_watch_providers")) synchronized(discovers) { discovers += p }   // (7.22) bez zapytania kin
                 val tv = p.startsWith("/tmdb/discover/tv")
                 return when {
                     p == "/m/manifest.json" -> ok(JSONObject().put("id", "meta").put("name", "Meta").put("version", "1.0.0").put("types", JSONArray(listOf("movie", "series")))
                         .put("idPrefixes", JSONArray(listOf("tt"))).put("resources", JSONArray(listOf("catalog", "meta"))).put("catalogs", JSONArray()))
-                    p.startsWith("/tmdb/discover/") && p.contains("with_watch_providers=1899") -> ok(JSONObject().put("results", JSONArray()))   // Max – pusto, zapasowy 384
-                    p.startsWith("/tmdb/discover/") && p.contains("with_watch_providers=531") -> ok(JSONObject().put("results", JSONArray()))    // Paramount+ – pusto, SkyShowtime
-                    p.startsWith("/tmdb/discover/") -> {
-                        val prov = Regex("with_watch_providers=(\\d+)").find(p)!!.groupValues[1].toInt()
+                    p.startsWith("/tmdb/discover/") && p.contains("with_watch_providers") -> {
+                        // (7.22) kilka identyfikatorów w jednym zapytaniu („1899|384” = LUB): wyniki daje ten, który nie jest pusty
+                        val provs = java.net.URLDecoder.decode(Regex("with_watch_providers=([^&]+)").find(p)!!.groupValues[1], "UTF-8").split('|').map { it.toInt() }
+                        val prov = provs.firstOrNull { it != 1899 && it != 531 } ?: return ok(JSONObject().put("results", JSONArray()))
                         results(prov * 100 + if (tv) 50 else 0, 12, tv)
                     }
                     p.contains("/external_ids") -> {
@@ -88,25 +88,26 @@ class V720Top10Test {
         StremioApi.defaultAddons = listOf(url("/m/manifest.json"))
         StremioApi.client = { okhttp3.OkHttpClient() }
         StremioTmdb.base = url("/tmdb").removeSuffix("/"); StremioTmdb.apiKey = { "test" }
-        StremioTop10.resetForTest(ctx); StremioTop10.now = { clock }
+        StremioTop10.resetForTest(ctx); StremioTop10.now = { clock }; Prefs.stremioTop10Platforms = null
     }
 
     @After fun tearDown() {
         StremioApi.defaultAddons = listOf(StremioApi.CINEMETA, StremioApi.OPENSUBTITLES); StremioApi.client = { pl.iptv.tv.data.Repository.http }
         StremioTmdb.base = "https://api.themoviedb.org/3"; StremioTmdb.apiKey = { Prefs.tmdbApiKey }; StremioTmdb.clearCache()
-        StremioTop10.resetForTest(ctx); Prefs.stremioTop10Hours = 96
+        StremioTop10.resetForTest(ctx); Prefs.stremioTop10Hours = 96; Prefs.stremioTop10Platforms = null
         Prefs.stremioGuest = false; StremioAccount.clear(); server.shutdown(); StubeHistory.useDatabase(null); db.close()
     }
 
     @Test fun platformsRowsAndTitlesPerTab() {
+        // (7.22) domyślnie widoczne pięć pierwszych z 10 platform
         val all = StremioTop10.rows(null)
         assertEquals(10, all.size)
-        assertEquals(listOf("Top 10 Filmy – Netflix", "Top 10 Seriale – Netflix", "Top 10 Filmy – HBO Max", "Top 10 Seriale – HBO Max",
-            "Top 10 Filmy – Prime Video", "Top 10 Seriale – Prime Video", "Top 10 Filmy – Disney+", "Top 10 Seriale – Disney+",
-            "Top 10 Filmy – Paramount+", "Top 10 Seriale – Paramount+"), all.map { it.title })
-        assertEquals(listOf(8), StremioTop10.PLATFORMS[0].providers); assertEquals(listOf(1899, 384), StremioTop10.PLATFORMS[1].providers)
-        assertEquals(listOf(119), StremioTop10.PLATFORMS[2].providers); assertEquals(listOf(337), StremioTop10.PLATFORMS[3].providers)
-        assertEquals(listOf(531, 1773), StremioTop10.PLATFORMS[4].providers)
+        assertEquals(listOf("Top 10 Filmy – Netflix", "Top 10 Seriale – Netflix", "Top 10 Filmy – Max (HBO Max)", "Top 10 Seriale – Max (HBO Max)",
+            "Top 10 Filmy – Disney+", "Top 10 Seriale – Disney+", "Top 10 Filmy – Amazon Prime Video", "Top 10 Seriale – Amazon Prime Video",
+            "Top 10 Filmy – SkyShowtime (Paramount+)", "Top 10 Seriale – SkyShowtime (Paramount+)"), all.map { it.title })
+        assertEquals(listOf("8", "1899|384", "337", "119", "1773|531", "350", "188", "505", "548", "502"), StremioTop10.PLATFORMS.map { it.providers })
+        assertEquals(listOf("netflix", "max", "disney", "prime", "skyshowtime", "appletv", "canalplus", "player", "polsatbox", "tvpvod"), StremioTop10.PLATFORMS.map { it.key })
+        assertEquals(20, StremioTop10.rows(null, all = true).size)
         assertTrue(StremioTop10.rows("movie").let { r -> r.size == 5 && r.all { it.title.startsWith("Top 10 Filmy – ") } })
         assertTrue(StremioTop10.rows("series").let { r -> r.size == 5 && r.all { it.title.startsWith("Top 10 Seriale – ") } })
     }
@@ -114,14 +115,16 @@ class V720Top10Test {
     @Test fun discoverFallbackProvidersAndFourDayCache() = runBlocking {
         val netflix = StremioTop10.rows("movie")[0]
         val list = StremioTop10.refresh(netflix)!!
-        assertEquals(10, list.size)                                                         // dokładnie 10, bez pozycji bez IMDb
-        assertEquals("tt801", list.first().id); assertFalse(list.any { it.id == "tt803" })
-        assertEquals("Polski opis 801", list.first().description)
+        assertEquals(10, list.size)                                                         // dokładnie 10
+        // (7.22) identyfikator TMDB (IMDb dopiero po kliknięciu) – bez zapytań external_ids przy pobieraniu rzędu
+        assertEquals("tmdb:movie:801", list.first().id)
+        assertEquals("Polski opis 801", list.first().description); assertEquals("https://image.tmdb.org/t/p/w342/p801.jpg", list.first().poster)
         val q = synchronized(discovers) { discovers.first() }
         listOf("with_watch_providers=8", "watch_region=PL", "sort_by=popularity.desc", "language=pl-PL").forEach { assertTrue(q, q.contains(it)) }
-        // HBO Max: 1899 pusto → 384; Paramount+: 531 pusto → SkyShowtime 1773; seriale – /discover/tv
-        assertEquals("tt38401", StremioTop10.refresh(StremioTop10.rows("movie")[1])!!.first().id)
-        assertEquals("tt177301", StremioTop10.refresh(StremioTop10.rows("movie")[4])!!.first().id)
+        // Max „1899|384” i SkyShowtime „1773|531” – jedno zapytanie z kilkoma identyfikatorami; seriale – /discover/tv
+        assertEquals("tmdb:movie:38401", StremioTop10.refresh(StremioTop10.rows("movie")[1])!!.first().id)
+        assertEquals("tmdb:movie:177301", StremioTop10.refresh(StremioTop10.rows("movie")[4])!!.first().id)
+        assertTrue(synchronized(discovers) { discovers.any { java.net.URLDecoder.decode(it, "UTF-8").contains("with_watch_providers=1899|384") } })
         assertEquals("series", StremioTop10.refresh(StremioTop10.rows("series")[0])!!.first().type)
         assertTrue(synchronized(discovers) { discovers.any { it.startsWith("/tmdb/discover/tv") } })
         // plik w cacheDir z lastUpdatedTimestamp; świeży zapis – bez sieci

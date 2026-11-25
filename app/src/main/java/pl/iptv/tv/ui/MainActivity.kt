@@ -26,8 +26,12 @@ import pl.iptv.tv.data.Repository
 import pl.iptv.tv.data.StartActions
 
 class MainActivity : BaseActivity() {
+    /** (7.22) Telefon pionowo: zakładka „Live TV” dolnego paska ([MobilePortraitScaffold]). */
+    override val portraitTab get() = MobilePortraitScaffold.Tab.LIVE
     override val miniPlayer = true
     companion object {
+        /** (7.22) Wysokość listy programu pod podglądem w pionie telefonu (dp). */
+        const val PORTRAIT_EPG_DP = 132
         /** (7.6) Kategoria pod kursorem pilota otwiera się po tej chwili (dawniej 250 ms). */
         const val GROUP_FOCUS_DELAY_MS = 180L
         const val EXTRA_FROM_BOOT = "from_boot"
@@ -191,6 +195,44 @@ class MainActivity : BaseActivity() {
 
     private var layoutApplied = -1
     /** Układ menu głównego (Ustawienia → Wygląd → Układ menu). */
+    /** (7.22) Rząd „Szukaj” + pigułki kategorii (testy). */
+    var portraitChips: android.widget.LinearLayout? = null; private set
+
+    /**
+     * (7.22) Live TV na telefonie w pionie: u góry kompaktowy rząd – „Szukaj” i kategorie jako przewijane w poziomie pigułki
+     * (kolory motywu), pod nim szybki podgląd 16:9 (najwyżej 28 % wysokości) z bieżącym programem i krótką listą EPG, dalej
+     * lista kanałów na całą szerokość (logo, nazwa, bieżący program z paskiem postępu). Boczne przyciski TV ukryte – ich
+     * funkcje są w dolnym pasku (Stremio, STube, Do obejrzenia, Więcej).
+     */
+    private fun portraitScaffoldLayout(content: android.widget.LinearLayout, info: android.widget.LinearLayout, box: View) {
+        content.orientation = android.widget.LinearLayout.VERTICAL
+        listOf(sideNav, groupsRv, channelsRv, info).forEach { v -> content.removeView(v) }
+        sideNav.visibility = View.GONE
+        content.addView(sideNav, android.widget.LinearLayout.LayoutParams(0, 0))
+        val row = android.widget.LinearLayout(this).apply { gravity = android.view.Gravity.CENTER_VERTICAL; clipChildren = false; clipToPadding = false }
+        row.addView(MobilePortraitScaffold.chip(this, "Szukaj", false) { openSearch() }.apply {
+            setCompoundDrawables(PlayerIcon(PlayerIcon.SEARCH, textColors).apply { setBounds(0, 0, Ui.dp(16), Ui.dp(16)) }, null, null, null); compoundDrawablePadding = Ui.dp(6)
+            setTag(R.id.row_key, "portrait_search")
+        }, android.widget.LinearLayout.LayoutParams(-2, Ui.dp(38)).apply { marginEnd = Ui.dp(8) })
+        groupsRv.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
+        groupAdapter.chips = true; groupAdapter.compact = false; portraitGroups = true
+        groupsRv.tag = "nopad nopivot"; groupsRv.background = null; groupsRv.setPadding(0, 0, 0, 0); groupsRv.clipToPadding = false
+        row.addView(groupsRv, android.widget.LinearLayout.LayoutParams(0, Ui.dp(44), 1f))
+        portraitChips = row
+        content.addView(row, android.widget.LinearLayout.LayoutParams(-1, -2))
+        info.layoutParams = android.widget.LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(6) }
+        content.addView(info)
+        progRv.layoutParams = progRv.layoutParams.apply { height = Ui.dp(PORTRAIT_EPG_DP) }
+        channelAdapter.compactLogo = false
+        channelsRv.layoutParams = android.widget.LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = Ui.dp(8) }
+        content.addView(channelsRv)
+        findViewById<View>(R.id.status).visibility = View.GONE
+        info.post {
+            val w = info.width - info.paddingLeft - info.paddingRight
+            if (w > 0) { box.layoutParams.height = minOf(w * 9 / 16, (resources.displayMetrics.heightPixels * 0.28f).toInt()); box.requestLayout() }
+        }
+    }
+
     private fun applyMainLayout() {
         val mode = Prefs.mainLayout
         if (mode == layoutApplied) return
@@ -205,6 +247,8 @@ class MainActivity : BaseActivity() {
             val w = info.width - info.paddingLeft - info.paddingRight
             if (w > 0) { box.layoutParams.height = minOf(w * 9 / 16, (info.height * 0.6f).toInt()); box.requestLayout() }
         }
+        // (7.22) telefon pionowo (9:16) z dolnym paskiem nawigacji: wyszukiwanie + pigułki kategorii u góry, podgląd, lista kanałów
+        if (portraitPhone) { portraitScaffoldLayout(content, info, box); return }
         if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT) {
             // telefon pionowo: podgląd i program u góry, przyciski + kategorie + kanały na dole
             content.orientation = android.widget.LinearLayout.VERTICAL

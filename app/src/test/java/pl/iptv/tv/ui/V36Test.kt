@@ -141,7 +141,8 @@ class V36Test {
         assertEquals(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT, a.requestedOrientation)
         val content = a.findViewById<LinearLayout>(R.id.content)
         assertEquals(LinearLayout.VERTICAL, content.orientation)
-        assertEquals(R.id.infoPanel, content.getChildAt(0).id)
+        // (7.22) telefon pionowo: u góry „Szukaj” + pigułki kategorii, pod nimi podgląd z programem, dalej kanały
+        assertSame(a.portraitChips, content.getChildAt(1)); assertEquals(R.id.infoPanel, content.getChildAt(2).id)
         assertTrue(a.findViewById<RecyclerView>(R.id.channels).adapter!!.itemCount > 0)
         c.pause().stop().destroy()
         val p = player()

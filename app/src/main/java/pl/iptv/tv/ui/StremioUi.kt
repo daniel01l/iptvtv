@@ -82,6 +82,24 @@ object StremioUi {
     }
     const val RANK_TAG = "rank_badge"
 
+    /**
+     * (7.22) Subtelna odznaka na plakacie (np. „W KINACH”) i pigułka oceny „★ 7.4”: tło – panel aktywnego motywu (ok. 80 %),
+     * tekst – akcent (odznaka) / tekst motywu (ocena), cienka obwódka specular; wewnątrz plakatu (przycinane razem z nim –
+     * przy powiększeniu fokusu nic nie wystaje). Te same tokeny w każdym motywie ([CardSheet.palette]).
+     */
+    fun posterBadge(c: Context, accentText: Boolean, tag2: String) = TextView(c).apply {
+        val pal = CardSheet.palette()
+        tag = "keepcolor"; setTag(R.id.row_key, tag2); textSize = if (accentText) 10f else 11f; setTypeface(typeface, android.graphics.Typeface.BOLD)
+        setTextColor(if (accentText) pal.accent or 0xFF000000.toInt() else pal.text); includeFontPadding = false
+        if (accentText) letterSpacing = 0.08f
+        setPadding(Ui.dp(7), Ui.dp(3), Ui.dp(7), Ui.dp(3)); visibility = View.GONE
+        background = GradientDrawable().apply { setColor(CardSheet.withAlpha(pal.panel, 0xCC)); cornerRadius = Ui.dp(8).toFloat(); setStroke(Ui.dp(1), pal.specular) }
+    }
+    const val BADGE_TAG = "poster_badge"
+    const val RATING_TAG = "poster_rating"
+    /** (7.22) Odznaka rzędu „Obecnie w kinach”. */
+    const val IN_CINEMAS_BADGE = "W KINACH"
+
     fun fmt(ms: Long): String { val s = ms / 1000; return if (s >= 3600) String.format("%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60) else String.format("%d:%02d", s / 60, s % 60) }
 }
 
@@ -159,7 +177,9 @@ object StremioMetas {
 /** [note] – podpis zamiast domyślnego (np. „Sezon 2 · 60%”), [fraction] – pasek na plakacie (np. procent obejrzanego sezonu). */
 data class StremioTile(val meta: StremioMetaPreview, val progress: StremioProgress? = null, val note: String = "", val fraction: Float? = null,
                        /** (7.20) Pozycja w rankingu „Top 10” (1–10; 0 – bez odznaki). */
-                       val rank: Int = 0)
+                       val rank: Int = 0,
+                       /** (7.22) Odznaka na plakacie (np. [StremioUi.IN_CINEMAS_BADGE]); pusta – bez odznaki. */
+                       val badge: String = "")
 
 /** Rząd plakatów (katalog / wyniki wyszukiwania / „Kontynuuj oglądanie”). */
 class StremioPosterAdapter(val items: MutableList<StremioTile> = mutableListOf()) : RecyclerView.Adapter<StremioPosterAdapter.VH>() {
@@ -168,7 +188,8 @@ class StremioPosterAdapter(val items: MutableList<StremioTile> = mutableListOf()
     var onFocus: (StremioTile) -> Unit = {}
 
     class VH(val root: LinearLayout, val poster: ImageView, val initials: TextView, val bar: View, val barBox: FrameLayout,
-             val title: TextView, val sub: TextView, val rating: TextView? = null, val rank: TextView? = null) : RecyclerView.ViewHolder(root)
+             val title: TextView, val sub: TextView, val rating: TextView? = null, val rank: TextView? = null,
+             val badge: TextView? = null, val obsidian: Boolean = false) : RecyclerView.ViewHolder(root)
 
     /** (7.17) Stałe identyfikatory pozycji (typ + id tytułu) i jeden typ widoku „plakat” – odświeżenie rzędu bez gubienia fokusu. */
     init { setHasStableIds(true) }
@@ -205,14 +226,13 @@ class StremioPosterAdapter(val items: MutableList<StremioTile> = mutableListOf()
                 addState(intArrayOf(), GradientDrawable().apply { cornerRadius = radius; setStroke(Ui.dp(1), O.SPECULAR) })
             }
             if (android.os.Build.VERSION.SDK_INT >= 28) { frame.outlineSpotShadowColor = O.ACCENT; frame.outlineAmbientShadowColor = O.ACCENT }
-            // dyskretna pigułka z oceną w prawym górnym rogu
-            rating = TextView(c).apply {
-                tag = "keepcolor"; textSize = 11f; setTypeface(typeface, android.graphics.Typeface.BOLD); setTextColor(O.TEXT)
-                setPadding(Ui.dp(7), Ui.dp(2), Ui.dp(7), Ui.dp(2)); visibility = View.GONE
-                background = GradientDrawable().apply { setColor(0xCC080A0F.toInt()); cornerRadius = Ui.dp(8).toFloat() }
-            }
-            frame.addView(rating, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, Ui.dp(7), Ui.dp(7), 0) })
         }
+        // dyskretna pigułka z oceną w prawym górnym rogu – (7.22) we wszystkich motywach, kolory z palety motywu
+        rating = StremioUi.posterBadge(c, accentText = false, tag2 = StremioUi.RATING_TAG)
+        frame.addView(rating, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, Ui.dp(7), Ui.dp(7), 0) })
+        // (7.22) odznaka „W KINACH” na dole plakatu (nad paskiem obejrzenia)
+        val badge = StremioUi.posterBadge(c, accentText = true, tag2 = StremioUi.BADGE_TAG)
+        frame.addView(badge, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply { setMargins(Ui.dp(6), 0, 0, Ui.dp(10)) })
         // (7.20) odznaka pozycji „#1”–„#10” w rzędach Top 10: w lewym górnym rogu WEWNĄTRZ plakatu (przycięta razem z nim –
         // przy powiększeniu fokusu nic nie wystaje ani nie jest ucinane), kolory z motywu ([StremioUi.rankBadge])
         val rank = StremioUi.rankBadge(c)
@@ -227,7 +247,7 @@ class StremioPosterAdapter(val items: MutableList<StremioTile> = mutableListOf()
         val sub = StremioUi.text(c, size = 12f, tag2 = "text2", lines = 1).apply { setPadding(Ui.dp(2), Ui.dp(1), Ui.dp(2), 0) }
         root.addView(title, LinearLayout.LayoutParams(-1, -2)); root.addView(sub, LinearLayout.LayoutParams(-1, -2))
         if (obsidian) { title.setTextColor(O.TEXT); title.tag = "keepcolor"; sub.setTextColor(O.TEXT2); sub.tag = "keepcolor"; initials.setTextColor(O.TEXT2); initials.tag = "keepcolor" }
-        val vh = VH(root, poster, initials, bar, barBox, title, sub, rating, rank)
+        val vh = VH(root, poster, initials, bar, barBox, title, sub, rating, rank, badge, obsidian)
         root.setOnClickListener { items.getOrNull(vh.bindingAdapterPosition)?.let(onClick) }
         root.setOnLongClickListener { items.getOrNull(vh.bindingAdapterPosition)?.let(onLongClick); true }
         root.setOnFocusChangeListener { _, f ->
@@ -246,7 +266,7 @@ class StremioPosterAdapter(val items: MutableList<StremioTile> = mutableListOf()
     override fun onBindViewHolder(h: VH, position: Int) {
         val t = items[position]; val m = t.meta
         h.title.text = m.name
-        val obsidian = h.rating != null
+        val obsidian = h.obsidian
         h.sub.text = t.note.ifBlank { null } ?: t.progress?.let { p -> listOfNotNull(p.videoLabel.ifBlank { null }, StremioUi.fmt(p.positionMs)).joinToString(" · ") }
             // (7.17) Obsidian: pod plakatem czysty tytuł i rok produkcji
             ?: if (obsidian) m.releaseInfo.take(4).ifBlank { StremioUi.typeName(m.type) }
@@ -256,7 +276,9 @@ class StremioPosterAdapter(val items: MutableList<StremioTile> = mutableListOf()
             r.text = v?.let { "★ $it" } ?: ""; r.visibility = if (v != null) View.VISIBLE else View.GONE
         }
         h.rank?.let { b -> b.text = if (t.rank > 0) "#${t.rank}" else ""; b.visibility = if (t.rank > 0) View.VISIBLE else View.GONE }
-        h.root.contentDescription = if (t.rank > 0) "#${t.rank} ${m.name}" else null
+        h.badge?.let { b -> b.text = t.badge; b.visibility = if (t.badge.isNotBlank()) View.VISIBLE else View.GONE }
+        h.root.contentDescription = listOfNotNull(if (t.rank > 0) "#${t.rank}" else null, m.name.takeIf { t.rank > 0 || t.badge.isNotBlank() },
+            t.badge.ifBlank { null }?.lowercase()).joinToString(" ").ifBlank { null }
         h.initials.text = m.name
         coil.util.CoilUtils.dispose(h.poster)
         h.poster.setImageDrawable(null)

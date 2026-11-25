@@ -1,5 +1,7 @@
 package pl.iptv.tv.ui
 
+import kotlinx.coroutines.launch
+
 /**
  * (7.20) Wybór dekodera programowego „naprawdę”: w trybie zgodności lista dekoderów obrazu zawiera wyłącznie systemowe
  * dekodery programowe (c2.android.*, OMX.google.*, isSoftwareOnly). Dawniej lista była tylko sortowana – na części TV
@@ -71,27 +73,59 @@ object ChannelLoudness {
         }
     }
 
-    private var effect: Effect? = null
+    @Volatile private var effect: Effect? = null
     @Volatile var session: Int = androidx.media3.common.C.AUDIO_SESSION_ID_UNSET; private set
     /** Czy efekt działa (testy, okno „Bieżący dekoder”). */
     val active: Boolean get() = effect != null
+    /** Efekt tworzony / zakładany w tej chwili w tle (ta sama sesja nie zleca drugiego). */
+    @Volatile private var pending = false
+
+    /**
+     * (7.22) Tworzenie efektu poza wątkiem UI (Dispatchers.IO): `LoudnessEnhancer` łączy się z usługą audio systemu i na
+     * części urządzeń blokuje albo rzuca wyjątek – nie może zatrzymać ani zakończyć startu odtwarzania. W Robolectric
+     * synchronicznie (testy).
+     */
+    @Volatile var async: Boolean = android.os.Build.FINGERPRINT != "robolectric"
+    private val scope by lazy { kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO) }
+    /** Pokolenie podpięcia – efekt utworzony w tle dla starszego podpięcia jest od razu zwalniany. */
+    private var generation = 0
 
     /** Podpięcie do sesji [sessionId] wg ustawienia (wyłączone – zwolnienie); błąd urządzenia – bez efektu. */
     fun attach(sessionId: Int) {
-        if (sessionId == session && (effect != null) == pl.iptv.tv.data.Prefs.loudnessLeveling) return
-        release()
-        session = sessionId
-        if (!pl.iptv.tv.data.Prefs.loudnessLeveling || sessionId == androidx.media3.common.C.AUDIO_SESSION_ID_UNSET || sessionId <= 0) return
-        effect = try {
-            factory(sessionId).also { it.setGain(GAIN_MB); it.setEnabled(true) }
-        } catch (t: Throwable) {
-            android.util.Log.w("Playback", "wyrównywanie głośności niedostępne na sesji $sessionId: ${t.javaClass.simpleName}"); null
+        val wanted = runCatching { pl.iptv.tv.data.Prefs.loudnessLeveling }.getOrDefault(false)
+        val gen: Int
+        synchronized(this) {
+            if (sessionId == session && (effect != null || pending) == wanted) return
+            releaseLocked()
+            session = sessionId
+            if (!wanted || sessionId == androidx.media3.common.C.AUDIO_SESSION_ID_UNSET || sessionId <= 0) return
+            gen = generation
+            pending = true
         }
+        if (!async) { install(sessionId, gen); return }
+        try { scope.launch { install(sessionId, gen) } } catch (t: Throwable) { synchronized(this) { if (gen == generation) pending = false } }
     }
 
-    fun release() {
-        effect?.let { e -> try { e.setEnabled(false); e.release() } catch (_: Throwable) {} }
+    private fun install(sessionId: Int, gen: Int) {
+        val e = try {
+            factory(sessionId).also { it.setGain(GAIN_MB); it.setEnabled(true) }
+        } catch (t: Throwable) {
+            runCatching { android.util.Log.w("Playback", "wyrównywanie głośności niedostępne na sesji $sessionId: ${t.javaClass.simpleName}") }; null
+        }
+        val stale = synchronized(this) {
+            if (gen == generation && session == sessionId) { effect = e; pending = false; false } else true
+        }
+        if (stale) e?.let { runCatching { it.setEnabled(false); it.release() } }
+    }
+
+    fun release() { synchronized(this) { releaseLocked() } }
+
+    private fun releaseLocked() {
+        generation++; pending = false
+        val e = effect
         effect = null; session = androidx.media3.common.C.AUDIO_SESSION_ID_UNSET
+        // zwolnienie efektu (wywołanie usługi audio) też poza wątkiem UI, gdy działa w tle
+        e?.let { if (async) runCatching { scope.launch { runCatching { it.setEnabled(false); it.release() } } } else runCatching { it.setEnabled(false); it.release() } }
     }
 }
 

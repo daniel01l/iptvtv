@@ -154,6 +154,9 @@ object YtKeyless {
         val live = i.streamType == StreamType.LIVE_STREAM || i.streamType == StreamType.AUDIO_LIVE_STREAM
         // miniatura: największa z listy (YouTube podaje kilka rozmiarów)
         val thumb = i.thumbnails.maxByOrNull { it.height }?.url.orEmpty()
-        return YtVideo(id, i.name, i.uploaderName.orEmpty(), thumb, "", isoDuration(i.duration, live))
+        // (7.22) wyświetlenia i awatar kanału (pionowy feed na telefonie); brak w wyniku – 0 / pusty
+        val views = runCatching { i.viewCount }.getOrDefault(-1L).coerceAtLeast(0L)
+        val avatar = runCatching { i.uploaderAvatars.maxByOrNull { it.height }?.url }.getOrNull().orEmpty()
+        return YtVideo(id, i.name, i.uploaderName.orEmpty(), thumb, "", isoDuration(i.duration, live), views = views, channelThumb = avatar)
     }
 }

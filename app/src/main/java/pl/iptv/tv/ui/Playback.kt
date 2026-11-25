@@ -666,6 +666,7 @@ object Playback {
         val prev = lastConfig; lastConfig = c
         if (prev == null) return
         if (c.loudness != prev.loudness) applyLoudness()
+        if (c.maxVideoResolution != prev.maxVideoResolution) applyVideoLimit()
         if (c.autoFrameRate != prev.autoFrameRate) player?.let { runCatching { it.setVideoChangeFrameRateStrategy(frameRateStrategy(c.autoFrameRate)) } }
         if (c.surfaceMode != prev.surfaceMode || c.textureView != prev.textureView) onSurfaceTypeChanged?.invoke()
         reloadIfNeeded(announce = true)
@@ -867,6 +868,35 @@ object Playback {
                 setHandleAudioBecomingNoisy(!probe)
             }
             .build()
+            .also { p -> if (!probe) applyVideoLimit(p) }
+    }
+
+    /**
+     * (7.22) Parametry wyboru ścieżek z limitem [VideoResolutionLimit]: AUTO – `clearVideoSizeConstraints()` (bez limitu, jak
+     * dotąd), a w trybie słabszych urządzeń zostaje jego limit ([Prefs.lowMaxHeight]); inne progi – `setMaxVideoSize` (przy
+     * obu limitach – mniejszy). Strumień bez pasującej jakości gra dalej najniższą (domyślne `exceedVideoConstraintsIfNecessary`).
+     */
+    fun videoLimitParams(base: androidx.media3.common.TrackSelectionParameters, limit: VideoResolutionLimit, lowMaxHeight: Int): androidx.media3.common.TrackSelectionParameters {
+        val b = base.buildUpon()
+        val lowW = if (lowMaxHeight > 0) lowMaxHeight * 16 / 9 else Int.MAX_VALUE
+        val lowH = if (lowMaxHeight > 0) lowMaxHeight else Int.MAX_VALUE
+        if (!limit.limited && lowMaxHeight <= 0) b.clearVideoSizeConstraints()
+        else b.setMaxVideoSize(minOf(limit.maxWidth, lowW), minOf(limit.maxHeight, lowH))
+        return b.build()
+    }
+
+    /** Ostatnio zastosowany limit (testy, okno „Bieżący dekoder”). */
+    @Volatile var appliedVideoLimit: VideoResolutionLimit = VideoResolutionLimit.AUTO; private set
+
+    /** (7.22) Limit rozdzielczości obrazu na odtwarzaczu [p] (w locie – bez przebudowy i bez przerwy w obrazie). */
+    fun applyVideoLimit(p: androidx.media3.common.Player? = player) {
+        p ?: return
+        runCatching {
+            val limit = EngineConfigRepository.current.maxVideoResolution
+            val low = if (pl.iptv.tv.data.Prefs.lowPerf) pl.iptv.tv.data.Prefs.lowMaxHeight else 0
+            p.trackSelectionParameters = videoLimitParams(p.trackSelectionParameters, limit, low)
+            appliedVideoLimit = limit
+        }.onFailure { e -> android.util.Log.w(TAG, "limit rozdzielczości: ${e.javaClass.simpleName}: ${e.message}") }
     }
 
     /** Typ strumienia wg profilu kanału (HLS / TS wymuszony), inaczej z adresu albo wcześniejszego rozpoznania. */

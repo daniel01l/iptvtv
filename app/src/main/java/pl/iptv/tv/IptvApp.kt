@@ -91,38 +91,45 @@ class IptvApp : Application(), coil.ImageLoaderFactory {
     }
 
     /** (7.20) Kontekst aplikacji w tej samej siatce TV 960 × 540 dp co aktywności ([pl.iptv.tv.ui.TvResolution]). */
-    override fun attachBaseContext(base: android.content.Context) { super.attachBaseContext(pl.iptv.tv.ui.TvResolution.wrap(base)) }
+    override fun attachBaseContext(base: android.content.Context) {
+        super.attachBaseContext(pl.iptv.tv.ui.TvResolution.wrap(base))
+        // (7.22) zapis ostatniej awarii (filesDir/crash_last.txt) jak najwcześniej – także awarii samego startu
+        runCatching { CrashLog.install(this) }
+    }
 
     override fun onCreate() {
         super.onCreate()
-        pl.iptv.tv.ui.TvResolution.applyMetrics(resources)       // (7.20) kontekst aplikacji w siatce TV
+        val S = CrashLog
+        S.safe("crashLog") { S.install(this) }
+        S.safe("tvMetrics") { pl.iptv.tv.ui.TvResolution.applyMetrics(resources) }       // (7.20) kontekst aplikacji w siatce TV
         started = 0
-        if (android.os.Build.FINGERPRINT != "robolectric") dropOldImageCache()
-        Repository.init(this)
-        pl.iptv.tv.data.YouTubeTokens.init(this)
-        pl.iptv.tv.data.StubeHistory.init(this)
+        // (7.22) każdy krok startu osobno w try-catch (CrashLog.safe): błąd jednego (I/O, Keystore, usługa systemu) nie zamyka
+        // aplikacji przy starcie – kroki ciężkie (baza silników, rozgrzewanie, migracje, stara pamięć obrazów) idą w tle
+        if (android.os.Build.FINGERPRINT != "robolectric") S.safe("imageCache") { dropOldImageCache() }
+        S.safe("repository") { Repository.init(this) }
+        S.safe("youtubeTokens") { pl.iptv.tv.data.YouTubeTokens.init(this) }
+        S.safe("stubeHistory") { pl.iptv.tv.data.StubeHistory.init(this) }
         // dobrane silniki kanałów – do pamięci w tle (w testach Robolectric nie: wyścig z zamykaniem bazy testu – zakleszczenie Room)
-        if (android.os.Build.FINGERPRINT != "robolectric") pl.iptv.tv.data.ChannelEngines.loadAsync()
+        if (android.os.Build.FINGERPRINT != "robolectric") S.safe("channelEngines") { pl.iptv.tv.data.ChannelEngines.loadAsync() }
         // odtwarzacz rozgrzany w tle (dekodery, klasy silnika, rozpoznane HLS) – płynne kanały od pierwszego przełączenia
-        if (android.os.Build.FINGERPRINT != "robolectric") pl.iptv.tv.ui.Playback.warmUp(this)
-        pl.iptv.tv.data.StremioAccount.init(this)
-        pl.iptv.tv.remote.RemoteServer.init(this)
-        if (Repository.epgCrashed()) android.util.Log.w("IptvApp", "Poprzednie wczytywanie EPG przerwane – tryb dla słabszych urządzeń")
-        pl.iptv.tv.data.Activation.init(this)
-        if (pl.iptv.tv.data.Activation.enabled) activationLoop()
-        pl.iptv.tv.ui.Ui.init(this)
-        pl.iptv.tv.ui.I18n.init(this)                       // (7.8) język interfejsu (słownik tylko dla języka innego niż polski)
+        if (android.os.Build.FINGERPRINT != "robolectric") S.safe("warmUp") { pl.iptv.tv.ui.Playback.warmUp(this) }
+        S.safe("stremioAccount") { pl.iptv.tv.data.StremioAccount.init(this) }
+        S.safe("remoteInit") { pl.iptv.tv.remote.RemoteServer.init(this) }
+        S.safe("epgCrashed") { if (Repository.epgCrashed()) android.util.Log.w("IptvApp", "Poprzednie wczytywanie EPG przerwane – tryb dla słabszych urządzeń") }
+        S.safe("activation") { pl.iptv.tv.data.Activation.init(this); if (pl.iptv.tv.data.Activation.enabled) activationLoop() }
+        S.safe("ui") { pl.iptv.tv.ui.Ui.init(this) }
+        S.safe("i18n") { pl.iptv.tv.ui.I18n.init(this) }                       // (7.8) język interfejsu (słownik tylko dla języka innego niż polski)
         // świeża instalacja (nie aktualizacja): motyw PS5 jako domyślny; pomijane w testach Robolectric (motyw ustawiają same testy)
         if (android.os.Build.FINGERPRINT != "robolectric") runCatching {
             val pi = packageManager.getPackageInfo(packageName, 0)
             pl.iptv.tv.ui.Ui.applyFirstRunTheme(pi.firstInstallTime == pi.lastUpdateTime)
         }
-        pl.iptv.tv.ui.X25Theme.refreshLauncher(this)
-        ReminderScheduler.schedule(this)
-        if (pl.iptv.tv.remote.RemoteServer.wanted) pl.iptv.tv.remote.RemoteServer.start(this)
-        if (pl.iptv.tv.data.Prefs.relayOn) pl.iptv.tv.remote.RemoteRelay.start(this)
-        if (pl.iptv.tv.BuildConfig.SECURE) pl.iptv.tv.data.Prefs.adminCode = ""          // bez raportów do administratora
-        pl.iptv.tv.update.Updater.autoCheck(this)
+        S.safe("launcher") { pl.iptv.tv.ui.X25Theme.refreshLauncher(this) }
+        S.safe("reminders") { ReminderScheduler.schedule(this) }
+        S.safe("remoteServer") { if (pl.iptv.tv.remote.RemoteServer.wanted) pl.iptv.tv.remote.RemoteServer.start(this) }
+        S.safe("relay") { if (pl.iptv.tv.data.Prefs.relayOn) pl.iptv.tv.remote.RemoteRelay.start(this) }
+        S.safe("secure") { if (pl.iptv.tv.BuildConfig.SECURE) pl.iptv.tv.data.Prefs.adminCode = "" }          // bez raportów do administratora
+        S.safe("updater") { pl.iptv.tv.update.Updater.autoCheck(this) }
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(a: Activity) { started++ }
             override fun onActivityStopped(a: Activity) {

@@ -262,8 +262,18 @@ class GroupAdapter(
     class VH(val tv: TextView) : RecyclerView.ViewHolder(tv)
     /** (7.17) „Obsidian Stream”: kompaktowe pigułki kategorii (72 dp, bez prostokątnych ramek). */
     var obsidian = false
+    /** (7.22) Kategorie jako pigułki w poziomym rzędzie (telefon pionowo). */
+    var chips = false
 
     override fun onCreateViewHolder(p: ViewGroup, t: Int) = VH((inflate(p, R.layout.item_group) as TextView).also { tv ->
+        // (7.22) telefon pionowo: kategorie jako poziomy rząd pigułek (kolory motywu – [MobilePortraitScaffold.chip])
+        if (chips) {
+            val chip = MobilePortraitScaffold.chip(p.context, "", false) {}
+            tv.tag = chip.tag; tv.background = chip.background; tv.setTextColor(chip.textColors); tv.textSize = 14f
+            tv.setTypeface(tv.typeface, android.graphics.Typeface.BOLD); tv.gravity = android.view.Gravity.CENTER
+            tv.layoutParams = RecyclerView.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, Ui.dp(38)).apply { marginEnd = Ui.dp(8) }
+            return@also
+        }
         if (!obsidian) return@also
         tv.tag = "keepcolor nozoom"
         tv.background = pl.iptv.tv.ui.theme.ObsidianViews.pill(Ui.dp(24).toFloat())
@@ -278,7 +288,8 @@ class GroupAdapter(
         h.tv.gravity = if (compact) android.view.Gravity.CENTER else android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
         val d = h.tv.resources.displayMetrics.density
         // zwinięte: małe marginesy, by zmieściły się 2 litery
-        if (obsidian) h.tv.setPadding(0, 0, 0, 0)
+        if (chips) { h.tv.setPadding((16 * d).toInt(), 0, (16 * d).toInt(), 0); h.tv.isSelected = g == selected; h.tv.gravity = android.view.Gravity.CENTER }
+        else if (obsidian) h.tv.setPadding(0, 0, 0, 0)
         else if (compact) h.tv.setPadding((2 * d).toInt(), (12 * d).toInt(), (2 * d).toInt(), (12 * d).toInt())
         else h.tv.setPadding((12 * d).toInt(), (12 * d).toInt(), (12 * d).toInt(), (12 * d).toInt())
         h.tv.isActivated = g == selected

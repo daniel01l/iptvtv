@@ -33,6 +33,8 @@ import pl.iptv.tv.data.StubeQueue
  * ▼ z wyszukiwarki do pierwszego rzędu, ▲ z pierwszego rzędu do wyszukiwarki.
  */
 class STubeActivity : BaseActivity() {
+    /** (7.22) Telefon pionowo: zakładka „STube” dolnego paska. */
+    override val portraitTab get() = MobilePortraitScaffold.Tab.STUBE
     override val pausesLiveTv = true
     /** Wąski ekran (telefon w pionie) – zwarty pasek u góry. */
     private val narrowHeader get() = resources.configuration.screenWidthDp < 600
@@ -133,6 +135,13 @@ class STubeActivity : BaseActivity() {
         findViewById<View>(R.id.stSearch).setOnClickListener { openSearchScreen() }
         query.setOnClickListener { openSearchScreen() }
         query.showSoftInputOnFocus = false
+        // (7.22) telefon pionowo: pole wyszukiwania z natywną klawiaturą systemową (bez klawiatury ekranowej TV), szukanie z klawisza „Szukaj”
+        if (portraitPhone) {
+            query.showSoftInputOnFocus = true; query.isFocusableInTouchMode = true
+            query.setOnClickListener { query.requestFocus(); (getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager)?.showSoftInput(query, InputMethodManager.SHOW_IMPLICIT) }
+            findViewById<View>(R.id.stSearch).setOnClickListener { if (query.text.isNullOrBlank()) query.performClick() else search(query.text.toString()) }
+            findViewById<View>(R.id.stClose).visibility = View.GONE          // zamknięcie – dolny pasek nawigacji
+        }
         query.setOnEditorActionListener { _, id, ev ->
             if (id == EditorInfo.IME_ACTION_SEARCH || id == EditorInfo.IME_ACTION_DONE || ev?.keyCode == KeyEvent.KEYCODE_ENTER) {
                 search(query.text.toString()); true
@@ -241,7 +250,7 @@ class STubeActivity : BaseActivity() {
         if (!query.hasFocus()) query.requestFocus()
         query.setSelection(query.text.length)
         val imm = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager
-        androidx.core.view.WindowCompat.getInsetsController(window, query).show(androidx.core.view.WindowInsetsCompat.Type.ime())
+        runCatching { androidx.core.view.WindowCompat.getInsetsController(window, query).show(androidx.core.view.WindowInsetsCompat.Type.ime()) }
         if (imm?.showSoftInput(query, InputMethodManager.SHOW_IMPLICIT) != true) {
             query.postDelayed({
                 if (!query.hasFocus()) query.requestFocus()
@@ -748,6 +757,9 @@ class STubeActivity : BaseActivity() {
         openPlaylist(from, p)
     }
 
+    /** (7.22) Rząd jako pionowy feed kart 16:9 (telefon pionowo; nie rzędy kwadratowe ani kanałów). */
+    private fun portraitFeed(r: STubeRow) = portraitPhone && !r.square && r.id != STubeScreen.ROW_CHANNELS
+
     private fun rowView(r: STubeRow, index: Int, at: Int = -1): View {
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, Ui.dp(if (index == 0) 2 else 8), 0, 0) }
         box.addView(TextView(this).apply { text = r.title; textSize = 22f * Ui.geo.headerScale; setTypeface(typeface, 1); setTextColor(Ui.text); setPadding(Ui.dp(4), Ui.dp(4), 0, Ui.dp(4)) })
@@ -760,6 +772,11 @@ class STubeActivity : BaseActivity() {
             // miejsce na powiększony kafelek (zaznaczenie nie jest ucinane przy krawędzi rzędu)
             setPadding(Ui.dp(6), Ui.dp(8), Ui.dp(40), Ui.dp(10)); clipToPadding = false
             setTag(R.id.row_key, r.id)
+            // (7.22) telefon pionowo: filmy jako pionowy feed kart 16:9 (rzędy kwadratowe – muzyka, miksy, biblioteka – zostają poziome)
+            if (portraitFeed(r)) {
+                layoutManager = LinearLayoutManager(this@STubeActivity); isNestedScrollingEnabled = false
+                setPadding(Ui.dp(2), Ui.dp(4), Ui.dp(2), Ui.dp(6)); r.adapter.feed = true
+            }
         }
         r.adapter.onClick = { t -> onTile(r, t) }
         r.adapter.onLongClick = { t -> tileMenu(r, t) }

@@ -174,6 +174,7 @@ class PlayerActivity : BaseActivity() {
         Ui.style(findViewById(R.id.playerRoot))
         applyInfoBarPosition()
         fitPanelsToScreen()
+        updatePortraitBar()          // (7.22) telefon pionowo: pasek ikon w strefie kciuka
 
         lpChannels.layoutManager = LinearLayoutManager(this); lpChannels.adapter = lpChannelAdapter; lpChannels.setHasFixedSize(true)
         lpProgrammes.layoutManager = LinearLayoutManager(this); lpProgrammes.adapter = lpProgAdapter
@@ -1204,6 +1205,8 @@ class PlayerActivity : BaseActivity() {
     private fun toast(s: String) = I18n.makeToast(this, s, Toast.LENGTH_SHORT).show()
 
     private val ASPECTS = listOf("Dopasuj", "Rozciągnij", "Powiększ (przytnij)", "16:9", "4:3")
+    /** (7.22) Kafelki arkusza proporcji → tryb [Prefs.aspectMode] (Dopasuj 0, Rozciągnij 1, Powiększ 2, 16:9 3, 4:3 4). */
+    private val LIVE_ASPECTS = mapOf(PortraitPlayerUi.Aspect.FIT to 0, PortraitPlayerUi.Aspect.STRETCH to 1, PortraitPlayerUi.Aspect.FILL to 2, PortraitPlayerUi.Aspect.R16_9 to 3, PortraitPlayerUi.Aspect.R4_3 to 4)
 
     /** Tryb obrazu; 16:9 i 4:3 wymuszają proporcje ramki (po każdej zmianie rozmiaru wideo). */
     private fun applyAspect() {
@@ -1259,8 +1262,52 @@ class PlayerActivity : BaseActivity() {
     }
 
     /** Obrót telefonu (odtwarzacz się nie odtwarza na nowo) – panele dopasowane do nowej szerokości. */
+    // ---------------- (7.22) telefon pionowo: pasek ikon w strefie kciuka i dolne arkusze ----------------
+
+    /** Pasek ikon odtwarzacza w pionie (null – TV / poziomo). */
+    var portraitBar: android.widget.LinearLayout? = null; private set
+    /** Ostatnio otwarty arkusz (testy). */
+    var lastSheet: PortraitSheet? = null; private set
+
+    private fun portraitIcons() = listOf(
+        PortraitPlayerUi.Icon("channels", PlayerIcon.QUEUE, "Kanały") { lastSheet = channelSheet() },
+        PortraitPlayerUi.Icon("guide", PlayerIcon.CHAPTERS, "Program") { list.getOrNull(pos)?.let { openGuide(it.key) } },
+        PortraitPlayerUi.Icon("tracks", PlayerIcon.AUDIO, "Audio") { lastSheet = PortraitPlayerUi.tracksSheet(this, Playback.player) },
+        PortraitPlayerUi.Icon("aspect", PlayerIcon.ASPECT, "Obraz") {
+            lastSheet = PortraitPlayerUi.aspectSpeedSheet(this, LIVE_ASPECTS.entries.firstOrNull { it.value == Prefs.aspectMode }?.key ?: PortraitPlayerUi.Aspect.FIT,
+                { a -> Prefs.aspectMode = LIVE_ASPECTS[a] ?: 0; applyAspect() })
+        },
+        PortraitPlayerUi.Icon("engine", PlayerIcon.QUALITY, "Silnik") { lastSheet = PortraitPlayerUi.engineSheet(this, { Playback.decoderInfo() + "\n" + PortraitPlayerUi.diagnostics(Playback.player) }) },
+        PortraitPlayerUi.Icon("rotate", PlayerIcon.ROTATE, "Obróć") { PortraitPlayerUi.rotateToLandscape(this) },
+    )
+
+    /** Lista kanałów bieżącej kategorii z bieżącym programem; odtwarzany oznaczony, wybór przełącza kanał i zamyka arkusz. */
+    private fun channelSheet(): PortraitSheet {
+        val cur = list.getOrNull(pos)?.key
+        val g = group
+        return PortraitPlayerUi.listSheet(this, "Kanały", list.map { ch ->
+            PortraitPlayerUi.Entry(listOfNotNull(ch.number.takeIf { it > 0 }?.toString(), ch.name).joinToString("  "), Repository.current(ch)?.title.orEmpty(), ch.key == cur) { zapTo(ch, g) }
+        }, "Brak kanałów")
+    }
+
+    /**
+     * Pasek ikon (Kanały, Program, Audio, Obraz, Silnik, Obróć) przy dolnej krawędzi – tylko telefon pionowo poza PiP; cały
+     * ekran odtwarzacza (obraz, nakładki) kończy się nad paskiem. TV / poziomo – pasek ukryty, układ jak dotąd.
+     */
+    private fun updatePortraitBar() {
+        val content = findViewById<FrameLayout>(android.R.id.content) ?: return
+        val main = content.getChildAt(0) ?: return
+        val show = portraitPhone && !(android.os.Build.VERSION.SDK_INT >= 24 && isInPictureInPictureMode)
+        if (show && portraitBar == null) portraitBar = PortraitPlayerUi.attachBar(this, content, portraitIcons()) { h ->
+            (main.layoutParams as? FrameLayout.LayoutParams)?.let { lp -> val m = if (portraitBar?.visibility == View.VISIBLE) h else 0; if (lp.bottomMargin != m) { lp.bottomMargin = m; main.layoutParams = lp } }
+        }
+        portraitBar?.visibility = if (show) View.VISIBLE else View.GONE
+        if (!show) (main.layoutParams as? FrameLayout.LayoutParams)?.let { lp -> if (lp.bottomMargin != 0) { lp.bottomMargin = 0; main.layoutParams = lp } }
+    }
+
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
+        updatePortraitBar()
         fitPanelsToScreen(); applyInfoBarPosition()
         if (::playerView.isInitialized && scoresColumn.visibility == View.VISIBLE) scoresColumn.layoutParams.width = rightColumn.layoutParams.width
     }
@@ -1275,6 +1322,7 @@ class PlayerActivity : BaseActivity() {
             if (lifecycle.currentState < androidx.lifecycle.Lifecycle.State.STARTED) finish()
             else playerView.post { if (player != null) Playback.reattach(playerView) }
         }
+        updatePortraitBar()          // (7.22) PiP – bez paska ikon
     }
 
 

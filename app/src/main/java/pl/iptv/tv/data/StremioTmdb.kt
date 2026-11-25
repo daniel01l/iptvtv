@@ -18,6 +18,7 @@ object StremioTmdb {
     var apiKey: () -> String = { runCatching { Prefs.tmdbApiKey }.getOrDefault("") }
     var base = "https://api.themoviedb.org/3"
     const val TIMEOUT_MS = 6_000L
+    const val RETRY_429_MAX_MS = 2_500L
 
     val available: Boolean get() = apiKey().isNotBlank()
 
@@ -36,11 +37,20 @@ object StremioTmdb {
         val url = "$base$path?api_key=$key" + (if (params.isNotEmpty()) "&$params" else "")
         return withContext(Dispatchers.IO) {
             withTimeoutOrNull(TIMEOUT_MS) {
-                runCatching {
-                    StremioApi.client().newCall(okhttp3.Request.Builder().url(url).build()).execute().use { r ->
-                        if (!r.isSuccessful) null else JSONObject(r.body?.string().orEmpty())
-                    }
-                }.getOrNull()
+                // (7.22) HTTP 429 (limit zapytań TMDB) – jedno ponowienie po `Retry-After` (najwyżej [RETRY_429_MAX_MS])
+                var attempt = 0
+                while (true) {
+                    var wait = 0L
+                    val res = runCatching {
+                        StremioApi.client().newCall(okhttp3.Request.Builder().url(url).build()).execute().use { r ->
+                            if (r.code == 429 && attempt == 0) { wait = (r.header("Retry-After")?.toLongOrNull()?.times(1000) ?: 1000L).coerceIn(200L, RETRY_429_MAX_MS); null }
+                            else if (!r.isSuccessful) null else JSONObject(r.body?.string().orEmpty())
+                        }
+                    }.getOrNull()
+                    if (wait == 0L) return@withTimeoutOrNull res
+                    attempt++; kotlinx.coroutines.delay(wait)
+                }
+                @Suppress("UNREACHABLE_CODE") null
             }
         }
     }
@@ -114,28 +124,83 @@ object StremioTmdb {
      * `watch_region` = [region], `sort_by=popularity.desc`, język aplikacji ([language] – po polsku `pl-PL`). Do [limit] pozycji
      * z identyfikatorem IMDb (`external_ids` – zgodny z wtyczkami Stremio), w kolejności rankingu. Null – brak klucza / błąd sieci.
      */
-    suspend fun discover(type: String, providerId: Int, region: String = "PL", limit: Int = 10): List<StremioMetaPreview>? {
+    suspend fun discover(type: String, providers: String, region: String = "PL", limit: Int = 10): List<StremioMetaPreview>? {
         if (!available) return null
         val kind = if (type == "series") "tv" else "movie"
-        val o = get("/discover/$kind", "with_watch_providers=$providerId&watch_region=$region&sort_by=popularity.desc&language=${language()}&include_adult=false&page=1")
+        // (7.22) kilka identyfikatorów platformy naraz („1899|384” = LUB w TMDB) – jedno zapytanie zamiast kolejnych prób
+        val o = get("/discover/$kind", "with_watch_providers=$providers&watch_region=$region&sort_by=popularity.desc&language=${language()}&include_adult=false&page=1")
             ?: return null
         val results = o.optJSONArray("results") ?: return emptyList()
-        val list = (0 until results.length()).mapNotNull { results.optJSONObject(it) }.take(limit * 2)
-        val mapped = coroutineScope {
-            list.map { r ->
-                async {
-                    val imdb = get("/$kind/${r.optLong("id")}/external_ids")?.optString("imdb_id").orEmpty()
-                    if (!imdb.startsWith("tt")) null else {
-                        val date = r.optString(if (kind == "tv") "first_air_date" else "release_date")
-                        StremioMetaPreview(imdb, type, r.optString(if (kind == "tv") "name" else "title"),
-                            r.optString("poster_path").takeIf { it.isNotBlank() && it != "null" }?.let { "https://image.tmdb.org/t/p/w342$it" }.orEmpty(),
-                            description = r.optString("overview"), releaseInfo = date.take(4), released = date,
-                            imdbRating = r.optDouble("vote_average", 0.0).takeIf { it > 0 }?.let { String.format(java.util.Locale.ROOT, "%.1f", it) }.orEmpty())
-                    }
-                }
-            }.mapNotNull { it.await() }
+        // (7.22) bez `external_ids` dla każdej pozycji (dawniej ~20 zapytań na rząd – HTTP 429 na TV): identyfikator TMDB,
+        // a IMDb (tt…) dopiero po kliknięciu ([imdbFor])
+        return (0 until results.length()).mapNotNull { results.optJSONObject(it) }.mapNotNull { preview(it, kind, type) }.distinctBy { it.id }.take(limit)
+    }
+
+    /** (7.22) Identyfikator zastępczy pozycji TMDB („tmdb:movie:123” / „tmdb:tv:456”) – rozwiązywany do IMDb przy otwarciu. */
+    const val ID_PREFIX = "tmdb:"
+    fun tmdbId(kind: String, id: Long) = "$ID_PREFIX$kind:$id"
+    fun isTmdbId(id: String) = id.startsWith(ID_PREFIX)
+    /** „tmdb:movie:123” → („movie”, 123); inny identyfikator – null. */
+    fun parseTmdbId(id: String): Pair<String, Long>? {
+        if (!isTmdbId(id)) return null
+        val p = id.removePrefix(ID_PREFIX).split(':')
+        val kind = p.getOrNull(0)?.takeIf { it == "movie" || it == "tv" } ?: return null
+        return p.getOrNull(1)?.toLongOrNull()?.takeIf { it > 0 }?.let { kind to it }
+    }
+
+    /** Rozmiar plakatów TMDB (342 px szerokości – kafelek ma ok. 150–300 px; nigdy „original”). */
+    const val POSTER_SIZE = "w342"
+    fun posterUrl(path: String?): String = path?.takeIf { it.isNotBlank() && it != "null" }?.let { "https://image.tmdb.org/t/p/$POSTER_SIZE$it" }.orEmpty()
+
+    private fun preview(r: JSONObject, kind: String, type: String): StremioMetaPreview? {
+        val id = r.optLong("id").takeIf { it > 0 } ?: return null
+        val title = r.optString(if (kind == "tv") "name" else "title").ifBlank { return null }
+        val date = r.optString(if (kind == "tv") "first_air_date" else "release_date").takeIf { it != "null" }.orEmpty()
+        return StremioMetaPreview(tmdbId(kind, id), type, title, posterUrl(r.optString("poster_path")),
+            description = r.optString("overview").takeIf { it != "null" }.orEmpty(), releaseInfo = date.take(4), released = date,
+            imdbRating = r.optDouble("vote_average", 0.0).takeIf { it > 0 }?.let { String.format(java.util.Locale.ROOT, "%.1f", it) }.orEmpty())
+    }
+
+    /**
+     * (7.22) Identyfikator IMDb (tt…) pozycji: „tt…” bez zmian, „tmdb:…” – `/movie|tv/{id}/external_ids` (pamięć podręczna).
+     * Null – brak klucza, brak sieci albo tytuł bez IMDb (niedostępny we wtyczkach Stremio).
+     */
+    suspend fun imdbFor(id: String): String? {
+        if (id.startsWith("tt")) return id
+        val (kind, n) = parseTmdbId(id) ?: return null
+        val k = "ext/$kind/$n"
+        synchronized(cache) { cache[k] }?.let { return if (it === NONE) null else it as String }
+        val o = get("/$kind/$n/external_ids") ?: return null          // błąd sieci – bez zapisu (spróbuje ponownie)
+        val imdb = o.optString("imdb_id").takeIf { it.startsWith("tt") }
+        synchronized(cache) { cache[k] = imdb ?: NONE }
+        return imdb
+    }
+
+    /** Pozycja z identyfikatorem IMDb (rozwiązana przy otwarciu); null – brak odpowiednika w Stremio. */
+    suspend fun resolve(m: StremioMetaPreview): StremioMetaPreview? = if (!isTmdbId(m.id)) m else imdbFor(m.id)?.let { m.copy(id = it) }
+
+    /** Ile dni wstecz liczy się premiera kinowa w „Obecnie w kinach”. */
+    const val CINEMA_DAYS = 45L
+
+    /**
+     * (7.22) „Obecnie w kinach” – polski repertuar: `/movie/now_playing` (region PL) + `/discover/movie` z premierą kinową
+     * (`with_release_type=3|2`) w ostatnich [CINEMA_DAYS] dniach, popularność malejąco, `pl-PL`; połączone bez powtórzeń
+     * (po identyfikatorze TMDB). Null – brak klucza albo oba zapytania nieudane (wtedy Cinemeta).
+     */
+    suspend fun nowInCinemas(today: java.time.LocalDate = java.time.LocalDate.now(), limit: Int = 30): List<StremioMetaPreview>? {
+        if (!available) return null
+        val lang = language()
+        val (now, disc) = coroutineScope {
+            val a = async { get("/movie/now_playing", "language=$lang&region=PL&page=1") }
+            val b = async {
+                get("/discover/movie", "language=$lang&region=PL&with_release_type=3|2&release_date.gte=${today.minusDays(CINEMA_DAYS)}" +
+                    "&release_date.lte=$today&sort_by=popularity.desc&include_adult=false&page=1")
+            }
+            a.await() to b.await()
         }
-        return mapped.distinctBy { it.id }.take(limit)
+        if (now == null && disc == null) return null
+        fun list(o: JSONObject?) = o?.optJSONArray("results")?.let { r -> (0 until r.length()).mapNotNull { r.optJSONObject(it) } }.orEmpty()
+        return (list(now) + list(disc)).mapNotNull { preview(it, "movie", "movie") }.distinctBy { it.id }.take(limit)
     }
 
     /** (7.21) Sprawdzenie klucza jednym zapytaniem: true – działa, false – odrzucony (401), null – brak sieci. */

@@ -58,6 +58,10 @@ object Prefs {
     var loudnessLeveling: Boolean get() = bool("loudness", false); set(v) = putBool("loudness", v)
     /** (7.20) „Automatyczna korekta przy zacinaniu obrazu” (strażnik klatkowania – [pl.iptv.tv.ui.FrameDropWatchdog]); wył. – tylko ustawienia ręczne. */
     var dropWatchdog: Boolean get() = bool("drop_watchdog", true); set(v) = putBool("drop_watchdog", v)
+    /** (7.22) Rozdzielczość interfejsu ([pl.iptv.tv.ui.UiResolutionMode] – indeks; 0 = automatyczna, jak dotąd). */
+    var uiResolution: Int get() = int("ui_res", 0); set(v) = putInt("ui_res", v)
+    /** (7.22) Maksymalna rozdzielczość obrazu Live TV ([pl.iptv.tv.ui.VideoResolutionLimit] – indeks; 0 = automatyczna, bez limitu). */
+    var maxVideoRes: Int get() = int("max_video_res", 0); set(v) = putInt("max_video_res", v)
 
     // ---- silnik odtwarzania ----
     /** 0 = Media3 sprzętowy (domyślny), 1 = Media3 programowy (zgodność), 2 = Media3 tunelowanie (Android TV). */
@@ -99,7 +103,7 @@ object Prefs {
     private fun putInt(k: String, v: Int) { sp.edit().putInt(k, v).apply(); if (k in ENGINE_KEYS) onEngineChanged?.invoke() }
 
     /** (7.20) Klucze ustawień silnika odtwarzania – każdy zapis powiadamia [pl.iptv.tv.ui.EngineConfigRepository] (jedno źródło prawdy). */
-    val ENGINE_KEYS = setOf("engine", "hw_accel", "async_dec", "surface_mode", "afr", "buf_min", "low_latency", "loudness", "low_perf", "dec_fallback", "drop_watchdog")
+    val ENGINE_KEYS = setOf("engine", "hw_accel", "async_dec", "surface_mode", "afr", "buf_min", "low_latency", "loudness", "low_perf", "dec_fallback", "drop_watchdog", "max_video_res")
     /** (7.20) Ustawia [pl.iptv.tv.ui.EngineConfigRepository]: zmiana któregoś z [ENGINE_KEYS] (z Ustawień, odtwarzacza, profili, testów). */
     @Volatile var onEngineChanged: (() -> Unit)? = null
 
@@ -205,6 +209,10 @@ object Prefs {
     var stremioLibrary: String get() = str("stremio_library"); set(v) = put("stremio_library", v)
     /** (7.20) Co ile godzin rzędy „Top 10” Stremio są pobierane od nowa (domyślnie 96 h = 4 dni). */
     var stremioTop10Hours: Int get() = int("stremio_top10_h", 96); set(v) = putInt("stremio_top10_h", v)
+    /** (7.22) Platformy z widocznymi rzędami Top 10 (klucze [StremioTop10.Platform.key]); null – nie wybierano (domyślne). */
+    var stremioTop10Platforms: Set<String>?
+        get() = if (!sp.contains("stremio_top10_p")) null else str("stremio_top10_p").split(',').filter { it.isNotBlank() }.toSet()
+        set(v) { if (v == null) sp.edit().remove("stremio_top10_p").apply() else put("stremio_top10_p", v.joinToString(",")) }
     /** (7.21) Własny klucz API TMDB użytkownika (Stremio → „Klucz TMDB”): Top 10, polskie opisy, części filmów; pusty – jak w 7.19. */
     var tmdbApiKey: String get() = str("tmdb_key"); set(v) = put("tmdb_key", v.trim())
     /** Odtwarzacz: rozmiar napisów (indeks), kolor (indeks), opóźnienie (ms), dopasowanie obrazu, preferowany język napisów. */

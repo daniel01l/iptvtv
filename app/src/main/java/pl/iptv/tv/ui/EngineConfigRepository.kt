@@ -1,5 +1,6 @@
 package pl.iptv.tv.ui
 
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -7,6 +8,24 @@ import pl.iptv.tv.data.ChannelEngine
 import pl.iptv.tv.data.ChannelEngines
 import pl.iptv.tv.data.EngineProfile
 import pl.iptv.tv.data.Prefs
+
+/**
+ * (7.22) Maksymalna rozdzielczość obrazu Live TV ([Prefs.maxVideoRes]): limit wyboru ścieżki obrazu w strumieniach
+ * wielojakościowych (`TrackSelectionParameters.setMaxVideoSize`). [AUTO] – bez limitu (`clearVideoSizeConstraints`), jak dotąd.
+ */
+enum class VideoResolutionLimit(val label: String, val description: String, val maxWidth: Int, val maxHeight: Int) {
+    AUTO("Automatyczna", "Najlepsza jakość, jaką obsługuje urządzenie – jak dotąd", Int.MAX_VALUE, Int.MAX_VALUE),
+    UHD_4K("4K (2160p)", "Do 3840×2160", 3840, 2160),
+    FHD_1080P("Full HD (1080p)", "Do 1920×1080 – bez 4K", 1920, 1080),
+    HD_720P("HD (720p)", "Do 1280×720 – mniej danych, lżejszy dekoder", 1280, 720),
+    SD_480P("SD (480p)", "Do 854×480 – słabe łącze", 854, 480);
+
+    val limited: Boolean get() = this != AUTO
+
+    companion object {
+        fun of(i: Int): VideoResolutionLimit = entries.getOrElse(i) { AUTO }
+    }
+}
 
 /** (7.20) Skąd pochodzi wartość ustawienia silnika: ustawienie globalne albo zapisane tylko dla bieżącego kanału. */
 enum class ConfigSource(val label: String) { GLOBAL("Globalne"), CHANNEL("Dla tego kanału") }
@@ -22,6 +41,8 @@ data class PlayerEngineConfig(
     /** (7.22) „Automatyczna korekta przy zacinaniu obrazu” – strażnik klatkowania; false – tylko ręczne ustawienia. */
     val autoStutterCorrectionEnabled: Boolean = true,
     val channelKey: String? = null, val channel: ChannelEngine? = null,
+    /** (7.22) Limit rozdzielczości obrazu (ustawiany w locie na odtwarzaczu – bez przebudowy, poza [playerKey]). */
+    val maxVideoResolution: VideoResolutionLimit = VideoResolutionLimit.AUTO,
 ) {
     /** Profil kanału (null – brak albo kanał oznaczony jako niedziałający). */
     val channelProfile: EngineProfile? get() = channel?.profile
@@ -71,19 +92,31 @@ object EngineConfigRepository {
     val effectiveConfig: StateFlow<PlayerEngineConfig> = state.asStateFlow()
     val current: PlayerEngineConfig get() = state.value
 
+    // (7.22) zadeklarowane przed `init`: migracja w init wywołuje [refresh] (przez ChannelEngines.onChanged) – dawniej lista
+    // obserwatorów była jeszcze null (NullPointerException połykany przez runCatching, migracja przerywana w połowie)
+    @Volatile var channelKey: String? = null; private set
+    private val observers = java.util.concurrent.CopyOnWriteArrayList<(PlayerEngineConfig) -> Unit>()
+
     init {
         Prefs.onEngineChanged = { refresh() }
         ChannelEngines.onChanged = { refresh() }
-        // (7.22) przy starcie: kanały HD bez automatycznie zapisanego dekodera programowego (pełna płynność sprzętowa)
-        runCatching { ChannelEngines.clearSoftwareForHd() }
+        // (7.22) przy starcie: kanały HD bez automatycznie zapisanego dekodera programowego (pełna płynność sprzętowa).
+        // Odczyt Prefs + zapis bazy poza wątkiem UI (Dispatchers.IO, try-catch) – błąd I/O nie blokuje ani nie kończy startu;
+        // w Robolectric od razu (deterministyczne testy)
+        if (android.os.Build.FINGERPRINT == "robolectric") runCatching { ChannelEngines.clearSoftwareForHd() }
+        else runCatching {
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO).launch {
+                try { ChannelEngines.clearSoftwareForHd() } catch (t: Throwable) {
+                    android.util.Log.w("EngineConfig", "migracja profili HD: ${t.javaClass.simpleName}: ${t.message}")
+                }
+            }
+        }
     }
-
-    @Volatile var channelKey: String? = null; private set
 
     private fun read(key: String?) = runCatching {
         PlayerEngineConfig(Prefs.playerEngine.coerceIn(0, 2), Prefs.hwAccel, Prefs.asyncDecoder.coerceIn(0, 2), Prefs.surfaceMode.coerceIn(0, 2),
             Prefs.autoFrameRate, Prefs.bufMinS, Prefs.lowLatency, Prefs.loudnessLeveling, Prefs.lowPerf, Prefs.decoderFallback, Prefs.dropWatchdog,
-            key, key?.let { ChannelEngines.get(it) })
+            key, key?.let { ChannelEngines.get(it) }, VideoResolutionLimit.of(Prefs.maxVideoRes))
     }.getOrElse { PlayerEngineConfig(0, true, 0, 0, false, 0, false, false, false, true, true, key, null) }   // Prefs przed init (testy JVM)
 
     /** Ponowny odczyt (po zapisie ustawień lub profilu kanału). */
@@ -93,7 +126,6 @@ object EngineConfigRepository {
         if (now != old) observers.forEach { runCatching { it(now) } }
     }
 
-    private val observers = java.util.concurrent.CopyOnWriteArrayList<(PlayerEngineConfig) -> Unit>()
     /**
      * Obserwacja [effectiveConfig] bez korutyny (silnik odtwarzania – obiekt na cały czas działania aplikacji): każda nowa
      * wartość wywołuje [o] od razu w wątku zapisu. Ekrany zbierają [effectiveConfig] w swoim cyklu życia.
@@ -127,6 +159,9 @@ object EngineConfigRepository {
     fun setDecoderFallback(on: Boolean) { Prefs.decoderFallback = on }
     /** (7.22) Strażnik klatkowania włączony / wyłączony (Ustawienia i okno silnika w odtwarzaczu). */
     fun setAutoStutterCorrection(on: Boolean) { Prefs.dropWatchdog = on }
+    /** (7.22) Maksymalna rozdzielczość obrazu (Ustawienia i okno silnika w odtwarzaczu) – odtwarzacz stosuje ją w locie. */
+    fun setMaxVideoResolution(v: VideoResolutionLimit) { Prefs.maxVideoRes = v.ordinal }
+    fun cycleMaxVideoResolution() = setMaxVideoResolution(VideoResolutionLimit.entries[(current.maxVideoResolution.ordinal + 1) % VideoResolutionLimit.entries.size])
 
     // ---- nadpisania bieżącego kanału ----
 

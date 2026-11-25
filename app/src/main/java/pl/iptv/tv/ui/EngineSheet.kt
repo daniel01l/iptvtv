@@ -82,6 +82,8 @@ object EngineSheet {
             cards += card("surface", "Powierzchnia obrazu", cfg.surface.label + " → " + (if (cfg.textureView) "TextureView" else "SurfaceView"), cfg.surfaceSource) {
                 repo.setSurfaceMode(RenderSurfaceMode.entries[(cfg.surface.ordinal + 1) % RenderSurfaceMode.entries.size])
             }
+            // (7.22) limit rozdzielczości obrazu – OK przełącza kolejny próg (w locie, bez przebudowy odtwarzacza)
+            cards += card("maxres", SettingsActivity.MAX_VIDEO_TITLE, cfg.maxVideoResolution.label, ConfigSource.GLOBAL) { repo.cycleMaxVideoResolution() }
             val bufs = EngineProfiles.BUFFER_VALUES
             cards += card("buffer", "Bufor – minimum", if (cfg.bufferSource == ConfigSource.CHANNEL) "Duży bufor (start 3 s, po przycięciu 8 s)" else EngineProfiles.bufferLabel(cfg.bufMinS), cfg.bufferSource) {
                 repo.setBufMin(bufs[(bufs.indexOf(cfg.bufMinS).coerceAtLeast(0) + 1) % bufs.size])

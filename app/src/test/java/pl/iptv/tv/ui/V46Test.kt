@@ -91,13 +91,13 @@ class V46Test {
         bar.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
         assertTrue("${bar.measuredWidth}", bar.measuredWidth + Ui.dp(32) <= root.width)
         c.pause().stop().destroy()
-        // menu w pionie: kategorie z nazwami, bez rozsuwania
+        // menu w pionie (7.22): kategorie z nazwami jako poziomy rząd pigułek, bez rozsuwania
         val m = Robolectric.buildActivity(MainActivity::class.java).setup(); idle(800)
         val g = m.get().findViewById<RecyclerView>(R.id.groups)
-        assertEquals(Ui.dp(118), g.layoutParams.width)
+        assertEquals(androidx.recyclerview.widget.LinearLayoutManager.HORIZONTAL, (g.layoutManager as androidx.recyclerview.widget.LinearLayoutManager).orientation); assertTrue((g.adapter as GroupAdapter).chips)
         assertFalse((g.adapter as GroupAdapter).compact)
         g.findViewHolderForAdapterPosition(1)!!.itemView.performClick(); idle(400)
-        assertEquals(Ui.dp(118), g.layoutParams.width)
+        assertEquals(androidx.recyclerview.widget.LinearLayoutManager.HORIZONTAL, (g.layoutManager as androidx.recyclerview.widget.LinearLayoutManager).orientation); assertTrue((g.adapter as GroupAdapter).chips)
         assertEquals("G1", (g.adapter as GroupAdapter).selected)
         m.pause().stop().destroy(); Prefs.orientation = 0
     }

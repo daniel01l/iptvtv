@@ -7,6 +7,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.LinearLayout
 import androidx.appcompat.app.AppCompatActivity
 import coil.load
 import coil.request.CachePolicy
@@ -96,6 +97,18 @@ open class BaseActivity : AppCompatActivity() {
     /** Obraz kanału w tle tego ekranu odpięty od wspólnego odtwarzacza (singleton nie trzyma zniszczonego ekranu). */
     override fun onDestroy() { videoView?.let { Playback.detach(it) }; super.onDestroy() }
 
+    /**
+     * (7.22) Obrót bez odtworzenia ekranu (odtwarzacz – `configChanges`): siatka interfejsu wg profilu ekranu na nowo – telefon
+     * pionowo zawsze w gęstości systemu, poziomo wg „Rozdzielczości interfejsu” (AUTO na telefonie – bez zmian).
+     */
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        runCatching {
+            val before = TvResolution.density
+            if (TvResolution.init(this) != before) { TvResolution.applyMetrics(resources); TvResolution.applyMetrics(applicationContext.resources) }
+        }
+    }
+
     /** ▼ z najniższego elementu – pasek „Teraz odtwarzane”. */
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
         // PS5: podpowiedzi przycisków wg ostatnio użytego urządzenia (pilot / pad)
@@ -180,6 +193,15 @@ open class BaseActivity : AppCompatActivity() {
         } else v.visibility = View.GONE
     }
 
+    /** (7.22) Zakładka dolnego paska telefonu w pionie ([MobilePortraitScaffold]); null – ekran bez paska. */
+    protected open val portraitTab: MobilePortraitScaffold.Tab? = null
+    /** Dolny pasek nawigacji (tylko telefon pionowo). */
+    var portraitNav: LinearLayout? = null; private set
+    /** Układ 9:16 telefonu (wyłącznie [DeviceDisplayProfile.isPortraitPhone]). */
+    val portraitPhone: Boolean get() = MobilePortraitScaffold.active(this)
+    /** Ponowny wybór zakładki bieżącego ekranu (np. Stremio ↔ Do obejrzenia). */
+    open fun onPortraitTab(t: MobilePortraitScaffold.Tab) {}
+
     protected fun setThemedContent(layout: Int) =
         setThemedContent(layoutInflater.inflate(layout, FrameLayout(this), false))
 
@@ -206,6 +228,12 @@ open class BaseActivity : AppCompatActivity() {
             // (7.17) kapsuła pływa nad treścią – ekran się nie zmniejsza; tylko przewijane listy dostają dolny odstęp,
             // żeby ostatni rząd dało się przewinąć ponad kapsułę
             bar.onVisibilityChanged = { on -> insetScrollers(view, if (on) Ui.dp(MiniPlayerBar.CONTENT_INSET_DP) else 0) }
+        }
+        // (7.22) telefon pionowo: dolny pasek nawigacji zamiast bocznych pasków TV (TV i poziomo – bez zmian)
+        val tab = portraitTab
+        if (tab != null && MobilePortraitScaffold.active(this)) portraitNav = MobilePortraitScaffold.install(this, rootFrame, view, tab) { h ->
+            // mini-odtwarzacz nad paskiem
+            miniBar?.let { b -> (b.layoutParams as? FrameLayout.LayoutParams)?.let { lp -> val m = h + Ui.dp(MiniPlayerBar.MARGIN_DP); if (lp.bottomMargin != m) { lp.bottomMargin = m; b.layoutParams = lp } } }
         }
         setContentView(rootFrame)
         applyTheme()

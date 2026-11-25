@@ -133,6 +133,7 @@ class StremioPlayerActivity : AppCompatActivity() {
         val json = intent.getStringExtra(EXTRA_STREAM)
         videoId = intent.getStringExtra(EXTRA_VIDEO).orEmpty(); label = intent.getStringExtra(EXTRA_LABEL).orEmpty()
         setContentView(build())
+        setupPortrait()
         loadRelated()
         if (json.isNullOrBlank()) resolveAndStart()
         else { stream = StremioStream.fromJson(JSONObject(json)); startChecked(resume = true) }
@@ -458,6 +459,7 @@ class StremioPlayerActivity : AppCompatActivity() {
         if (inPip) { setBar(Bar.HIDDEN); nextCard.visibility = View.GONE }
         // okno zamknięte (✕) – koniec odtwarzania (pozycja zapisana); rozwinięte – zwykły ekran
         else if (!lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) { saveProgress(push = true); finish() }
+        updatePortraitBar()          // (7.22) PiP – bez paska ikon
     }
 
     // ---------------- odtwarzanie ----------------
@@ -1021,6 +1023,113 @@ class StremioPlayerActivity : AppCompatActivity() {
      * (7.20) Przy każdej pozycji znacznik „Obejrzano” (✓ w kolorze akcentu motywu) i pasek postępu rozpoczętej. Wybór odcinka od
      * razu go uruchamia, wybór innej części otwiera jej szczegóły; bieżąca pozycja – „▶ teraz”.
      */
+    // ---------------- (7.22) telefon pionowo: pasek ikon w strefie kciuka i dolne arkusze ----------------
+
+    /** Pasek ikon w pionie (null – TV / poziomo). */
+    var portraitBar: LinearLayout? = null; private set
+    var lastSheet: PortraitSheet? = null; private set
+    private var portraitBarH = 0
+
+    /** Telefon (nie TV): obrót także do pionu przy orientacji pionowej / automatycznej w Ustawieniach; domyślnie – jak dotąd poziomo. */
+    private fun setupPortrait() {
+        if (!Tutorial.isTv(this)) runCatching {
+            requestedOrientation = if (Prefs.orientation != 0) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_USER else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        }
+        updatePortraitBar()
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        updatePortraitBar()
+    }
+
+    private fun portraitIcons() = buildList {
+        add(PortraitPlayerUi.Icon("sources", PlayerIcon.PLUG, "Źródła") { lastSheet = sourcesSheet() })
+        add(PortraitPlayerUi.Icon("tracks", PlayerIcon.CC, "Napisy") { lastSheet = tracksSheetStremio() })
+        add(PortraitPlayerUi.Icon("episodes", PlayerIcon.QUEUE, if (type == "series") "Odcinki" else "Części") { episodesSheet() })
+        add(PortraitPlayerUi.Icon("aspect", PlayerIcon.ASPECT, "Obraz") { lastSheet = aspectSheet() })
+        add(PortraitPlayerUi.Icon("engine", PlayerIcon.QUALITY, "Silnik") {
+            lastSheet = PortraitPlayerUi.engineSheet(this@StremioPlayerActivity, { "Etap dekodera: " + (if (decoderStage == StremioDecoders.Stage.SAFE) "zgodny (FFmpeg)" else "standardowy") + "\n" + PortraitPlayerUi.diagnostics(player) })
+        })
+        add(PortraitPlayerUi.Icon("rotate", PlayerIcon.ROTATE, "Obróć") { PortraitPlayerUi.rotateToLandscape(this@StremioPlayerActivity) })
+    }
+
+    /** Pion: pasek przy dolnej krawędzi, pasek sterowania (przewijanie) nad nim, ikony górne ukryte (te same funkcje w pasku). */
+    private fun updatePortraitBar() {
+        val show = PortraitPlayerUi.active(this) && !(android.os.Build.VERSION.SDK_INT >= 24 && isInPictureInPictureMode)
+        if (show && portraitBar == null) portraitBar = PortraitPlayerUi.attachBar(this, rootView, portraitIcons()) { h -> portraitBarH = h; liftControls() }
+        portraitBar?.visibility = if (show) View.VISIBLE else View.GONE
+        if (::topBar.isInitialized) topBar.visibility = if (show) View.GONE else View.VISIBLE
+        liftControls()
+    }
+
+    private fun liftControls() {
+        if (!::controls.isInitialized) return
+        val m = if (portraitBar?.visibility == View.VISIBLE) portraitBarH else 0
+        (controls.layoutParams as? FrameLayout.LayoutParams)?.let { lp -> if (lp.bottomMargin != m) { lp.bottomMargin = m; controls.layoutParams = lp } }
+    }
+
+    /** Źródła / jakość: ścieżki obrazu strumienia (gdy jest kilka) i powrót do listy źródeł tytułu. */
+    private fun sourcesSheet(): PortraitSheet {
+        val s = PortraitSheet(this, "Źródła i jakość")
+        val p = player
+        val video = p?.currentTracks?.groups.orEmpty().filter { it.type == C.TRACK_TYPE_VIDEO }
+        val formats = video.flatMap { g -> (0 until g.length).map { i -> g to i } }
+        s.section("Jakość obrazu")
+        if (formats.size <= 1) s.info(PortraitPlayerUi.diagnostics(p).lineSequence().drop(1).firstOrNull()?.let { "Strumień ma jedną jakość ($it)" } ?: "Strumień ma jedną jakość obrazu")
+        else s.choices(formats.map { (g, i) -> g.getTrackFormat(i).let { f -> if (f.height > 0) "${f.height}p" + (if (f.bitrate > 0) " · ${f.bitrate / 1000} kb/s" else "") else "Jakość ${i + 1}" } },
+            formats.indexOfFirst { (g, i) -> g.isTrackSelected(i) }) { k ->
+            val (g, i) = formats[k]
+            p?.let { it.trackSelectionParameters = it.trackSelectionParameters.buildUpon().setOverrideForType(TrackSelectionOverride(g.mediaTrackGroup, i)).build() }
+            s.dismiss()
+        }
+        s.section("Źródło")
+        s.info(label.ifBlank { if (::stream.isInitialized) listOf(stream.addonName, stream.name).filter { it.isNotBlank() }.joinToString(" · ") else "" })
+        s.action("Wybierz inne źródło") { saveProgress(push = true); finish() }
+        s.show(); return s
+    }
+
+    private fun tracksSheetStremio(): PortraitSheet = PortraitPlayerUi.tracksSheet(this, player,
+        external = {
+            addonSubs.sortedWith(compareBy({ !StremioDecoders.isPolishSubtitle(it.lang) }, { it.lang })).map { sub ->
+                PortraitPlayerUi.Choice("${StremioSubs.langName(sub.lang)}  ·  ${sub.addon}", externalSub?.url == sub.url) { langManual = true; selectExternal(sub) }
+            }
+        },
+        subsOff = { subsOff },
+        onSubsOff = { val p = player; langManual = true; subsOff = true; externalSub = null; subView.setCues(emptyList())
+            p?.let { it.trackSelectionParameters = it.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() } },
+        delay = PortraitPlayerUi.Delay({ subDelayMs }) { changeDelay(it - subDelayMs) })
+
+    /** Proporcje (Dopasuj / Wypełnij / Rozciągnij / 16:9 / 4:3) i prędkość odtwarzania. */
+    private fun aspectSheet(): PortraitSheet {
+        val cur = when (Prefs.stremioAspect) { 1 -> PortraitPlayerUi.Aspect.STRETCH; 2 -> PortraitPlayerUi.Aspect.FILL; else -> forcedRatio?.let { if (it > 1.5f) PortraitPlayerUi.Aspect.R16_9 else PortraitPlayerUi.Aspect.R4_3 } ?: PortraitPlayerUi.Aspect.FIT }
+        return PortraitPlayerUi.aspectSpeedSheet(this, cur, { a ->
+            forcedRatio = when (a) { PortraitPlayerUi.Aspect.R16_9 -> 16f / 9f; PortraitPlayerUi.Aspect.R4_3 -> 4f / 3f; else -> null }
+            setAspect(when (a) { PortraitPlayerUi.Aspect.STRETCH -> 1; PortraitPlayerUi.Aspect.FILL -> 2; else -> 0 })
+            playerView.findViewById<AspectRatioFrameLayout>(androidx.media3.ui.R.id.exo_content_frame)?.let { f -> forcedRatio?.let { f.setAspectRatio(it) } }
+        }, player?.playbackParameters?.speed ?: 1f, { sp -> player?.setPlaybackSpeed(sp) })
+    }
+    /** Wymuszone proporcje 16:9 / 4:3 z arkusza (null – z materiału). */
+    private var forcedRatio: Float? = null
+
+    /** Odcinki serialu (bieżący sezon) albo części filmu – lista w arkuszu, bieżący oznaczony, wybór odtwarza i zamyka arkusz. */
+    private fun episodesSheet() = lifecycleScope.launch {
+        val series = type == "series"
+        val entries = if (series) {
+            val m = StremioMetas.get(type, metaId)
+            val cur = m?.videos?.firstOrNull { it.id == videoId }
+            m?.episodes(cur?.season ?: m.seasons.firstOrNull() ?: 1).orEmpty().map { e ->
+                PortraitPlayerUi.Entry("${e.episode}. " + e.title.ifBlank { "Odcinek ${e.episode}" }, e.released, e.id == videoId) { if (e.id != videoId) playEpisode(e) }
+            }
+        } else {
+            relatedParts.ifEmpty { StremioMetas.relatedParts(currentPreview()).also { relatedParts = it } }.map { p ->
+                PortraitPlayerUi.Entry(p.name, p.releaseInfo, p.id == metaId) { if (p.id != metaId) { startActivity(StremioDetailActivity.intent(this@StremioPlayerActivity, p, null)); finish() } }
+            }
+        }
+        if (isFinishing || isDestroyed) return@launch
+        lastSheet = PortraitPlayerUi.listSheet(this@StremioPlayerActivity, if (series) "Odcinki" else "Inne części", entries, if (series) "Brak listy odcinków" else "Brak innych części tego filmu")
+    }
+
     fun openEpisodesPanel() {
         val series = type == "series"
         val tab = SidePanel.Tab(if (series) "☰ Odcinki" else "☰ Inne części", if (series) "Brak listy odcinków" else "Brak innych części tego filmu") {

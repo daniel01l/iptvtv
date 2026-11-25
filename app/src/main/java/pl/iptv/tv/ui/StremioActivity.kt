@@ -9,6 +9,8 @@ import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -32,6 +34,8 @@ import pl.iptv.tv.data.StremioStore
  * katalogi włączonych wtyczek, wyszukiwarka (plakaty filmów i seriali w osobnych rzędach, opis zaznaczonego tytułu u góry).
  */
 class StremioActivity : BaseActivity() {
+    /** (7.22) Telefon pionowo: „Stremio” albo „Do obejrzenia” (Biblioteka) w dolnym pasku. */
+    override val portraitTab get() = if (filter == FILTER_LIBRARY) MobilePortraitScaffold.Tab.WATCHLIST else MobilePortraitScaffold.Tab.STREMIO
     override val pausesLiveTv = true
     companion object {
         /** Odpytywanie potwierdzenia kodu QR i ważność kodu (nowy kod po czasie). */
@@ -39,7 +43,13 @@ class StremioActivity : BaseActivity() {
         var LINK_TTL_MS = 5 * 60_000L
         /** Wyszukiwanie od razu po otwarciu (pole wyszukiwania na ekranie głównym PS5). */
         const val EXTRA_QUERY = "query"
+        /** (7.22) Zakładka startowa ([FILTER_ALL]…[FILTER_LIBRARY]) – dolny pasek telefonu w pionie. */
+        const val EXTRA_FILTER = "filter"
         const val IN_CINEMAS = "Obecnie w kinach"
+        /** (7.22) Pionowa karta wyróżnionego tytułu (tag) i jej przyciski. */
+        const val HERO_TAG = "portrait_hero"
+        const val HERO_PLAY = "Odtwórz"
+        const val HERO_WATCHLIST = "+ Do obejrzenia"
         /** (7.17) Filtry tablicy (pigułki u góry w „Obsidian Stream”). */
         // (7.17) kolejność zakładek: Odkrywaj (domyślna), Filmy, Seriale, Biblioteka
         const val FILTER_ALL = 0; const val FILTER_MOVIES = 1; const val FILTER_SERIES = 2; const val FILTER_LIBRARY = 3
@@ -95,7 +105,10 @@ class StremioActivity : BaseActivity() {
 
     /** Filtr tablicy: [FILTER_MOVIES] Filmy, [FILTER_SERIES] Seriale, [FILTER_ALL] Odkrywaj (wszystkie katalogi), [FILTER_LIBRARY] Biblioteka. */
     var filter = FILTER_ALL; private set
-    private val obsidian by lazy { pl.iptv.tv.ui.theme.ObsidianViews.active }
+    /** (7.22) Telefon pionowo (9:16): nagłówek kompaktowy, karta wyróżnionego tytułu, pigułki filtrów w każdym motywie. */
+    private val portrait by lazy { portraitPhone }
+    /** „Obsidian Stream” w poziomie / na TV (w pionie telefonu – wspólny układ pionowy z kolorami motywu). */
+    private val obsidian by lazy { pl.iptv.tv.ui.theme.ObsidianViews.active && !portrait }
     private var filterBar: LinearLayout? = null
     private val filterPills = mutableListOf<TextView>()
     private var navRail: pl.iptv.tv.ui.theme.AppNavigationRailViews? = null
@@ -108,8 +121,31 @@ class StremioActivity : BaseActivity() {
         if (filter == f && searchQuery == null) return
         filter = f
         filterPills.forEachIndexed { i, p -> p.isSelected = i == f }
+        // (7.22) dolny pasek: Biblioteka = „Do obejrzenia”, pozostałe zakładki = „Stremio”
+        portraitNav?.let { nav -> val sel = portraitTab.name; for (i in 0 until nav.childCount) nav.getChildAt(i).let { it.isSelected = it.tag == MobilePortraitScaffold.TAB_TAG + sel } }
         if (searchQuery != null) { searchQuery = null; query.setText("") }
         build(null)
+    }
+
+    /** (7.22) Dolny pasek: Stremio ↔ Do obejrzenia na tym samym ekranie. */
+    override fun onPortraitTab(t: MobilePortraitScaffold.Tab) {
+        if (t == MobilePortraitScaffold.Tab.WATCHLIST) setFilter(FILTER_LIBRARY) else if (t == MobilePortraitScaffold.Tab.STREMIO) setFilter(FILTER_ALL)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        intent.getIntExtra(EXTRA_FILTER, -1).takeIf { it in FILTER_ALL..FILTER_LIBRARY }?.let { if (!loginShown) setFilter(it) }
+    }
+
+    /** Pigułki filtrów w pionie telefonu – kolory aktywnego motywu ([MobilePortraitScaffold.chip]). */
+    private fun buildPortraitFilters(): LinearLayout {
+        val bar = LinearLayout(this).apply { gravity = android.view.Gravity.CENTER_VERTICAL; clipChildren = false; clipToPadding = false; setPadding(0, Ui.dp(6), 0, Ui.dp(6)) }
+        FILTER_NAMES.forEachIndexed { i, name ->
+            val p = MobilePortraitScaffold.chip(this, name, i == filter) { setFilter(i) }
+            filterPills += p
+            bar.addView(p, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = Ui.dp(8) })
+        }
+        return bar
     }
 
     /** Pigułki filtrów z fokusem (akcent przy zaznaczeniu, wybrany filtr – obwódka). */
@@ -152,6 +188,8 @@ class StremioActivity : BaseActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // (7.22) zakładka z dolnego paska telefonu (Stremio / Do obejrzenia)
+        intent.getIntExtra(EXTRA_FILTER, -1).takeIf { it in FILTER_ALL..FILTER_LIBRARY }?.let { filter = it }
         setThemedContent(build())
         if (obsidian) installRail()
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -175,7 +213,96 @@ class StremioActivity : BaseActivity() {
         resumedOnce = true
     }
 
+    /**
+     * (7.22) Stremio w pionie telefonu: u góry „Stremio” + ikony (wtyczki, odśwież, klucz TMDB, konto), pod spodem pole
+     * wyszukiwania na całą szerokość (klawiatura systemowa), pigułki filtrów; dalej przewijana kolumna: karta wyróżnionego
+     * tytułu ([showPortraitHero]) i wszystkie rzędy. Bez bocznego paska i bez przycisku zamknięcia (dolny pasek nawigacji).
+     */
+    private fun buildPortrait(): View {
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(Ui.dp(12), Ui.dp(10), Ui.dp(12), 0) }
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { v, ins ->
+            val t = runCatching { ins.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars()).top }.getOrDefault(0)
+            v.setPadding(v.paddingLeft, Ui.dp(10) + t, v.paddingRight, 0); ins
+        }
+        val header = LinearLayout(this).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
+        header.addView(StremioUi.text(this, "Stremio", 22f, "accent", bold = true), LinearLayout.LayoutParams(0, -2, 1f))
+        fun icon(kind: String, desc: String, onClick: () -> Unit) = StremioUi.button(this, "", kind, onClick).apply { contentDescription = desc }
+        header.addView(icon(PlayerIcon.PLUG, "Wtyczki") { startActivity(Intent(this, StremioAddonsActivity::class.java)) })
+        header.addView(icon(PlayerIcon.REFRESH, "Odśwież wtyczki") { refreshAddons() }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(4) })
+        header.addView(icon(PlayerIcon.STAR, TmdbKeyUi.TITLE) { TmdbKeyUi.show(this, onTop10Changed = { applyTop10Selection() }) { build(searchQuery) } },
+            LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(4) })
+        account = icon(PlayerIcon.USER, "Konto") { accountMenu() }
+        header.addView(account, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(4) })
+        root.addView(header)
+        searchBar = LinearLayout(this).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
+        query = EditText(this).apply {
+            hint = "Szukaj filmów i seriali…"; tag = "field"; setSingleLine(); textSize = 16f
+            inputType = InputType.TYPE_CLASS_TEXT; imeOptions = EditorInfo.IME_ACTION_SEARCH
+            setPadding(Ui.dp(14), Ui.dp(10), Ui.dp(14), Ui.dp(10))
+            setOnEditorActionListener { _, id, ev -> if (id == EditorInfo.IME_ACTION_SEARCH || ev?.keyCode == KeyEvent.KEYCODE_ENTER) { search(text.toString()); true } else false }
+        }
+        searchBar.addView(query, LinearLayout.LayoutParams(0, -2, 1f))
+        searchBar.addView(icon(PlayerIcon.SEARCH, "Szukaj") { if (query.text.isBlank()) showKeyboard() else search(query.text.toString()) }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(6) })
+        root.addView(searchBar, LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(8) })
+        filterBar = buildPortraitFilters()
+        root.addView(android.widget.HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; clipToPadding = false; addView(filterBar) },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(4) })
+        // opis zaznaczonego tytułu – w pionie zastępuje go karta wyróżnionego tytułu (pola zostają dla wspólnej logiki)
+        infoBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
+        infoTitle = StremioUi.text(this, "", 18f, bold = true, lines = 1); infoMeta = StremioUi.text(this, "", 13f, "accent", lines = 1); infoDesc = StremioUi.text(this, "", 13f, "text2", lines = 2)
+        infoBox.addView(infoTitle); infoBox.addView(infoMeta); infoBox.addView(infoDesc)
+        root.addView(infoBox)
+        scroll = RowsScroll(this).apply { isFillViewport = true; isVerticalScrollBarEnabled = false }
+        rowsBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, Ui.dp(6), 0, Ui.dp(16)) }
+        scroll.addView(rowsBox)
+        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        return root
+    }
+
+    /** (7.22) Wyróżniony tytuł na karcie u góry (testy). */
+    var heroMeta: StremioMetaPreview? = null; private set
+
+    /**
+     * (7.22) Karta wyróżnionego tytułu w pionie: obraz 16:10 (tło z metadanych, bez niego plakat) z gradientem od dołu w kolorze
+     * tła motywu, tytuł, ocena ★ i rok, przyciski „Odtwórz” (szczegóły ze źródłami / wznowienie) i „+ Do obejrzenia”.
+     * Pierwszy wypełniony rząd tablicy ustawia kartę raz na zbudowanie tablicy.
+     */
+    private fun showPortraitHero(t: StremioTile) {
+        if (!portrait || heroMeta != null || searchQuery != null || filter == FILTER_LIBRARY) return
+        val m = t.meta; heroMeta = m
+        val pal = CardSheet.palette()
+        val w = (resources.displayMetrics.widthPixels - Ui.dp(24)).coerceAtLeast(Ui.dp(200)); val h = w * 10 / 16
+        val card = FrameLayout(this).apply { tag = HERO_TAG; clipChildren = true }
+        val img = ImageView(this).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
+        card.addView(img, FrameLayout.LayoutParams(-1, h))
+        card.addView(View(this).apply {
+            background = android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.BOTTOM_TOP,
+                intArrayOf(Ui.bg or 0xFF000000.toInt(), CardSheet.withAlpha(Ui.bg, 0xB0), CardSheet.withAlpha(Ui.bg, 0x00)))
+        }, FrameLayout.LayoutParams(-1, h * 3 / 4, android.view.Gravity.BOTTOM))
+        Ui.roundClip(card, Ui.dp(16).toFloat())
+        val info = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(Ui.dp(14), 0, Ui.dp(14), Ui.dp(12)) }
+        info.addView(TextView(this).apply { text = m.name; textSize = 22f; tag = "keepcolor"; setTextColor(pal.text); setTypeface(typeface, android.graphics.Typeface.BOLD); maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END })
+        val line = listOfNotNull(m.imdbRating.takeIf { it.isNotBlank() && it != "0" && it != "0.0" }?.let { "★ $it" }, m.releaseInfo.take(4).ifBlank { null }, StremioUi.typeName(m.type)).joinToString("  ·  ")
+        info.addView(TextView(this).apply { text = line; textSize = 13f; tag = "keepcolor"; setTextColor(pal.text2) }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = Ui.dp(2) })
+        val buttons = LinearLayout(this).apply { clipChildren = false; setPadding(0, Ui.dp(8), 0, 0) }
+        buttons.addView(CardSheet.pill(this, HERO_PLAY, pal) { open(t) }.apply { tag = "keepcolor hero_play"; CardSheet.focusScale(this) })
+        buttons.addView(CardSheet.pill(this, HERO_WATCHLIST, pal) {
+            withResolved(m) { r ->
+                val now = pl.iptv.tv.data.StremioLibrary.toggle(r)
+                I18n.makeToast(this, if (now) "Dodano do listy do obejrzenia: ${r.name}" else "Usunięto z listy do obejrzenia: ${r.name}", Toast.LENGTH_SHORT).show()
+            }
+        }.apply { tag = "keepcolor hero_watchlist"; CardSheet.focusScale(this) }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(10) })
+        info.addView(buttons)
+        card.addView(info, FrameLayout.LayoutParams(-1, -2, android.view.Gravity.BOTTOM))
+        rowsBox.addView(card, 0, LinearLayout.LayoutParams(-1, h).apply { bottomMargin = Ui.dp(12) })
+        fun poster() { if (m.poster.isNotBlank()) img.load(m.poster) { crossfade(false); size(w, h); scale(coil.size.Scale.FILL) } }
+        // tło 16:10 z metadanych (identyfikator IMDb); pozycje TMDB i brak tła – plakat
+        if (pl.iptv.tv.data.StremioTmdb.isTmdbId(m.id)) poster()
+        else { poster(); lifecycleScope.launch { StremioMetas.get(m.type, m.id)?.background?.takeIf { it.isNotBlank() }?.let { b -> if (heroMeta == m) img.load(b) { crossfade(false); size(w, h); scale(coil.size.Scale.FILL) } } } }
+    }
+
     private fun build(): View {
+        if (portrait) return buildPortrait()
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(Ui.dp(36), Ui.dp(18), Ui.dp(36), Ui.dp(8)) }
         val header = LinearLayout(this).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
         header.addView(StremioUi.text(this, "Stremio", 26f, "accent", bold = true).apply { setPadding(0, 0, Ui.dp(18), 0) })
@@ -196,7 +323,7 @@ class StremioActivity : BaseActivity() {
         searchBar.addView(StremioUi.button(this, "", PlayerIcon.REFRESH) { refreshAddons() }.apply { contentDescription = "Odśwież wtyczki" },
             LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
         // (7.21) własny klucz TMDB (Top 10, polskie opisy, części filmów) – wpisanie pilotem albo z telefonu (kod QR)
-        searchBar.addView(StremioUi.button(this, "", PlayerIcon.STAR) { TmdbKeyUi.show(this) { build(searchQuery) } }.apply { contentDescription = TmdbKeyUi.TITLE },
+        searchBar.addView(StremioUi.button(this, "", PlayerIcon.STAR) { TmdbKeyUi.show(this, onTop10Changed = { applyTop10Selection() }) { build(searchQuery) } }.apply { contentDescription = TmdbKeyUi.TITLE },
             LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
         account = StremioUi.button(this, "", PlayerIcon.USER) { accountMenu() }
         if (obsidian) {
@@ -399,7 +526,7 @@ class StremioActivity : BaseActivity() {
 
     private fun showBoard() {
         loginShown = false; linkJob?.cancel(); linkJob = null; linkCode = null; scroll.auto = false
-        searchBar.visibility = View.VISIBLE; infoBox.visibility = View.VISIBLE; filterBar?.visibility = View.VISIBLE
+        searchBar.visibility = View.VISIBLE; infoBox.visibility = if (portrait) View.GONE else View.VISIBLE; filterBar?.visibility = View.VISIBLE
         // (7.17) fokus startowy na wybranym filtrze (nie na pasku nawigacji – pasek nie rozwija się sam); pierwszy rząd przejmie go po wczytaniu
         if (obsidian) filterPills.getOrNull(filter)?.let { p -> p.post { if (window.decorView.findFocus().let { it == null || inRail(it) }) p.requestFocus() } }
         setAccountText(if (StremioAccount.loggedIn) StremioAccount.email.substringBefore('@') else "Zaloguj")
@@ -515,7 +642,7 @@ class StremioActivity : BaseActivity() {
     private fun build(q: String?) {
         jobs.forEach { it.cancel() }; jobs.clear()
         scrolledTo = null
-        rowsBox.removeAllViews(); rows.clear(); rowTitles.clear()
+        rowsBox.removeAllViews(); rows.clear(); rowTitles.clear(); heroMeta = null
         userMoved = false
         var first = true
         // (7.17) filtr tablicy: Filmy / Seriale – tylko katalogi i rzędy tego typu, Biblioteka – rzędy z urządzenia (bez katalogów)
@@ -532,18 +659,24 @@ class StremioActivity : BaseActivity() {
                 return@launch
             }
             val addons = StremioStore.enabledAddons()
-            // (7.12) „Obecnie w kinach” – pierwszy rząd katalogów (Cinemeta, nowe premiery)
-            if (q == null && (type == null || type == "movie")) addons.firstOrNull { a -> a.catalogs.any { it.type == "movie" && it.id == "year" } }?.let { a ->
+            // (7.12) „Obecnie w kinach” – pierwszy rząd katalogów. (7.22) Z kluczem TMDB – polski repertuar kinowy (now_playing +
+            // premiery kinowe z 45 dni, pl-PL, odznaka „W KINACH”); bez klucza albo bez wyników – jak dotąd z Cinemety
+            val cinemaAddon = addons.firstOrNull { a -> a.catalogs.any { it.type == "movie" && it.id == "year" } }
+            val tmdb = pl.iptv.tv.data.StremioTmdb.available
+            if (q == null && (type == null || type == "movie") && (tmdb || cinemaAddon != null)) {
                 val r = addRow(IN_CINEMAS)
                 jobs += lifecycleScope.launch {
-                    val list = runCatching { StremioApi.inCinemas(a) }.getOrDefault(emptyList())
+                    val list = (if (tmdb) runCatching { pl.iptv.tv.data.StremioTmdb.nowInCinemas() }.getOrNull() else null)?.takeIf { it.isNotEmpty() }
+                        ?: cinemaAddon?.let { a -> runCatching { StremioApi.inCinemas(a) }.getOrDefault(emptyList()) }.orEmpty()
                     if (list.isEmpty()) { removeRow(r); return@launch }
-                    r.adapter.items += list.map { StremioTile(it) }; r.adapter.notifyItemRangeInserted(0, list.size); r.status.visibility = View.GONE
+                    r.adapter.items += list.map { StremioTile(it, badge = StremioUi.IN_CINEMAS_BADGE) }; r.adapter.notifyItemRangeInserted(0, list.size); r.status.visibility = View.GONE; showPortraitHero(r.adapter.items[0])
                     if (rowsHaveFocus()) anchorFocusedRow()
                     if (first && !userMoved && autoFocusAllowed()) { first = false; focusRow(r) }
                 }
             }
             // (7.20) Top 10 platform (Odkrywaj – 10 rzędów, Filmy / Seriale – po 5): od razu z pamięci podręcznej, sieć tylko w tle
+            // (7.22) telefon pionowo: na Odkrywaj także „Kontynuuj oglądanie” i „Do obejrzenia” (puste rzędy znikają same)
+            if (portrait && q == null && f == FILTER_ALL) { fillContinue(addRow(CONTINUE_ROW)); fillLibrary(addRow(LIBRARY_ROW)) }
             if (q == null) addTop10Rows(type) { r -> if (first && !userMoved && autoFocusAllowed()) { first = false; focusRow(r) } }
             // (7.12) katalogi usługowych wtyczek (AIOStreams / ElfHosted, Store RD / PM) nie są pokazywane na tablicy
             fun hidden(a: StremioAddon, c: StremioAddon.Catalog) = isHiddenCatalog(a, c)
@@ -564,7 +697,7 @@ class StremioActivity : BaseActivity() {
                     res.onSuccess { list ->
                         if (list.isEmpty()) { removeRow(r); return@onSuccess }
                         val start = r.adapter.items.size
-                        r.adapter.items += list.map { StremioTile(it) }; r.adapter.notifyItemRangeInserted(start, list.size); r.status.visibility = View.GONE
+                        r.adapter.items += list.map { StremioTile(it) }; r.adapter.notifyItemRangeInserted(start, list.size); r.status.visibility = View.GONE; showPortraitHero(r.adapter.items[0])
                         if (rowsHaveFocus()) anchorFocusedRow()
                         // fokus na pierwszym rzędzie tylko, dopóki użytkownik niczego nie zaznaczył pilotem – wcześniej każdy
                         // doładowany katalog mógł przenieść kursor (np. gdy fokus był na przycisku u góry albo chwilowo zniknął)
@@ -608,6 +741,17 @@ class StremioActivity : BaseActivity() {
         }
     }
 
+    /**
+     * (7.22) Zmiana „Widocznych sekcji TOP 10” (okno Klucz TMDB): rzędy odznaczonych platform znikają od razu; rzędy nowo
+     * zaznaczonych pojawiają się po zamknięciu okna (tablica wczytywana od nowa – [TmdbKeyUi.show] → onChanged).
+     */
+    internal fun applyTop10Selection() {
+        val T = pl.iptv.tv.data.StremioTop10
+        val wanted = T.rows(typeFilter).map { it.title }.toSet()
+        val known = T.rows(null, all = true).map { it.title }.toSet()
+        rows.filter { it.title in known && it.title !in wanted }.forEach { removeRow(it) }
+    }
+
     private fun fillTop10(r: Row, list: List<StremioMetaPreview>) {
         val tiles = list.take(pl.iptv.tv.data.StremioTop10.SIZE).mapIndexed { i, m -> StremioTile(m, rank = i + 1) }
         if (tiles == r.adapter.items) return
@@ -618,7 +762,7 @@ class StremioActivity : BaseActivity() {
             old == tiles.size -> r.adapter.notifyItemRangeChanged(0, tiles.size)        // te same widoki – fokus zostaje
             else -> r.adapter.notifyDataSetChanged()
         }
-        r.status.visibility = View.GONE
+        r.status.visibility = View.GONE; r.adapter.items.firstOrNull()?.let { showPortraitHero(it) }
         if (rowsHaveFocus()) anchorFocusedRow()
     }
 
@@ -772,6 +916,8 @@ class StremioActivity : BaseActivity() {
      * „Do obejrzenia” / „Usuń z listy do obejrzenia”, „Zwiastun” (gdy metadane mają zwiastun), oznaczenie obejrzenia.
      */
     private fun titleMenu(t: StremioTile) {
+        // (7.22) pozycja TMDB – menu (lista do obejrzenia, obejrzane) na identyfikatorze IMDb
+        if (pl.iptv.tv.data.StremioTmdb.isTmdbId(t.meta.id)) { withResolved(t.meta) { m -> titleMenu(t.copy(meta = m)) }; return }
         val m = t.meta
         lifecycleScope.launch {
             val meta = runCatching { kotlinx.coroutines.withTimeoutOrNull(TITLE_MENU_META_MS) { StremioMetas.get(m.type, m.id) } }.getOrNull()
@@ -808,6 +954,8 @@ class StremioActivity : BaseActivity() {
         focusJob?.cancel()
         // (7.20) aplikacja po polsku (z kluczem TMDB): opis, tytuł i gatunki z metadanych pl-PL zamiast angielskich z katalogu
         val polish = pl.iptv.tv.data.StremioTmdb.polishWanted && pl.iptv.tv.data.StremioTmdb.available
+        // (7.22) pozycje TMDB mają już polski tytuł i opis – bez zapytań o metadane przy każdym ruchu kursora
+        if (pl.iptv.tv.data.StremioTmdb.isTmdbId(m.id)) return
         if (m.description.isBlank() || polish) focusJob = lifecycleScope.launch {
             delay(350)
             val full = StremioMetas.get(m.type, m.id) ?: return@launch
@@ -820,6 +968,21 @@ class StremioActivity : BaseActivity() {
     }
 
     /** (7.8) „Kontynuuj oglądanie” – od razu odtwarzanie ([StremioPlayerActivity.resumeIntent]); katalog – ekran szczegółów. */
-    private fun open(t: StremioTile) = startActivity(t.progress?.let { StremioPlayerActivity.resumeIntent(this, it) }
-        ?: StremioDetailActivity.intent(this, t.meta, null))
+    private fun open(t: StremioTile) {
+        t.progress?.let { startActivity(StremioPlayerActivity.resumeIntent(this, it)); return }
+        // (7.22) pozycja TMDB (Top 10, „Obecnie w kinach”): external_ids → IMDb (tt…), potem pełny ekran ze źródłami wtyczek
+        if (pl.iptv.tv.data.StremioTmdb.isTmdbId(t.meta.id)) { withResolved(t.meta) { m -> startActivity(StremioDetailActivity.intent(this, m, null)) }; return }
+        startActivity(StremioDetailActivity.intent(this, t.meta, null))
+    }
+
+    /** (7.22) Pozycja TMDB z identyfikatorem IMDb; brak odpowiednika w Stremio / sieci – komunikat (bez otwierania). */
+    private fun withResolved(m: StremioMetaPreview, then: (StremioMetaPreview) -> Unit) {
+        if (!pl.iptv.tv.data.StremioTmdb.isTmdbId(m.id)) { then(m); return }
+        lifecycleScope.launch {
+            val r = runCatching { pl.iptv.tv.data.StremioTmdb.resolve(m) }.getOrNull()
+            if (isFinishing || isDestroyed) return@launch
+            if (r == null) I18n.makeToast(this@StremioActivity, "Tego tytułu nie ma jeszcze w katalogach Stremio: ${m.name}", Toast.LENGTH_SHORT).show()
+            else then(r)
+        }
+    }
 }

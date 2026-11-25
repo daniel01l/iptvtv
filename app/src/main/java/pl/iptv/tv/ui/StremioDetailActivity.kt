@@ -68,6 +68,8 @@ class StremioDetailActivity : BaseActivity() {
         const val EPISODE_SOURCES_DELAY_MS = 350L
         /** (7.7) Jedyny komunikat w trakcie wczytywania źródeł. */
         const val LOADING_TEXT = "Ładowanie źródeł"
+        /** (7.22) Szerokość miniatury odcinka w pionie telefonu (dp, 16:9). */
+        const val EPISODE_THUMB_W = 112
     }
 
     private val type get() = intent.getStringExtra(EXTRA_TYPE).orEmpty()
@@ -140,7 +142,9 @@ class StremioDetailActivity : BaseActivity() {
 
     // ---------------- (7.17) „Obsidian Stream” – kinowy widok szczegółów ----------------
 
-    private val obsidian by lazy { pl.iptv.tv.ui.theme.ObsidianViews.active }
+    /** (7.22) Telefon pionowo (9:16) – układ kolumnowy ([buildPortrait]); TV i poziomo – bez zmian. */
+    private val portrait by lazy { portraitPhone }
+    private val obsidian by lazy { pl.iptv.tv.ui.theme.ObsidianViews.active && !portrait }
     private var genreBar: LinearLayout? = null
     /** Przyciski CTA: Oglądaj (akcent), Zwiastun, Dodaj do biblioteki (testy). */
     var watchBtn: TextView? = null; private set
@@ -271,7 +275,61 @@ class StremioDetailActivity : BaseActivity() {
         updateLibraryButton()
     }
 
+    /**
+     * (7.22) Szczegóły w pionie telefonu: u góry baner (tło 16:9 z gradientem w kolorze tła motywu, plakat), pod nim tytuł,
+     * opis (4 linie), przyciski Wznów / Do obejrzenia, wybór sezonu i pionowa lista odcinków z miniaturami, na końcu karta
+     * źródeł. Wszystko w jednej przewijanej kolumnie (listy bez własnego przewijania); te same pola i adaptery co na TV.
+     */
+    private fun buildPortrait(): View {
+        val scroll = androidx.core.widget.NestedScrollView(this).apply { isVerticalScrollBarEnabled = false; isFillViewport = true }
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, 0, 0, Ui.dp(24)) }
+        scroll.addView(col)
+        val w = resources.displayMetrics.widthPixels; val bannerH = w * 9 / 16
+        val banner = FrameLayout(this).apply { tag = "portrait_banner" }
+        bg = ImageView(this).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
+        banner.addView(bg, FrameLayout.LayoutParams(-1, bannerH))
+        banner.addView(View(this).apply {
+            background = GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, intArrayOf(Ui.bg or 0xFF000000.toInt(), CardSheet.withAlpha(Ui.bg, 0x66), CardSheet.withAlpha(Ui.bg, 0)))
+        }, FrameLayout.LayoutParams(-1, bannerH))
+        poster = ImageView(this).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
+        Ui.roundClip(poster, Ui.dp(10).toFloat())
+        banner.addView(poster, FrameLayout.LayoutParams(Ui.dp(96), Ui.dp(142), Gravity.BOTTOM or Gravity.START).apply { setMargins(Ui.dp(16), 0, 0, Ui.dp(0)) })
+        col.addView(banner, LinearLayout.LayoutParams(-1, bannerH + Ui.dp(40)))
+        val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(Ui.dp(16), Ui.dp(12), Ui.dp(16), 0) }
+        title = StremioUi.text(this, "", 24f, bold = true, lines = 3)
+        metaLine = StremioUi.text(this, "", 13f, "accent", lines = 2).apply { setPadding(0, Ui.dp(4), 0, 0) }
+        desc = StremioUi.text(this, "", 14f, "text2").apply { maxLines = 4; ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(0, Ui.dp(8), 0, 0)
+            isClickable = true; setOnClickListener { maxLines = if (maxLines == 4) Int.MAX_VALUE else 4 } }   // dotknięcie – pełny opis
+        body.addView(title); body.addView(metaLine)
+        val actions = LinearLayout(this).apply { setPadding(0, Ui.dp(10), 0, 0) }
+        resume = StremioUi.button(this, "Wznów", PlayerIcon.PLAY) { resumePlayback() }.apply { visibility = View.GONE }
+        libraryBtn = StremioUi.button(this, WATCHLIST_ADD, PlayerIcon.BOOKMARK_ADD) { toggleLibrary() }
+        actions.addView(resume, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = Ui.dp(8) })
+        actions.addView(libraryBtn, LinearLayout.LayoutParams(0, -2, 1f))
+        body.addView(actions)
+        body.addView(desc)
+        // sezony (pigułki przewijane w poziomie) i odcinki z miniaturami – lista bez własnego przewijania (cała kolumna się przewija)
+        episodesCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE; setPadding(0, Ui.dp(14), 0, 0) }
+        seasonsBar = LinearLayout(this)
+        episodesCol.addView(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(seasonsBar) })
+        episodeAdapter.thumbs = true
+        episodes = RecyclerView(this).apply { layoutManager = LinearLayoutManager(this@StremioDetailActivity); adapter = episodeAdapter; itemAnimator = null; isNestedScrollingEnabled = false }
+        episodesCol.addView(episodes, LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(6) })
+        body.addView(episodesCol)
+        // karta źródeł (panel motywu)
+        val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; tag = "panel"; setPadding(Ui.dp(10), Ui.dp(10), Ui.dp(10), Ui.dp(10)) }
+        sourcesTitle = StremioUi.text(this, "Źródła", 18f, "accent", bold = true, lines = 1).apply { setPadding(Ui.dp(6), 0, 0, Ui.dp(6)) }
+        right.addView(sourcesTitle)
+        sources = RecyclerView(this).apply { layoutManager = LinearLayoutManager(this@StremioDetailActivity); adapter = sourceAdapter; itemAnimator = null; isNestedScrollingEnabled = false }
+        right.addView(sources, LinearLayout.LayoutParams(-1, -2))
+        body.addView(right, LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(16) })
+        col.addView(body)
+
+        return scroll
+    }
+
     private fun build(): View {
+        if (portrait) return buildPortrait()
         if (obsidian) return buildObsidian()
         val frame = FrameLayout(this)
         bg = ImageView(this).apply { scaleType = ImageView.ScaleType.CENTER_CROP; alpha = 0.22f }
@@ -319,6 +377,7 @@ class StremioDetailActivity : BaseActivity() {
         if (m.poster.isNotBlank()) poster.load(m.poster) { crossfade(false); fitTo(poster, Ui.dp(170), Ui.dp(252)) }
         // tło przyciemnione (alpha 0,22) – wystarczy rozdzielczość ekranu ograniczona do 1280 px
         if (m.background.isNotBlank()) bg.load(m.background) { crossfade(false); backdropSize(this@StremioDetailActivity).let { (w, h) -> size(w, h) } }
+        else if (portrait && m.poster.isNotBlank()) bg.load(m.poster) { crossfade(false); backdropSize(this@StremioDetailActivity).let { (w, h) -> size(w, h) } }   // (7.22) baner bez tła – plakat
         if (obsidian) bindObsidian(m)
         updateResume()
         if (m.isSeries && m.videos.isNotEmpty()) {
@@ -522,7 +581,9 @@ class StremioDetailActivity : BaseActivity() {
         override fun getItemId(position: Int) = items[position].id.hashCode().toLong()
         var items: List<StremioVideo> = emptyList()
         var selected = ""
-        inner class VH(val root: LinearLayout, val t: TextView, val s: TextView, val badge: TextView) : RecyclerView.ViewHolder(root)
+        /** (7.22) Telefon pionowo: miniatura odcinka 16:9 po lewej (pionowa lista z miniaturami). */
+        var thumbs = false
+        inner class VH(val root: LinearLayout, val t: TextView, val s: TextView, val badge: TextView, val thumb: ImageView? = null) : RecyclerView.ViewHolder(root)
         override fun getItemCount() = items.size
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
             val root = LinearLayout(parent.context).apply { orientation = LinearLayout.VERTICAL; tag = "item"; isFocusable = true; isClickable = true
@@ -536,8 +597,19 @@ class StremioDetailActivity : BaseActivity() {
             }
             val sub = LinearLayout(parent.context).apply { gravity = Gravity.CENTER_VERTICAL }
             sub.addView(s, LinearLayout.LayoutParams(0, -2, 1f)); sub.addView(badge, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(6) })
-            root.addView(t); root.addView(sub)
-            val vh = VH(root, t, s, badge)
+            // (7.22) w pionie: [miniatura 16:9][tytuł / data]; na TV – sam tekst jak dotąd
+            var thumb: ImageView? = null
+            if (thumbs) {
+                root.orientation = LinearLayout.HORIZONTAL; root.gravity = Gravity.CENTER_VERTICAL
+                thumb = ImageView(parent.context).apply { scaleType = ImageView.ScaleType.CENTER_CROP
+                    background = GradientDrawable().apply { setColor(Ui.withAlpha(Ui.text2, 0x26)); cornerRadius = Ui.dp(8).toFloat() } }
+                Ui.roundClip(thumb, Ui.dp(8).toFloat())
+                root.addView(thumb, LinearLayout.LayoutParams(Ui.dp(EPISODE_THUMB_W), Ui.dp(EPISODE_THUMB_W) * 9 / 16).apply { marginEnd = Ui.dp(12) })
+                val textCol = LinearLayout(parent.context).apply { orientation = LinearLayout.VERTICAL; isDuplicateParentStateEnabled = true }
+                textCol.addView(t); textCol.addView(sub)
+                root.addView(textCol, LinearLayout.LayoutParams(0, -2, 1f))
+            } else { root.addView(t); root.addView(sub) }
+            val vh = VH(root, t, s, badge, thumb)
             root.setOnClickListener { items.getOrNull(vh.bindingAdapterPosition)?.let {
                 // OK: źródła od razu (bez opóźnienia przewijania), kursor na pierwsze źródło, gdy się wczyta
                 if (videoId == it.id && sourcesPending) loadSources()      // czekało na zatrzymanie kursora – od razu
@@ -558,6 +630,7 @@ class StremioDetailActivity : BaseActivity() {
             h.s.text = listOfNotNull(e.released.ifBlank { null }, p?.let { "▶ " + StremioUi.fmt(it.positionMs) }).joinToString("  ·  ")
             h.badge.visibility = if (e.id in watched) View.VISIBLE else View.GONE
             h.root.isActivated = e.id == selected
+            h.thumb?.let { iv -> coil.util.CoilUtils.dispose(iv); iv.setImageDrawable(null); if (e.thumbnail.isNotBlank()) iv.load(e.thumbnail) { crossfade(false); size(Ui.dp(EPISODE_THUMB_W), Ui.dp(EPISODE_THUMB_W) * 9 / 16) } }
         }
     }
 

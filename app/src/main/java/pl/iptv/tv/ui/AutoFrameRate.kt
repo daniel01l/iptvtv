@@ -35,12 +35,22 @@ object AutoFrameRate {
     /** [force] – (7.22) dopasowanie na bieżącą sesję po klatkowaniu kanału 25/50 kl/s, także przy wyłączonym AFR. */
     fun apply(a: Activity, fps: Float, surface: SurfaceView?, force: Boolean = false) {
         if (!(pl.iptv.tv.data.Prefs.autoFrameRate || force) || fps <= 0f || kotlin.math.abs(fps - appliedFps) < 0.01f) return
+        // (7.22) Display.Mode / preferredDisplayModeId od API 23 (minSdk 21) – starsze urządzenia bez AFR; każde wywołanie
+        // systemowe w try-catch (telefon, ekran bez trybów, okno już zamknięte) – nigdy wyjątek w odtwarzaczu
+        if (Build.VERSION.SDK_INT < 23) return
+        try { applyModes(a, fps, surface) } catch (t: Throwable) {
+            runCatching { android.util.Log.w("AutoFrameRate", "AFR pominięte: ${t.javaClass.simpleName}: ${t.message}") }
+        }
+    }
+
+    private fun applyModes(a: Activity, fps: Float, surface: SurfaceView?) {
         val display = (if (Build.VERSION.SDK_INT >= 30) a.display else @Suppress("DEPRECATION") a.windowManager.defaultDisplay) ?: return
-        val cur = display.mode.let { Mode(it.modeId, it.physicalWidth, it.physicalHeight, it.refreshRate) }
-        val target = pick(display.supportedModes.map { Mode(it.modeId, it.physicalWidth, it.physicalHeight, it.refreshRate) }, cur, fps) ?: return
+        val cur = display.mode?.let { Mode(it.modeId, it.physicalWidth, it.physicalHeight, it.refreshRate) } ?: return
+        val target = pick(display.supportedModes.orEmpty().map { Mode(it.modeId, it.physicalWidth, it.physicalHeight, it.refreshRate) }, cur, fps) ?: return
         appliedFps = fps
-        if (target.id != cur.id || a.window.attributes.preferredDisplayModeId != target.id)
-            a.window.attributes = a.window.attributes.also { it.preferredDisplayModeId = target.id }
+        val w = a.window ?: return
+        if (target.id != cur.id || w.attributes.preferredDisplayModeId != target.id)
+            w.attributes = w.attributes.also { it.preferredDisplayModeId = target.id }
         // (7.22) 25 / 50 kl/s – powierzchnia zgłasza 50 Hz; API 31+ – zmiana zawsze (CHANGE_FRAME_RATE_ALWAYS, także gdy niebezszwowa),
         // żeby TV (np. TCL) fizycznie przeszedł w 50 Hz zamiast pulldownu 50 → 60 Hz
         val rate = if (is50Family(fps)) target.refresh else fps
@@ -55,6 +65,10 @@ object AutoFrameRate {
     /** Powrót do domyślnego trybu ekranu (wyjście z odtwarzacza, wyłączona opcja). */
     fun reset(a: Activity) {
         appliedFps = 0f
-        if (a.window.attributes.preferredDisplayModeId != 0) a.window.attributes = a.window.attributes.also { it.preferredDisplayModeId = 0 }
+        if (Build.VERSION.SDK_INT < 23) return
+        try {
+            val w = a.window ?: return
+            if (w.attributes.preferredDisplayModeId != 0) w.attributes = w.attributes.also { it.preferredDisplayModeId = 0 }
+        } catch (t: Throwable) { runCatching { android.util.Log.w("AutoFrameRate", "reset: ${t.javaClass.simpleName}") } }
     }
 }

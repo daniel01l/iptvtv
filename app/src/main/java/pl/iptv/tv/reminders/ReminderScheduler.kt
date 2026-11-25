@@ -25,12 +25,17 @@ object ReminderScheduler {
         am.cancel(pi)
         if (!Prefs.remindersEnabled) return
         val at = Reminders.nextTrigger(System.currentTimeMillis(), leadMs) ?: return
-        val exact = Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms()
-        when {
-            exact && Build.VERSION.SDK_INT >= 23 -> am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
-            exact -> am.setExact(AlarmManager.RTC_WAKEUP, at, pi)
-            Build.VERSION.SDK_INT >= 23 -> am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
-            else -> am.set(AlarmManager.RTC_WAKEUP, at, pi)
+        val exact = Build.VERSION.SDK_INT < 31 || runCatching { am.canScheduleExactAlarms() }.getOrDefault(false)
+        try {
+            when {
+                exact && Build.VERSION.SDK_INT >= 23 -> am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
+                exact -> am.setExact(AlarmManager.RTC_WAKEUP, at, pi)
+                Build.VERSION.SDK_INT >= 23 -> am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
+                else -> am.set(AlarmManager.RTC_WAKEUP, at, pi)
+            }
+        } catch (e: SecurityException) {
+            // (7.22) Android 12+ / 14: zgoda na dokładne alarmy cofnięta w trakcie – alarm niedokładny zamiast awarii startu
+            if (Build.VERSION.SDK_INT >= 23) am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi) else am.set(AlarmManager.RTC_WAKEUP, at, pi)
         }
     }
 }
