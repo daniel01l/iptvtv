@@ -561,7 +561,12 @@ class PlayerActivity : BaseActivity() {
             }
             // (7.17) AFR: odświeżanie ekranu dopasowane do klatek kanału (gdy opcja włączona)
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
-                player?.videoFormat?.frameRate?.takeIf { it > 0f }?.let { AutoFrameRate.apply(this@PlayerActivity, it, playerView.videoSurfaceView as? android.view.SurfaceView) }
+                // (7.22) po klatkowaniu kanału 25/50 kl/s – dopasowanie do 50 Hz na tę sesję (także przy wyłączonym AFR)
+                val sessionFps = Playback.sessionAfrFps
+                // (7.22) Live TV bez podanego klatkażu – 50 Hz (europejska telewizja)
+                (player?.videoFormat?.frameRate?.takeIf { it > 0f } ?: sessionFps ?: AutoFrameRate.LIVE_DEFAULT_FPS.takeIf { !isCatchup && player?.videoFormat != null })?.let {
+                    AutoFrameRate.apply(this@PlayerActivity, it, playerView.videoSurfaceView as? android.view.SurfaceView, force = sessionFps != null)
+                }
             }
         }
 

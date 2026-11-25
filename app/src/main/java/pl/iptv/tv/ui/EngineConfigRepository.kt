@@ -19,6 +19,8 @@ enum class ConfigSource(val label: String) { GLOBAL("Globalne"), CHANNEL("Dla te
 data class PlayerEngineConfig(
     val engine: Int, val hwAccel: Boolean, val asyncDecoder: Int, val surfaceMode: Int, val autoFrameRate: Boolean,
     val bufMinS: Int, val lowLatency: Boolean, val loudness: Boolean, val lowPerf: Boolean, val decoderFallback: Boolean,
+    /** (7.22) „Automatyczna korekta przy zacinaniu obrazu” – strażnik klatkowania; false – tylko ręczne ustawienia. */
+    val autoStutterCorrectionEnabled: Boolean = true,
     val channelKey: String? = null, val channel: ChannelEngine? = null,
 ) {
     /** Profil kanału (null – brak albo kanał oznaczony jako niedziałający). */
@@ -36,7 +38,8 @@ data class PlayerEngineConfig(
     val surface: RenderSurfaceMode get() = RenderSurfaceMode.entries.getOrElse(surfaceMode) { RenderSurfaceMode.AUTO }
     /** Obraz na TextureView (wg [surface] i profilu kanału). */
     val textureView: Boolean get() = surface.texture(channelProfile?.surface == 1)
-    val surfaceSource: ConfigSource get() = if (surface == RenderSurfaceMode.AUTO && channelProfile?.surface == 1) ConfigSource.CHANNEL else ConfigSource.GLOBAL
+    /** (7.22) Powierzchnia zawsze z ustawienia globalnego (AUTO = SurfaceView). */
+    val surfaceSource: ConfigSource get() = ConfigSource.GLOBAL
     /** Duży bufor z profilu kanału (start 3 s / po przycięciu 8 s) zamiast „Bufor – minimum”. */
     val bufferSource: ConfigSource get() = if (channelProfile?.buffer == 1) ConfigSource.CHANNEL else ConfigSource.GLOBAL
     val ffmpegAudio: Boolean get() = channelProfile?.ffmpeg == true
@@ -71,15 +74,17 @@ object EngineConfigRepository {
     init {
         Prefs.onEngineChanged = { refresh() }
         ChannelEngines.onChanged = { refresh() }
+        // (7.22) przy starcie: kanały HD bez automatycznie zapisanego dekodera programowego (pełna płynność sprzętowa)
+        runCatching { ChannelEngines.clearSoftwareForHd() }
     }
 
     @Volatile var channelKey: String? = null; private set
 
     private fun read(key: String?) = runCatching {
         PlayerEngineConfig(Prefs.playerEngine.coerceIn(0, 2), Prefs.hwAccel, Prefs.asyncDecoder.coerceIn(0, 2), Prefs.surfaceMode.coerceIn(0, 2),
-            Prefs.autoFrameRate, Prefs.bufMinS, Prefs.lowLatency, Prefs.loudnessLeveling, Prefs.lowPerf, Prefs.decoderFallback,
+            Prefs.autoFrameRate, Prefs.bufMinS, Prefs.lowLatency, Prefs.loudnessLeveling, Prefs.lowPerf, Prefs.decoderFallback, Prefs.dropWatchdog,
             key, key?.let { ChannelEngines.get(it) })
-    }.getOrElse { PlayerEngineConfig(0, true, 0, 0, false, 0, false, false, false, true, key, null) }   // Prefs przed init (testy JVM)
+    }.getOrElse { PlayerEngineConfig(0, true, 0, 0, false, 0, false, false, false, true, true, key, null) }   // Prefs przed init (testy JVM)
 
     /** Ponowny odczyt (po zapisie ustawień lub profilu kanału). */
     fun refresh() {
@@ -120,6 +125,8 @@ object EngineConfigRepository {
     fun setLowLatency(on: Boolean) { Prefs.lowLatency = on }
     fun setLoudness(on: Boolean) { Prefs.loudnessLeveling = on }
     fun setDecoderFallback(on: Boolean) { Prefs.decoderFallback = on }
+    /** (7.22) Strażnik klatkowania włączony / wyłączony (Ustawienia i okno silnika w odtwarzaczu). */
+    fun setAutoStutterCorrection(on: Boolean) { Prefs.dropWatchdog = on }
 
     // ---- nadpisania bieżącego kanału ----
 

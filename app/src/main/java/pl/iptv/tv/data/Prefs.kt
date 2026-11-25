@@ -56,7 +56,7 @@ object Prefs {
     var surfaceMode: Int get() = optInt("surface_mode") ?: if (bool("tex_view", false)) 2 else 0; set(v) = putInt("surface_mode", v)
     /** (7.20) Wyrównywanie głośności kanałów (LoudnessEnhancer na sesji dźwięku odtwarzacza, łagodne podbicie) – domyślnie wył. */
     var loudnessLeveling: Boolean get() = bool("loudness", false); set(v) = putBool("loudness", v)
-    /** (7.20) Strażnik zrzucanych klatek – klatkujący kanał sam przechodzi na tryb zgodności (zapamiętany dla kanału). */
+    /** (7.20) „Automatyczna korekta przy zacinaniu obrazu” (strażnik klatkowania – [pl.iptv.tv.ui.FrameDropWatchdog]); wył. – tylko ustawienia ręczne. */
     var dropWatchdog: Boolean get() = bool("drop_watchdog", true); set(v) = putBool("drop_watchdog", v)
 
     // ---- silnik odtwarzania ----
@@ -74,6 +74,10 @@ object Prefs {
     var engineOptimizer: Boolean get() = bool("engine_optimizer", true); set(v) = putBool("engine_optimizer", v)
     /** Wersja zasad doboru silnika, z którą zapisano profile kanałów (starsze usuwane – [pl.iptv.tv.data.ChannelEngines.load]). */
     var engineProfilesVersion: Int get() = int("engine_profiles_v", 0); set(v) = putInt("engine_profiles_v", v)
+    /** (7.22) Jednorazowa zamiana zapisanych trybów zgodności (programowy + TextureView) na sprzętowy + TextureView – wykonana. */
+    var engineCompatHw: Boolean get() = bool("engine_compat_hw", false); set(v) = putBool("engine_compat_hw", v)
+    /** (7.22) Kanały z obrazem HD / FHD lub ≥ 48 kl/s (klucze, najwyżej 500). */
+    var hdChannels: Set<String> get() = str("hd_channels").split('\n').filter { it.isNotBlank() }.toSet(); set(v) = put("hd_channels", v.joinToString("\n"))
     /** (7.5) Kanał, dla którego trwa ręczne dopasowanie silnika – po awarii aplikacji w trakcie prób bez powtórki (pętla awarii). */
     var engineManualRunning: String get() = str("engine_manual_running"); set(v) = sp.edit().putString("engine_manual_running", v).commit().let { }
     /** Adresy bez rozszerzenia rozpoznane jako HLS (po jednym w linii) – po ponownym uruchomieniu kanał od razu jako HLS. */
@@ -95,7 +99,7 @@ object Prefs {
     private fun putInt(k: String, v: Int) { sp.edit().putInt(k, v).apply(); if (k in ENGINE_KEYS) onEngineChanged?.invoke() }
 
     /** (7.20) Klucze ustawień silnika odtwarzania – każdy zapis powiadamia [pl.iptv.tv.ui.EngineConfigRepository] (jedno źródło prawdy). */
-    val ENGINE_KEYS = setOf("engine", "hw_accel", "async_dec", "surface_mode", "afr", "buf_min", "low_latency", "loudness", "low_perf", "dec_fallback")
+    val ENGINE_KEYS = setOf("engine", "hw_accel", "async_dec", "surface_mode", "afr", "buf_min", "low_latency", "loudness", "low_perf", "dec_fallback", "drop_watchdog")
     /** (7.20) Ustawia [pl.iptv.tv.ui.EngineConfigRepository]: zmiana któregoś z [ENGINE_KEYS] (z Ustawień, odtwarzacza, profili, testów). */
     @Volatile var onEngineChanged: (() -> Unit)? = null
 

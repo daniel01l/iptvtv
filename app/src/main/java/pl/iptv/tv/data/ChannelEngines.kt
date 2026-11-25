@@ -93,6 +93,14 @@ object ChannelEngines {
         val l = runCatching { dao()?.all() }.getOrNull() ?: emptyList()
         // scalanie (bez czyszczenia): wynik zapisany tuż po starcie, zanim baza zdążyła się wczytać, zostaje
         l.forEach { mem.putIfAbsent(it.channelKey, it) }
+        // (7.22) jednorazowo: tryb zgodności z 7.20 (dekoder programowy + TextureView) przeciążał procesor TV na kanałach HD –
+        // dekoder sprzętowy zostaje, TextureView tak (np. Canal+ Extra 2 od razu na GPU); pozostałe profile bez zmian
+        if (runCatching { !Prefs.engineCompatHw }.getOrDefault(false)) {
+            mem.values.toList().forEach { e -> e.profile?.takeIf { it.software && it.surface == 1 }?.let { put(e.copy(config = it.copy(software = false).encode(), updatedAt = System.currentTimeMillis())) } }
+            Prefs.engineCompatHw = true
+        }
+        // (7.22) profile programowe kanałów HD (np. Canal+ Extra 2) – od razu z powrotem na sprzętowy
+        runCatching { clearSoftwareForHd() }
         loaded = true; onChanged?.invoke()
     }
 
@@ -114,6 +122,29 @@ object ChannelEngines {
     fun forget(channelKey: String) {
         mem.remove(channelKey); onChanged?.invoke()
         StubeHistory.scope.launch { runCatching { dao()?.delete(channelKey) } }
+    }
+
+    /** (7.22) Kanały, na których obraz miał ≥ 720 linii lub ≥ 48 kl/s ([Prefs.hdChannels]) – bez profili programowych. */
+    fun markHd(key: String) {
+        val s = Prefs.hdChannels
+        if (key in s) return
+        Prefs.hdChannels = (s + key).toList().takeLast(HD_MAX).toSet()
+    }
+    const val HD_MAX = 500
+
+    /**
+     * (7.22) Usunięcie programowego dekodera z profili kanałów HD (zapisanych automatycznie – tryb zgodności / błąd dekodera):
+     * pozostałe ustawienia zostają, pusty profil – wpis usunięty. Zwraca liczbę zmienionych wpisów.
+     */
+    fun clearSoftwareForHd(): Int {
+        val hd = Prefs.hdChannels
+        var n = 0
+        mem.values.toList().filter { it.channelKey in hd && it.profile?.software == true }.forEach { e ->
+            val hw = e.profile!!.copy(software = false)
+            if (hw == EngineProfile()) forget(e.channelKey) else put(e.copy(config = hw.encode(), updatedAt = System.currentTimeMillis()))
+            n++
+        }
+        return n
     }
 
     /** (7.20) Zmiana zapamiętanych ustawień (zapis, reset kanału, wyczyszczenie) – [pl.iptv.tv.ui.EngineConfigRepository] odświeża stan. */

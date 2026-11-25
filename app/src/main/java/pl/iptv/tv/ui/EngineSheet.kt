@@ -88,6 +88,8 @@ object EngineSheet {
             }
             cards += card("afr", "Dopasowanie odświeżania (AFR)", null, ConfigSource.GLOBAL, cfg.autoFrameRate) { repo.setAutoFrameRate(!cfg.autoFrameRate) }
             cards += card("loudness", "Wyrównywanie głośności kanałów", null, ConfigSource.GLOBAL, cfg.loudness) { repo.setLoudness(!cfg.loudness) }
+            // (7.22) strażnik klatkowania – to samo źródło co Ustawienia
+            cards += card("stutter", SettingsActivity.AUTO_STUTTER_TITLE, null, ConfigSource.GLOBAL, cfg.autoStutterCorrectionEnabled) { repo.setAutoStutterCorrection(!cfg.autoStutterCorrectionEnabled) }
             if (ch != null) {
                 val compat = cfg.channelProfile?.let { it.software && it.surface == 1 } == true
                 cards += card("compat", "Tryb zgodności dla tego kanału", "Dekoder programowy + TextureView, bez tunelowania", ConfigSource.CHANNEL, compat) {

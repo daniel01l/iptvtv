@@ -124,8 +124,12 @@ object Playback {
         override fun onDroppedVideoFrames(t: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, count: Int, elapsedMs: Long) {
             stats?.let { it.dropped += count }
             // (7.20) klatkowanie przy płynnym dźwięku → tryb zgodności kanału (FrameDropWatchdog)
+            // (7.22) próba trybu zgodności – zrzuty liczone do oceny po 5 s (poprawa albo cofnięcie)
+            // (7.22) „Automatyczna korekta przy zacinaniu obrazu” wyłączona – strażnik nic nie zmienia ani nie zapisuje
+            if (!EngineConfigRepository.current.autoStutterCorrectionEnabled) return
+            trial?.let { tr -> if (tr.readyAt > 0) tr.drops += count }
             if (dropWatch.onDropped(count, elapsedMs, android.os.SystemClock.uptimeMillis()))
-                main.post { onFrameDrops(FrameDropWatchdog.rate(count, elapsedMs)) }
+                main.post { onFrameDrops(dropWatch.baselineDropRate) }
         }
         override fun onDownstreamFormatChanged(t: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
                                                data: androidx.media3.exoplayer.source.MediaLoadData) {
@@ -140,6 +144,11 @@ object Playback {
             videoDecoder = decoderName
             android.util.Log.i(TAG, "dekoder obrazu $decoderName (inicjalizacja $initializationDurationMs ms)")
             if (announcePending) main.post { announce(decoderName) }       // (7.20) po zmianie silnika – który dekoder przejął obraz
+        }
+        // (7.22) znana rozdzielczość / liczba klatek – profil programowy na strumieniu HD wraca na sprzętowy
+        override fun onVideoInputFormatChanged(t: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, format: androidx.media3.common.Format,
+                                               decoderReuseEvaluation: androidx.media3.exoplayer.DecoderReuseEvaluation?) {
+            main.post { onVideoFormat(format) }
         }
         override fun onAudioDecoderInitialized(t: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, decoderName: String,
                                                initializedTimestampMs: Long, initializationDurationMs: Long) {
@@ -177,6 +186,10 @@ object Playback {
             }
             // (7.20) błąd dekodera obrazu (inicjalizacja / dekodowanie – CodecException) na kanale na żywo: od razu dekoder
             // programowy dla tego kanału (zapamiętany), kanał od nowa w tle – bez komunikatu błędu i bez prób innych ustawień
+            // (7.22) najpierw: przeciążony dekoder programowy → sprzętowy
+            // (7.22) błąd dekodera w trakcie próby trybu zgodności – natychmiastowe cofnięcie
+            if (trial?.key == channelKey && e.errorCode in HARDWARE_RETURN_ERRORS + SOFTWARE_FALLBACK_ERRORS && revertTrial("błąd ${e.errorCodeName}")) return
+            if (hardwareReturnFor(e)) return
             if (decoderFallbackFor(e)) return
             hadError = true
             android.util.Log.w(TAG, "błąd ${e.errorCodeName}, próba ${retries + 1}")
@@ -227,6 +240,9 @@ object Playback {
         override fun run() {
             val p = player ?: return
             val now = android.os.SystemClock.uptimeMillis()
+            // (7.22) okna strażnika klatkowania domykane także bez nowych zgłoszeń; ocena próby trybu zgodności
+            if (EngineConfigRepository.current.autoStutterCorrectionEnabled && dropWatch.tick(now)) main.post { onFrameDrops(dropWatch.baselineDropRate) }
+            checkTrial(now)
             // pomiar: wyświetlone klatki bieżącego kanału (licznik dekodera od jego włączenia)
             p.videoDecoderCounters?.let { dc -> stats?.let { s -> if (s.firstFrameMs >= 0) { s.frames = dc.renderedOutputBufferCount; s.framesAt = now } } }
             // zbyt długie buforowanie: dawniej samo prepare() (bez działania – odtwarzacz nie był w stanie IDLE)
@@ -268,6 +284,8 @@ object Playback {
      */
     private fun onFrozen() {
         val c = lastCtx
+        // (7.22) HD / FHD / ≥ 48 kl/s – nigdy dekoder programowy (procesor TV nie nadąża: ERROR_CODE_DECODING_FAILED po ~30 s)
+        if (currentHeavy) { recover("zamrożony obraz (HD – bez dekodera programowego)"); return }
         if (!softwareDecoding && pl.iptv.tv.data.Prefs.freezeFallback && c != null) {
             channelKey?.let { frozenChannels += it }
             // (7.4) drugi kanał z zamrożonym obrazem – dekoder sprzętowy urządzenia zawodny: programowy dla całej sesji (jak 6.5);
@@ -418,8 +436,11 @@ object Playback {
      * tunelowanie), zapisany w „Zapamiętanych silnikach kanałów” i od razu zastosowany. Null – nic do zmiany (już zgodność,
      * wyłączone w Ustawieniach, nie kanał na żywo).
      */
-    fun compatibilityProfileFor(current: pl.iptv.tv.data.EngineProfile?, softwareAlready: Boolean): pl.iptv.tv.data.EngineProfile? {
+    fun compatibilityProfileFor(current: pl.iptv.tv.data.EngineProfile?, softwareAlready: Boolean, heavy: Boolean = false): pl.iptv.tv.data.EngineProfile? {
         val base = current ?: pl.iptv.tv.data.EngineProfile()
+        // (7.22) HD / FHD / ≥ 48 kl/s: dekoder sprzętowy zostaje, tylko TextureView (profil wyłącza tunelowanie) – MediaTek na TCL
+        // gubi klatki 1080i50 wyłącznie na SurfaceView; programowy przeciąża procesor (ERROR_CODE_DECODING_FAILED po ~30 s)
+        if (heavy) return if (!base.software && base.surface == 1) null else base.copy(software = false, surface = 1)
         if ((base.software || softwareAlready) && (base.surface == 1 || RenderSurfaceMode.current == RenderSurfaceMode.TEXTURE_VIEW)) return null
         return base.copy(software = true, surface = 1)
     }
@@ -429,15 +450,116 @@ object Playback {
      * profil zapisany w „Zapamiętanych silnikach kanałów”, kanał od nowa (nowy odtwarzacz z dekoderem programowym, PlayerView
      * na TextureView). False – nic do zrobienia (wyłączone, nie kanał na żywo, już tryb zgodności).
      */
-    private fun enterCompatibility(reason: String): Boolean {
+    private fun enterCompatibility(reason: String, baseline: Float = Float.POSITIVE_INFINITY): Boolean {
         val c = lastCtx ?: return false; val ch = lastChannel ?: return false; val u = url ?: return false
-        if (!pl.iptv.tv.data.Prefs.dropWatchdog || u != ch.url || channelKey != ch.key) return false
-        val next = compatibilityProfileFor(profile, softwareDecoding) ?: return false
+        if (!EngineConfigRepository.current.autoStutterCorrectionEnabled || u != ch.url || channelKey != ch.key) return false
+        if (ch.key in noIntervention) return false                     // (7.22) zmiana już nie pomogła w tej sesji
+        val heavy = currentHeavy
+        val prevProfile = profile
+        val fps = player?.videoFormat?.frameRate ?: -1f
+        val next = compatibilityProfileFor(profile, softwareDecoding, heavy) ?: return false
         android.util.Log.w(TAG, "$reason – tryb zgodności dla ${ch.name}: ${next.label} • ${diagnostics()}")
         ChannelEngines.save(ch.key, u, next)
+        // (7.22) kanał 25 / 50 kl/s (albo HD bez znanej liczby klatek – zwykle 1080i50): odświeżanie TV 50 Hz na tę sesję
+        if (heavy && (fps <= 0f || is25or50(fps))) sessionAfrFps = if (fps > 0f) fps else 50f
         play(c, ch, u, force = true, mime = lastMime)
+        // (7.22) ocena po 5 s – bez poprawy cofnięcie ([checkTrial])
+        // stojący obraz (bez pomiaru zrzutów) – baseline ∞: cofnięcie tylko po błędzie dekodera
+        trial = Trial(ch.key, u, prevProfile, baseline.coerceAtLeast(0.1f))
         onFrameDropFallback?.invoke(next, FALLBACK_STUTTER)
         return true
+    }
+
+    /** Tempo zrzucania, które wywołało tryb zgodności (stan sprzed zmiany). */
+    @Volatile private var lastDropRate = 0f
+
+    /** (7.22) Strumień HD / FHD (≥ 720 linii) lub ≥ 48 kl/s – za ciężki dla dekodera programowego procesora TV. */
+    fun isHeavy(height: Int, fps: Float): Boolean = height >= 720 || fps >= 48f
+    private val currentHeavy: Boolean get() = player?.videoFormat?.let { isHeavy(it.height, it.frameRate) } == true
+    fun is25or50(fps: Float): Boolean = kotlin.math.abs(fps - 25f) < 0.6f || kotlin.math.abs(fps - 50f) < 1.2f
+    /** (7.22) Odświeżanie ekranu dopasowane po klatkowaniu w tej sesji (kl/s; null – zwykłe ustawienie AFR). Zerowane w [stop]. */
+    @Volatile var sessionAfrFps: Float? = null; private set
+
+    /** (7.22) Błędy, po których dekoder programowy wraca na sprzętowy (przeciążony procesor). */
+    val HARDWARE_RETURN_ERRORS = setOf(androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED,
+        androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES)
+
+    /**
+     * (7.22) Dekoder programowy obrazu (profil kanału albo awaryjny na sesję) zgłosił błąd dekodowania – procesor nie nadąża:
+     * od razu dekoder sprzętowy, wpis kanału bez dekodera programowego (TextureView zostaje), kanał od nowa w tle.
+     * Globalnie wybrany silnik programowy (Ustawienia) – bez zmian.
+     */
+    private fun hardwareReturnFor(e: androidx.media3.common.PlaybackException): Boolean {
+        if (e.errorCode !in HARDWARE_RETURN_ERRORS) return false
+        val c = lastCtx ?: return false; val ch = lastChannel ?: return false; val u = url ?: return false
+        val fromProfile = profile?.software == true
+        if (!fromProfile && !sessionSoftware) return false
+        if (pl.iptv.tv.data.Prefs.playerEngine == ENGINE_SOFTWARE || !pl.iptv.tv.data.Prefs.hwAccel) return false
+        android.util.Log.w(TAG, "błąd ${e.errorCodeName} na dekoderze programowym – powrót na sprzętowy dla ${ch.name} • ${diagnostics()}")
+        dropSoftwareProfile(ch.key, u)
+        calls?.cancelActive()
+        main.post { if (url == u) hotReload(c, announce = false) }
+        return true
+    }
+
+    /** (7.22) Profil kanału bez dekodera programowego (reszta zostaje; pusty – wpis usunięty). */
+    private fun dropSoftwareProfile(key: String, u: String) {
+        val p = ChannelEngines.get(key)?.profile ?: return
+        if (!p.software) return
+        val hw = p.copy(software = false)
+        if (hw == pl.iptv.tv.data.EngineProfile()) ChannelEngines.forget(key) else ChannelEngines.save(key, ChannelEngines.get(key)?.streamUrl ?: u, hw)
+    }
+
+    /** (7.22) Zapisany profil programowy na strumieniu HD (np. z 7.20) – od razu sprzętowy + TextureView. */
+    /**
+     * (7.22) Próba trybu zgodności: stan przed zmianą ([prev] – profil kanału, [baseline] – zrzucane kl/s), zrzuty po starcie
+     * nowego silnika ([drops] od [readyAt]). Po [TRIAL_MS] bez poprawy (≥ [TRIAL_KEEP_FRACTION] × baseline) albo po błędzie
+     * dekodera – cofnięcie i kanał bez ingerencji do końca sesji ([noIntervention]).
+     */
+    class Trial(val key: String, val url: String, val prev: pl.iptv.tv.data.EngineProfile?, val baseline: Float) { var readyAt = 0L; var drops = 0 }
+    @Volatile var trial: Trial? = null; private set
+    const val TRIAL_MS = 5_000L
+    const val TRIAL_KEEP_FRACTION = 0.75f
+    /** Kanały, dla których zmiana nie pomogła – w tej sesji strażnik ich nie zmienia. */
+    val noIntervention: MutableSet<String> = java.util.Collections.synchronizedSet(HashSet())
+
+    private fun checkTrial(now: Long) {
+        val tr = trial ?: return
+        if (channelKey != tr.key) { trial = null; return }
+        val p = player ?: return
+        if (tr.readyAt == 0L) { if (p.playbackState == androidx.media3.common.Player.STATE_READY) tr.readyAt = now; return }
+        if (now - tr.readyAt < TRIAL_MS) return
+        val rate = tr.drops / (TRIAL_MS / 1000f)
+        if (rate >= tr.baseline * TRIAL_KEEP_FRACTION) revertTrial("bez poprawy (${"%.1f".format(java.util.Locale.ROOT, rate)} kl/s, przed zmianą ${"%.1f".format(java.util.Locale.ROOT, tr.baseline)})")
+        else { android.util.Log.i(TAG, "tryb zgodności pomógł: ${"%.1f".format(java.util.Locale.ROOT, rate)} kl/s (przed: ${tr.baseline})"); trial = null }
+    }
+
+    /** Cofnięcie próby: poprzedni profil kanału (albo brak), dekoder sprzętowy, kanał bez ingerencji w tej sesji. */
+    private fun revertTrial(why: String): Boolean {
+        val tr = trial ?: return false
+        trial = null
+        val c = lastCtx ?: return false
+        android.util.Log.w(TAG, "tryb zgodności cofnięty – $why")
+        noIntervention += tr.key
+        val back = tr.prev?.copy(software = false)?.takeIf { it != pl.iptv.tv.data.EngineProfile() }
+        if (back == null) ChannelEngines.forget(tr.key) else ChannelEngines.save(tr.key, tr.url, back)
+        sessionAfrFps = null
+        main.post { if (url == tr.url) hotReload(c, announce = false) }
+        return true
+    }
+
+    /** Tylko testy: próba z podaną liczbą zrzutów po starcie (ocena jak po 5 s). */
+    fun simulateTrialResult(dropsIn5s: Int) { trial?.let { it.readyAt = 1; it.drops = dropsIn5s; checkTrial(1 + TRIAL_MS) } }
+
+    private fun onVideoFormat(f: androidx.media3.common.Format) {
+        if (f.frameRate > 0f) dropWatch.fps = f.frameRate              // (7.22) próg 40 % klatkażu strumienia
+        lastChannel?.let { ch -> if (isHeavy(f.height, f.frameRate)) pl.iptv.tv.data.ChannelEngines.markHd(ch.key) }
+        val ch = lastChannel ?: return; val u = url ?: return; val c = lastCtx ?: return
+        if (!isHeavy(f.height, f.frameRate) || profile?.software != true || u != ch.url || !EngineConfigRepository.current.autoStutterCorrectionEnabled) return
+        android.util.Log.w(TAG, "profil programowy na strumieniu ${f.height}p – sprzętowy + TextureView dla ${ch.name}")
+        val p = ChannelEngines.get(ch.key)?.profile ?: return
+        ChannelEngines.save(ch.key, u, p.copy(software = false, surface = 1))
+        main.post { if (url == u) hotReload(c, announce = false) }
     }
 
     /** (7.20) Kody błędów dekodera, po których kanał od razu przechodzi na dekoder programowy. */
@@ -453,6 +575,9 @@ object Playback {
         if (e.errorCode !in SOFTWARE_FALLBACK_ERRORS) return false
         val format = (e as? androidx.media3.exoplayer.ExoPlaybackException)?.takeIf { it.type == androidx.media3.exoplayer.ExoPlaybackException.TYPE_RENDERER }?.rendererFormat
         if (format?.sampleMimeType?.let { MimeTypes.isVideo(it) } == false) return false
+        // (7.22) HD / FHD / ≥ 48 kl/s – bez przejścia na programowy (procesor TV nie nadąża)
+        val vf = format ?: player?.videoFormat
+        if (vf != null && isHeavy(vf.height, vf.frameRate)) return false
         val c = lastCtx ?: return false; val ch = lastChannel ?: return false; val u = url ?: return false
         if (!pl.iptv.tv.data.Prefs.engineOptimizer || u != ch.url || channelKey != ch.key || softwareDecoding || profile?.software == true) return false
         val next = (profile ?: pl.iptv.tv.data.EngineProfile()).copy(software = true)
@@ -468,8 +593,10 @@ object Playback {
     const val FALLBACK_STUTTER = "stutter"
     const val FALLBACK_DECODER = "decoder"
 
-    private fun onFrameDrops(rate: Float) =
-        enterCompatibility("klatkowanie obrazu (${"%.1f".format(java.util.Locale.ROOT, rate)} kl/s zrzuconych, dźwięk płynny)")
+    private fun onFrameDrops(rate: Float): Boolean {
+        lastDropRate = rate
+        return enterCompatibility("klatkowanie obrazu (${"%.1f".format(java.util.Locale.ROOT, rate)} kl/s zrzuconych, dźwięk płynny)", baseline = rate)
+    }
 
     /** Tylko testy: zgłoszenie klatkowania jak przez strażnika. */
     fun simulateFrameDrops(rate: Float = 20f) = onFrameDrops(rate)
@@ -659,6 +786,9 @@ object Playback {
         // (7.20) dłuższe dołączanie obrazu do zegara dźwięku – po opróżnieniu startowego bufora dekoder nie wpada w pętlę
         // agresywnego odrzucania klatek (dryf A/V korygowany łagodnie)
         renderers.setAllowedVideoJoiningTimeMs(VIDEO_JOINING_MS)
+        // (7.22) tunelowanie: tempo klatek z zegara sprzętowego TV (Media3 w trybie tunelowania otwiera AudioTrack z
+        // AudioAttributes.FLAG_HW_AV_SYNC); bez programowego rozciągania czasu przez AudioTrack.PlaybackParams
+        if (pl.iptv.tv.data.Prefs.playerEngine == ENGINE_TUNNELING && pl.iptv.tv.data.Prefs.hwAccel && profile == null) renderers.setEnableAudioTrackPlaybackParams(false)
         val P = pl.iptv.tv.data.Prefs
         val engine = P.playerEngine
         val software = softwareDecoding || profile?.software == true
@@ -1144,6 +1274,8 @@ object Playback {
         profile = null
         hadError = false; retries = 0; recoveries = 0; recoveryWindow = 0
         sessionSoftware = false; softwareChannel = null; frozenChannels.clear()          // ręczna zmiana silnika / wyjście – znowu ustawienia użytkownika
+        sessionAfrFps = null                                                                // (7.22) dopasowanie 50 Hz tylko na sesję
+        trial = null; noIntervention.clear()
         sessionRebufferBoostMs = 0; liveLoad = null                                         // (7.17) adaptacja bufora – od nowa
         url = null; channelKey = null; target = null; lastMime = null
         appliedKey = null; announcePending = false; main.removeCallbacks(announceFallback)

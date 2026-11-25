@@ -76,7 +76,7 @@ class V720EngineSyncTest {
         val c = R.current
         assertTrue(c.software); assertEquals(ConfigSource.CHANNEL, c.softwareSource)
         assertEquals(2, c.effectiveAsync); assertEquals(ConfigSource.CHANNEL, c.asyncSource)
-        assertTrue(c.textureView); assertEquals(ConfigSource.CHANNEL, c.surfaceSource)
+        assertFalse(c.textureView); assertEquals(ConfigSource.GLOBAL, c.surfaceSource)      // (7.22) AUTO – zawsze SurfaceView
         assertEquals(ConfigSource.CHANNEL, c.bufferSource); assertFalse(c.tunneling)
         // „Zastosuj globalnie” – ustawienia kanału przeniesione do globalnych, profil kanału usunięty
         R.applyChannelGlobally("k1", "http://u/1")
@@ -136,7 +136,7 @@ class V720EngineSyncTest {
         fun chip(key: String) = all(card(key)).firstOrNull { (it.tag as? String)?.startsWith("source:") == true }?.tag
         // nagłówek z kodekami na żywo
         assertTrue(all(d.window!!.decorView).filterIsInstance<TextView>().first { it.tag == "engine_codecs" }.text.startsWith("Wideo:"))
-        assertEquals("source:CHANNEL", chip("engine")); assertEquals("source:CHANNEL", chip("surface")); assertEquals("source:GLOBAL", chip("async"))
+        assertEquals("source:CHANNEL", chip("engine")); assertEquals("source:GLOBAL", chip("surface")); assertEquals("source:GLOBAL", chip("async"))
         assertTrue(card("compat").contentDescription.endsWith("włączone"))
         // bez poziomych linii – karty w panelu (żadnej ListView / separatora)
         assertTrue(all(d.window!!.decorView).none { it is android.widget.ListView })

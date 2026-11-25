@@ -21,6 +21,8 @@ object EngineProfiles {
         val lowPerf: Boolean, val bufMinS: Int, val cleanDecoder: Boolean, val zapDelayMs: Int,
         val asyncDecoder: Int, val decoderFallback: Boolean, val engine: Int = 0, val hwAccel: Boolean = true,
         val lowMaxHeight: Int = 1080, val lowBufMb: Int = 24,
+        /** (7.22) „Automatyczna korekta przy zacinaniu obrazu” – w każdym profilu włączona; ręczna zmiana = „Własny (Zmodyfikowany)”. */
+        val autoStutter: Boolean = true,
     )
 
     fun values(p: Profile): Values = when (p) {
@@ -36,12 +38,13 @@ object EngineProfiles {
         Prefs.lowPerf = v.lowPerf; Prefs.bufMinS = v.bufMinS; Prefs.cleanDecoderOnZap = v.cleanDecoder; Prefs.zapDelayMs = v.zapDelayMs
         Prefs.asyncDecoder = v.asyncDecoder; Prefs.decoderFallback = v.decoderFallback; Prefs.playerEngine = v.engine; Prefs.hwAccel = v.hwAccel
         if (v.lowPerf) { Prefs.lowMaxHeight = v.lowMaxHeight; Prefs.lowBufMb = v.lowBufMb }
+        Prefs.dropWatchdog = v.autoStutter
         // (7.20) bez zatrzymania: zapis ustawień odświeża EngineConfigRepository, a Playback przebudowuje odtwarzacz w locie
         EngineConfigRepository.refresh()
     }
 
     private fun current() = Values(Prefs.lowPerf, Prefs.bufMinS, Prefs.cleanDecoderOnZap, Prefs.zapDelayMs, Prefs.asyncDecoder, Prefs.decoderFallback,
-        Prefs.playerEngine, Prefs.hwAccel, if (Prefs.lowPerf) Prefs.lowMaxHeight else 1080, if (Prefs.lowPerf) Prefs.lowBufMb else 24)
+        Prefs.playerEngine, Prefs.hwAccel, if (Prefs.lowPerf) Prefs.lowMaxHeight else 1080, if (Prefs.lowPerf) Prefs.lowBufMb else 24, Prefs.dropWatchdog)
 
     /** Profil zgodny z ustawieniami albo null (= [CUSTOM]). */
     fun active(): Profile? {

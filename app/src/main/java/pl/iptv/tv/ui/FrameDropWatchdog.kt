@@ -39,12 +39,13 @@ object SoftwareCodecs {
  * [TEXTURE_VIEW] – zawsze wybrana.
  */
 enum class RenderSurfaceMode(val label: String, val description: String) {
-    AUTO("Automatycznie (zalecane)", "SurfaceView, a TextureView dla kanałów, które klatkowały (tryb zgodności)"),
-    SURFACE_VIEW("SurfaceView", "Najwydajniejsza powierzchnia – zawsze, także dla kanałów w trybie zgodności"),
+    AUTO("Automatycznie (zalecane)", "Zawsze sprzętowy SurfaceView – najdokładniejsze tempo klatek (TextureView tylko z ręcznego wyboru)"),
+    SURFACE_VIEW("SurfaceView", "Najwydajniejsza powierzchnia – zawsze"),
     TEXTURE_VIEW("TextureView (zgodność)", "Zawsze TextureView – błędy usuwania przeplotu 1080i50 na części TV z Google TV");
 
     /** Czy obraz ma być na TextureView dla kanału z profilem wymagającym ([channelWantsTexture]) albo bez. */
-    fun texture(channelWantsTexture: Boolean): Boolean = when (this) { AUTO -> channelWantsTexture; SURFACE_VIEW -> false; TEXTURE_VIEW -> true }
+    /** (7.22) AUTO – zawsze SurfaceView (TextureView przez kompozytor SurfaceFlinger dawał wrażenie spowolnienia ruchu); TextureView tylko z ręcznego wyboru. */
+    fun texture(@Suppress("UNUSED_PARAMETER") channelWantsTexture: Boolean): Boolean = this == TEXTURE_VIEW
 
     companion object {
         val current: RenderSurfaceMode get() = entries.getOrElse(pl.iptv.tv.data.Prefs.surfaceMode) { AUTO }
@@ -109,10 +110,18 @@ object ChannelLoudness {
  */
 class FrameDropWatchdog {
     companion object {
-        const val MIN_PLAY_MS = 2_500L
-        const val MAX_DROP_FPS = 8f
-        const val MIN_DROPPED = 20
+        /** (7.22) Karencja od początku odtwarzania (READY): zrzuty przy stabilizacji bufora i zegara są pomijane. */
+        const val GRACE_MS = 4_500L
+        /** Długość okna pomiaru zrzuconych klatek. */
         const val WINDOW_MS = 3_000L
+        /** Ile kolejnych okien z rzędu musi przekroczyć próg (2 × 3 s = 6 s ciągłego problemu). */
+        const val WINDOWS_IN_ROW = 2
+        /** Próg: zrzucone klatki > tyle × klatkaż strumienia (40 % – np. > 20 kl/s przy 50 kl/s, > 10 kl/s przy 25 kl/s). */
+        const val DROP_FRACTION = 0.4f
+        /** Klatkaż przyjmowany, gdy strumień go nie podaje. */
+        const val DEFAULT_FPS = 25f
+        /** Zgodność wstecz (opisy, ustawienia). */
+        const val MIN_PLAY_MS = GRACE_MS
         /**
          * Zamrożenie (licznik wyświetlonych klatek stoi, a czas odtwarzania – dźwięk – płynie) przez tyle ms przy READY i
          * isPlaying → tryb zgodności kanału (przed dawnym odświeżeniem powierzchni po 4 s i programowym na sesję po 8 s).
@@ -122,31 +131,65 @@ class FrameDropWatchdog {
         fun frozenLongEnough(frozenMs: Long): Boolean = frozenMs >= FREEZE_COMPAT_MS
         /** Tempo zrzucania (kl/s) ze zdarzenia Media3; [elapsedMs] ≤ 0 → 0. */
         fun rate(droppedFrames: Int, elapsedMs: Long): Float = if (elapsedMs <= 0) 0f else droppedFrames / (elapsedMs / 1000f)
+        /** Próg kl/s dla klatkażu [fps] (nieznany – [DEFAULT_FPS]). */
+        fun threshold(fps: Float): Float = (if (fps > 0f) fps else DEFAULT_FPS) * DROP_FRACTION
     }
 
     private var readyAt = -1L
     private var ready = false
     private var fired = false
-    private val window = ArrayDeque<Pair<Long, Int>>()
+    /** Klatkaż strumienia (z formatu obrazu) – próg 40 %. */
+    var fps = 0f
+    /** Początek bieżącego okna i zrzucone w nim klatki; liczba kolejnych okien ponad progiem. */
+    private var windowStart = -1L
+    private var windowDrops = 0
+    private var badInRow = 0
+    private val badRates = ArrayList<Float>()
+    /** Tempo zrzucania (kl/s) w oknach, które potwierdziły klatkowanie – stan sprzed zmiany silnika. */
+    var baselineDropRate = 0f; private set
 
     /** Nowy kanał / nowy odtwarzacz – liczenie od zera. */
-    fun reset() { readyAt = -1L; ready = false; fired = false; window.clear() }
+    fun reset() { readyAt = -1L; ready = false; fired = false; fps = 0f; resetWindows(); baselineDropRate = 0f }
+    private fun resetWindows() { windowStart = -1L; windowDrops = 0; badInRow = 0; badRates.clear() }
 
     /** Stan odtwarzacza (Player.STATE_*). Pierwsze READY = początek odtwarzania. */
     fun onState(state: Int, now: Long) {
         ready = state == androidx.media3.common.Player.STATE_READY
         if (ready && readyAt < 0) readyAt = now
-        if (!ready) window.clear()             // buforowanie (łącze) – to nie klatkowanie dekodera
+        if (!ready) resetWindows()             // buforowanie (łącze) – to nie klatkowanie dekodera
     }
 
-    /** Zrzucone klatki; true – klatkowanie przy płynnym dźwięku (raz na start). */
+    /** Zamknięcie okien, które minęły do [now] (puste okna – bez problemu, seria od nowa). */
+    private fun closeWindows(now: Long) {
+        while (windowStart >= 0 && now - windowStart >= WINDOW_MS) {
+            val r = windowDrops / (WINDOW_MS / 1000f)
+            if (r > threshold(fps)) { badInRow++; badRates += r } else { badInRow = 0; badRates.clear() }
+            windowStart += WINDOW_MS; windowDrops = 0
+        }
+    }
+
+    /**
+     * Zrzucone klatki; true – klatkowanie przy płynnym dźwięku (raz na start): po karencji [GRACE_MS] w [WINDOWS_IN_ROW]
+     * kolejnych oknach [WINDOW_MS] tempo zrzucania > 40 % klatkażu. Pojedyncze przycięcia i konwersja 50/60 Hz – nic.
+     */
     fun onDropped(droppedFrames: Int, elapsedMs: Long, now: Long): Boolean {
         if (fired || !ready || readyAt < 0) return false
-        window.addLast(now to droppedFrames)
-        while (window.isNotEmpty() && now - window.first().first > WINDOW_MS) window.removeFirst()
-        if (now - readyAt <= MIN_PLAY_MS) return false
-        val inWindow = window.sumOf { it.second }
-        if (rate(droppedFrames, elapsedMs) > MAX_DROP_FPS && inWindow >= MIN_DROPPED) { fired = true; return true }
+        if (now - readyAt < GRACE_MS) return false
+        if (windowStart < 0) windowStart = readyAt + GRACE_MS
+        closeWindows(now)
+        windowDrops += droppedFrames
+        if (badInRow >= WINDOWS_IN_ROW) {
+            fired = true; baselineDropRate = badRates.takeLast(WINDOWS_IN_ROW).average().toFloat()
+            return true
+        }
+        return false
+    }
+
+    /** Domknięcie okien bez nowych zgłoszeń (np. strażnik co 1 s) – true, gdy klatkowanie potwierdzone. */
+    fun tick(now: Long): Boolean {
+        if (fired || !ready || readyAt < 0 || windowStart < 0) return false
+        closeWindows(now)
+        if (badInRow >= WINDOWS_IN_ROW) { fired = true; baselineDropRate = badRates.takeLast(WINDOWS_IN_ROW).average().toFloat(); return true }
         return false
     }
 }

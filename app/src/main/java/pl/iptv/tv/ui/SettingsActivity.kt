@@ -1080,6 +1080,9 @@ class SettingsActivity : BaseActivity() {
         toggle("Zapasowy dekoder przy błędzie", { EngineConfigRepository.current.decoderFallback }) { EngineConfigRepository.setDecoderFallback(it) }
         toggle("Dekoder programowy, gdy obraz zamarza", { Prefs.freezeFallback }) { Prefs.freezeFallback = it; Playback.stop() }
         note("Gdy obraz stoi, a dźwięk gra (ok. ${Playback.FREEZE_SWITCH_MS / 1000} s), odtwarzacz sam przechodzi na dekoder programowy – do zamknięcia aplikacji albo ręcznej zmiany silnika.")
+        // (7.22) strażnik klatkowania – całkowite włączenie / wyłączenie (to samo źródło co okno silnika w odtwarzaczu)
+        toggle(AUTO_STUTTER_TITLE, { EngineConfigRepository.current.autoStutterCorrectionEnabled }) { EngineConfigRepository.setAutoStutterCorrection(it) }
+        note(AUTO_STUTTER_NOTE)
         toggle("Dobór silnika dla niedziałających kanałów", { Prefs.engineOptimizer }) { Prefs.engineOptimizer = it }
         row("Zapamiętane silniki kanałów", "${pl.iptv.tv.data.ChannelEngines.count - pl.iptv.tv.data.ChannelEngines.failedCount} dobranych, ${pl.iptv.tv.data.ChannelEngines.failedCount} niedziałających") {
             showChannelEngines()
@@ -1100,8 +1103,6 @@ class SettingsActivity : BaseActivity() {
             EngineConfigRepository.setSurfaceMode(RenderSurfaceMode.entries[it])
         }
         note("Automatycznie: wydajny SurfaceView, a TextureView dla kanałów, które klatkowały – pomaga, gdy telewizor z Google TV źle usuwa przeplot (1080i50).")
-        toggle("Tryb zgodności dla klatkujących kanałów", { Prefs.dropWatchdog }) { Prefs.dropWatchdog = it }
-        note("Gdy podczas oglądania (od 2,5 s po włączeniu) dekoder zrzuca ponad 8 klatek na sekundę albo obraz stoi przez 3 s, a dźwięk gra płynnie, kanał sam przechodzi na dekoder programowy z TextureView (bez tunelowania) – ustawienie trafia do „Zapamiętanych silników kanałów”.")
         toggle("Wyrównywanie głośności kanałów", { EngineConfigRepository.current.loudness }) { EngineConfigRepository.setLoudness(it) }
         note("Łagodne podbicie (+3 dB) cichych ścieżek (np. AC3 / E-AC3) – mniejsze różnice głośności między kanałami. Na części urządzeń (np. z tunelowaniem) efekt jest niedostępny i opcja nic nie zmienia.")
         toggle("Niskie opóźnienie na żywo", { EngineConfigRepository.current.lowLatency }) { EngineConfigRepository.setLowLatency(it) }
@@ -1926,6 +1927,9 @@ class SettingsActivity : BaseActivity() {
         private const val REQ_FILE = 10; private const val REQ_IMAGE = 11; private const val REQ_LIST_FILE = 12
         private const val REQ_BACKUP_EXPORT = 13; private const val REQ_BACKUP_IMPORT = 14; private const val REQ_SEND_FILE = 15
         private const val REQ_APK_INSTALL = 16; private const val REQ_APK_SEND = 17
+        /** (7.22) Przełącznik strażnika klatkowania (Ustawienia i okno silnika w odtwarzaczu). */
+        const val AUTO_STUTTER_TITLE = "Automatyczna korekta przy zacinaniu obrazu"
+        const val AUTO_STUTTER_NOTE = "Gdy obraz wyraźnie klatkuje przez kilka sekund, odtwarzacz automatycznie dostosowuje tryb wyświetlania (bez przełączania kanałów HD/FHD na słaby dekoder programowy). Wyłącz, aby zachować pełną kontrolę ręczną."
         val TAB_NAMES = listOf("Listy", "Wygląd", "Menu i kanały", "Odtwarzanie", "Program TV", "Archiwum (catch-up)", "Kontrola rodzicielska",
             "Nagrywanie", "Wyniki i pogoda", "Pilot", "System", "Konto YouTube")
         /** Karta „Konto / Logowanie YouTube” (ostatnia – numery wcześniejszych kart bez zmian). */

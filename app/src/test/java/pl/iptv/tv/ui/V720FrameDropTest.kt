@@ -84,29 +84,106 @@ class V720FrameDropTest {
     }
 
     @Test fun watchdogFiresOnlyForSustainedDropsWhilePlayingSmoothly() {
-        val w = FrameDropWatchdog()
-        assertEquals(20f, FrameDropWatchdog.rate(10, 500), 0.01f)
-        assertEquals(0f, FrameDropWatchdog.rate(10, 0), 0.01f)
-        // przed startem odtwarzania (brak READY) – nic
-        assertFalse(w.onDropped(50, 1000, 1000))
+        assertEquals(4_500L, FrameDropWatchdog.GRACE_MS); assertEquals(3_000L, FrameDropWatchdog.WINDOW_MS); assertEquals(2, FrameDropWatchdog.WINDOWS_IN_ROW)
+        assertEquals(20f, FrameDropWatchdog.threshold(50f), 0.01f); assertEquals(10f, FrameDropWatchdog.threshold(25f), 0.01f)
+        val w = FrameDropWatchdog(); w.fps = 50f
+        assertFalse(w.onDropped(50, 1000, 1000))                        // przed READY – nic
         w.onState(Player.STATE_READY, 0)
-        // pierwsze 2,5 s – zrzucanie na starcie (dołączanie obrazu) nie liczy się jako klatkowanie
-        assertFalse(w.onDropped(10, 500, 1000))
-        assertFalse(w.onDropped(10, 500, 2000))
-        // po 2,5 s: 10 klatek w 0,5 s (20 kl/s) i ≥ 20 w oknie 3 s → alarm, tylko raz
-        assertTrue(w.onDropped(10, 500, 2600))
-        assertFalse(w.onDropped(10, 500, 3000))
-        // pojedyncze zrzuty (6,7 kl/s) – płynny obraz
-        w.reset(); w.onState(Player.STATE_READY, 0)
-        repeat(5) { i -> assertFalse(w.onDropped(10, 1500, 3000L + i * 1500)) }
-        // buforowanie (łącze, nie dekoder) – okno wyczyszczone, alarm dopiero po nowych zrzutach w READY
-        w.reset(); w.onState(Player.STATE_READY, 0)
-        assertFalse(w.onDropped(10, 500, 2700))          // 10 w oknie < 20
-        w.onState(Player.STATE_BUFFERING, 2800)
-        assertFalse(w.onDropped(30, 500, 2900))          // buforowanie
-        w.onState(Player.STATE_READY, 3000)
-        assertFalse(w.onDropped(10, 500, 3200))          // okno od nowa: 10
-        assertTrue(w.onDropped(10, 500, 3400))
+        // karencja 4,5 s – zrzuty przy stabilizacji bufora pomijane
+        assertFalse(w.onDropped(200, 1000, 4_000)); assertFalse(w.tick(4_400))
+        // 25 kl/s (> 40 % z 50) w dwóch kolejnych oknach 3 s (4,5–7,5 s i 7,5–10,5 s) – dopiero po 6 s ciągłego problemu
+        var t = 4_600L
+        while (t < 10_400) { assertFalse("t=$t", w.onDropped(25, 1000, t)); t += 1000 }
+        assertTrue(w.tick(10_600)); assertEquals(25f, w.baselineDropRate, 1.5f)
+        // 15 kl/s przy 50 kl/s (konwersja 50/60 Hz, pojedyncze przycięcia) – nigdy
+        val w2 = FrameDropWatchdog(); w2.fps = 50f; w2.onState(Player.STATE_READY, 0)
+        t = 4_600L; while (t < 30_000) { assertFalse(w2.onDropped(15, 1000, t)); t += 1000 }; assertFalse(w2.tick(30_000))
+        // jedno złe okno, potem dobre – seria od nowa
+        val w3 = FrameDropWatchdog(); w3.fps = 25f; w3.onState(Player.STATE_READY, 0)
+        t = 4_600L; while (t < 7_500) { w3.onDropped(15, 1000, t); t += 1000 }       // 15 kl/s > 10 (25 kl/s)
+        assertFalse(w3.tick(10_600))                                                    // drugie okno puste
+        // buforowanie – okna od nowa
+        val w4 = FrameDropWatchdog(); w4.fps = 50f; w4.onState(Player.STATE_READY, 0)
+        t = 4_600L; while (t < 7_500) { w4.onDropped(30, 1000, t); t += 1000 }
+        w4.onState(Player.STATE_BUFFERING, 7_600); w4.onState(Player.STATE_READY, 7_700)
+        assertFalse(w4.onDropped(30, 1000, 9_000))
+    }
+
+    @Test fun compatibilityTrialRevertsWhenNoImprovementAndKeepsWhenBetter() {
+        val ch = Channel("cx2t", "Canal+ Extra 2", "http://127.0.0.1:9/live/cx2t.ts", "G")
+        Playback.play(ctx, ch, ch.url); idle()
+        Playback.simulateFrameDrops(25f); idle()
+        assertNotNull(Playback.trial); assertNotNull(ChannelEngines.get(ch.key))
+        // po 5 s nadal 24 kl/s (≥ 75 % z 25) – cofnięcie, kanał bez ingerencji w tej sesji
+        Playback.simulateTrialResult(120); idle(300)
+        assertNull(Playback.trial); assertNull(ChannelEngines.get(ch.key)); assertTrue(ch.key in Playback.noIntervention)
+        assertFalse(Playback.simulateFrameDrops(25f))                                   // kolejne klatkowanie – bez zmian
+        // inny kanał: po zmianie 2 kl/s – zostaje
+        val ch2 = Channel("cx3t", "Canal+ Extra 3", "http://127.0.0.1:9/live/cx3t.ts", "G")
+        Playback.play(ctx, ch2, ch2.url); idle()
+        Playback.simulateFrameDrops(25f); idle()
+        Playback.simulateTrialResult(10); idle()
+        assertNull(Playback.trial); assertNotNull(ChannelEngines.get(ch2.key))
+        // błąd dekodera w trakcie próby – natychmiastowe cofnięcie
+        val ch3 = Channel("cx4t", "Kanał HD", "http://127.0.0.1:9/live/cx4t.ts", "G")
+        Playback.play(ctx, ch3, ch3.url); idle()
+        Playback.simulateFrameDrops(25f); idle()
+        Playback.simulateError(androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED); idle(300)
+        assertNull(ChannelEngines.get(ch3.key)); assertTrue(ch3.key in Playback.noIntervention)
+    }
+
+    @Test fun softwareProfilesOfHdChannelsClearedAtStart() {
+        Prefs.hdChannels = setOf("hd1")
+        ChannelEngines.save("hd1", "http://u/hd1", EngineProfile(software = true, ffmpeg = true))
+        ChannelEngines.save("hd2", "http://u/hd2", EngineProfile(software = true))
+        ChannelEngines.save("sd1", "http://u/sd1", EngineProfile(software = true))
+        ChannelEngines.markHd("hd2"); assertTrue("hd2" in Prefs.hdChannels)
+        assertEquals(2, ChannelEngines.clearSoftwareForHd())
+        assertEquals(EngineProfile(ffmpeg = true), ChannelEngines.profileFor("hd1"))     // reszta profilu zostaje
+        assertNull(ChannelEngines.get("hd2"))                                             // pusty – usunięty
+        assertEquals(EngineProfile(software = true), ChannelEngines.profileFor("sd1"))   // SD bez zmian
+        Prefs.hdChannels = emptySet()
+    }
+
+    @Test fun hdStreamsNeverGoToSoftwareDecoder() {
+        // (7.22) HD / FHD / ≥ 48 kl/s – tryb zgodności = sprzętowy + TextureView (bez tunelowania – profil), nigdy programowy
+        assertTrue(Playback.isHeavy(1080, 25f)); assertTrue(Playback.isHeavy(576, 50f)); assertFalse(Playback.isHeavy(576, 25f))
+        assertEquals(EngineProfile(software = false, surface = 1), Playback.compatibilityProfileFor(null, false, heavy = true))
+        // stary profil programowy z 7.20 – na HD zamieniany na sprzętowy + TextureView
+        assertEquals(EngineProfile(software = false, surface = 1), Playback.compatibilityProfileFor(EngineProfile(software = true, surface = 1), false, heavy = true))
+        assertNull(Playback.compatibilityProfileFor(EngineProfile(surface = 1), false, heavy = true))
+        // SD – jak dotąd (programowy + TextureView)
+        assertEquals(EngineProfile(software = true, surface = 1), Playback.compatibilityProfileFor(null, false, heavy = false))
+        assertTrue(Playback.is25or50(25f) && Playback.is25or50(50f) && Playback.is25or50(49.95f)); assertFalse(Playback.is25or50(30f))
+        assertTrue(Playback.HARDWARE_RETURN_ERRORS.containsAll(listOf(androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED,
+            androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES)))
+    }
+
+    @Test fun softwareDecodingFailureReturnsToHardwareAndClearsEntry() {
+        val ch = Channel("cx2", "Canal+ Extra 2", "http://127.0.0.1:9/live/cx2.ts", "G")
+        ChannelEngines.save(ch.key, ch.url, EngineProfile(software = true, surface = 1))
+        Playback.play(ctx, ch, ch.url); idle()
+        assertEquals(true, Playback.profile?.software)
+        Playback.simulateError(androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED); idle(300)
+        assertEquals(EngineProfile(surface = 1), ChannelEngines.profileFor(ch.key))           // bez programowego, TextureView zostaje
+        assertEquals(false, Playback.profile?.software); assertFalse(Playback.softwareDecoding)
+        // sam dekoder programowy w profilu – wpis usunięty
+        val ch2 = Channel("cx3", "Canal+ Extra 3", "http://127.0.0.1:9/live/cx3.ts", "G")
+        ChannelEngines.save(ch2.key, ch2.url, EngineProfile(software = true))
+        Playback.play(ctx, ch2, ch2.url); idle()
+        Playback.simulateError(androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES); idle(300)
+        assertNull(ChannelEngines.get(ch2.key))
+    }
+
+    @Test fun savedCompatibilityProfilesFrom720MigrateToHardwareOnce() = runBlocking {
+        Prefs.engineCompatHw = false
+        db.channelEngines().upsert(pl.iptv.tv.data.ChannelEngine("old", "http://u/old", EngineProfile(software = true, surface = 1).encode()))
+        db.channelEngines().upsert(pl.iptv.tv.data.ChannelEngine("ff", "http://u/ff", EngineProfile(ffmpeg = true).encode()))
+        ChannelEngines.resetForTest(); ChannelEngines.load()
+        assertEquals(EngineProfile(surface = 1), ChannelEngines.profileFor("old"))
+        assertEquals(EngineProfile(ffmpeg = true), ChannelEngines.profileFor("ff"))
+        assertTrue(Prefs.engineCompatHw)
+        Unit
     }
 
     @Test fun profileSurfaceEncodingAndCompatibilityProfile() {
@@ -132,7 +209,7 @@ class V720FrameDropTest {
         assertEquals(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF, Playback.frameRateStrategy(false))
         assertEquals(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS, Playback.frameRateStrategy(true))
         assertEquals(5_000L, Playback.VIDEO_JOINING_MS)
-        assertTrue(Playback.DROP_NOTIFY_FRAMES in 1..FrameDropWatchdog.MIN_DROPPED)
+        assertTrue(Playback.DROP_NOTIFY_FRAMES in 1..20)
         // odtwarzacz budowany z nowym rendererem obrazu (bez wyjątku) i dekoderem programowym w profilu
         val p = Playback.buildPlayer(ctx, EngineProfile(software = true, surface = 1)); p.release()
     }
@@ -150,7 +227,7 @@ class V720FrameDropTest {
         assertEquals(want, ChannelEngines.profileFor(ch.key))            // „Zapamiętane silniki kanałów”
         assertEquals(want, Playback.profile)
         assertEquals(want, shown)
-        assertTrue(Playback.wantsTextureView)
+        assertFalse(Playback.wantsTextureView)                           // (7.22) AUTO – zawsze SurfaceView (profil wyłącza tunelowanie)
         assertNotSame(before, Playback.get(ctx))                          // dekoder programowy – nowy odtwarzacz
         // już w trybie zgodności – bez kolejnych przełączeń
         val compat = Playback.get(ctx); shown = null
@@ -183,6 +260,8 @@ class V720FrameDropTest {
         assertFalse(a.usesTextureView)
         val starts = Playback.starts
         Playback.simulateFrameDrops(); idle(500)
+        assertFalse(a.usesTextureView)                                // (7.22) AUTO – zawsze SurfaceView
+        EngineConfigRepository.setSurfaceMode(RenderSurfaceMode.TEXTURE_VIEW); idle(500)   // ręczny wybór TextureView – podmiana widoku
         assertTrue(a.usesTextureView)
         val view = a.findViewById<PlayerView>(R.id.playerView)
         assertTrue(view.videoSurfaceView is android.view.TextureView)
@@ -207,21 +286,24 @@ class V720FrameDropTest {
         assertFalse(Playback.simulateStalledFrames(10_000))          // już tryb zgodności – dalej dawne kroki strażnika
         // podczas długiego oglądania (po kilku minutach) zrzucanie też przełącza – okno przesuwa się
         val w = FrameDropWatchdog(); w.onState(Player.STATE_READY, 0)
-        assertFalse(w.onDropped(10, 2_000, 600_000))
-        assertTrue(w.onDropped(10, 500, 600_400))
+        w.fps = 25f
+        var t = 600_000L
+        while (t < 604_500) { assertFalse(w.onDropped(30, 1000, t)); t += 1000 }   // (7.22) 2 okna po 3 s ponad progiem
+        assertTrue(w.tick(606_100))
     }
 
     @Test fun renderSurfaceModeAutoSurfaceAndTexture() {
         assertEquals(listOf("AUTO", "SURFACE_VIEW", "TEXTURE_VIEW"), RenderSurfaceMode.entries.map { it.name })
         assertEquals(RenderSurfaceMode.AUTO, RenderSurfaceMode.current)                // domyślnie
-        assertFalse(RenderSurfaceMode.AUTO.texture(false)); assertTrue(RenderSurfaceMode.AUTO.texture(true))
+        // (7.22) AUTO – zawsze SurfaceView (TextureView tylko z ręcznego wyboru)
+        assertFalse(RenderSurfaceMode.AUTO.texture(false)); assertFalse(RenderSurfaceMode.AUTO.texture(true))
         assertFalse(RenderSurfaceMode.SURFACE_VIEW.texture(true)); assertTrue(RenderSurfaceMode.TEXTURE_VIEW.texture(false))
         // AUTO: zwykły kanał – SurfaceView, kanał zapisany jako wymagający zgodności – TextureView
         ChannelEngines.save("tex", "http://127.0.0.1:9/live/tex.ts", EngineProfile(software = true, surface = 1))
         val plain = Channel("plain", "Zwykły", "http://127.0.0.1:9/live/plain.ts", "G")
         val tex = Channel("tex", "Przeplot", "http://127.0.0.1:9/live/tex.ts", "G")
         Playback.play(ctx, plain, plain.url); idle(); assertFalse(Playback.wantsTextureView)
-        Playback.play(ctx, tex, tex.url); idle(); assertTrue(Playback.wantsTextureView)
+        Playback.play(ctx, tex, tex.url); idle(); assertFalse(Playback.wantsTextureView)   // (7.22) AUTO – także kanał w trybie zgodności na SurfaceView
         Prefs.surfaceMode = RenderSurfaceMode.SURFACE_VIEW.ordinal; assertFalse(Playback.wantsTextureView)
         Prefs.surfaceMode = RenderSurfaceMode.TEXTURE_VIEW.ordinal
         Playback.play(ctx, plain, plain.url); idle(); assertTrue(Playback.wantsTextureView)

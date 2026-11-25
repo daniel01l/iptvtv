@@ -1506,6 +1506,8 @@
    "dotknij programu" : "tap a programme",
    "duży bufor" : "large buffer",
    "obraz TextureView" : "TextureView picture",
+   "Automatyczna korekta przy zacinaniu obrazu" : "Automatic correction when the picture stutters",
+   "Gdy obraz wyraźnie klatkuje przez kilka sekund, odtwarzacz automatycznie dostosowuje tryb wyświetlania (bez przełączania kanałów HD/FHD na słaby dekoder programowy). Wyłącz, aby zachować pełną kontrolę ręczną." : "When the picture clearly stutters for a few seconds, the player automatically adjusts the display mode (without switching HD/FHD channels to the weak software decoder). Turn off to keep full manual control.",
    "Klucz TMDB" : "TMDB key",
    "Klucz zapisany – Top 10, polskie opisy i części filmów są włączone." : "Key saved – Top 10, Polish descriptions and movie parts are on.",
    "Bez klucza Stremio działa jak dotąd. Darmowy klucz API (v3) założysz na themoviedb.org → Ustawienia → API." : "Without a key Stremio works as before. Get a free API key (v3) at themoviedb.org → Settings → API.",
