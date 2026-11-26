@@ -558,6 +558,8 @@ class MainActivity : BaseActivity() {
         if (!Prefs.mainPreview || isFinishing || !isResumedNow) return
         // film STube gra w tle (pasek „Teraz odtwarzane”) – bez podglądu kanału (dwa dźwięki naraz)
         if (YtEngine.active) return
+        // (7.25) trwa przesyłanie na telewizor – bez lokalnego podglądu (dźwięk tylko na odbiorniku)
+        if (CastHub.casting) return
         if (pl.iptv.tv.data.Parental.needsPin(ch)) { findViewById<TextView>(R.id.previewHint).text = "🔒"; return }
         findViewById<TextView>(R.id.previewHint).text = ""
         Playback.play(this, ch, ch.url)

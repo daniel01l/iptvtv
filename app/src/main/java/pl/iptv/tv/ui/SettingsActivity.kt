@@ -1171,6 +1171,10 @@ class SettingsActivity : BaseActivity() {
             row("↺ Przywróć domyślne parametry") { Prefs.resetLowPerfParams(); Playback.stop(); build(keepFocus = true) }
         }
 
+        // (7.25) przesyłanie z odtwarzaczy na Chromecast / Android TV / Google TV
+        header(CAST_HEADER)
+        toggle(CAST_TOGGLE, { Prefs.castButton }) { on -> Prefs.castButton = on; CastHub.settingChanged(this) }
+        note(if (!Prefs.castButton) CAST_NOTE_OFF else CAST_NOTE)
         // (7.20) rzędy „Top 10” platform w Stremio: odświeżanie domyślnie co 4 dni (96 h), zmiana ręczna i pobranie od razu
         header("Stremio – Top 10")
         val T = pl.iptv.tv.data.StremioTop10
@@ -1993,6 +1997,10 @@ class SettingsActivity : BaseActivity() {
         const val AUTO_STUTTER_TITLE = "Automatyczna korekta przy zacinaniu obrazu"
         /** (7.24) Reset profilu silnika do domyślnego („Szybkie przełączanie (Sport / Live TV)”). */
         const val RESET_ENGINE_PROFILE = "↺ Przywróć domyślny profil silnika"
+        const val CAST_HEADER = "Przesyłanie na urządzenia w pobliżu (Cast)"
+        const val CAST_TOGGLE = "Przycisk „Przesyłaj” w odtwarzaczach (Live TV, STube, Stremio)"
+        const val CAST_NOTE = "Przycisk pojawia się tylko, gdy w tej samej sieci Wi-Fi jest Chromecast, Android TV lub Google TV z Google Cast. Obraz i dźwięk przechodzą na telewizor, a tutaj odtwarzanie jest wstrzymane; zakończenie przesyłania albo błąd odbiornika wraca do odtwarzania na tym urządzeniu. Na TV: przytrzymaj OK w odtwarzaczu."
+        const val CAST_NOTE_OFF = "Przycisk przesyłania jest ukryty we wszystkich odtwarzaczach."
         /** (7.22) Ustawienia → Wygląd. */
         const val UI_RESOLUTION_TITLE = "Rozdzielczość interfejsu"
         const val UI_RESOLUTION_NOTE = "Wielkość menu, okien i kafelków (obraz wideo bez zmian). Na telefonie trzymanym pionowo zawsze obowiązuje gęstość systemu."

@@ -16,8 +16,8 @@ android {
         applicationId = "pl.iptv.tv"
         minSdk = 21
         targetSdk = 34
-        versionCode = 84
-        versionName = "7.24"
+        versionCode = 85
+        versionName = "7.25"
         // konto YouTube (OAuth 2.0 Device Flow): klient typu „TV i urządzenia z ograniczonym wejściem” z Google Cloud Console.
         // Plik keystore/youtube_oauth.properties (poza repozytorium): client_id=…, client_secret=…, api_key=… (klucz – trendy bez logowania).
         val yt = Properties().apply { rootProject.file("keystore/youtube_oauth.properties").takeIf { it.exists() }?.reader()?.use { load(it) } }
@@ -134,6 +134,9 @@ dependencies {
     implementation("androidx.media3:media3-ui:$media3")
     // STube: odtwarzanie w tle (MediaSessionService, powiadomienie multimediów)
     implementation("androidx.media3:media3-session:$media3")
+    // (7.25) przesyłanie na urządzenia w pobliżu (Chromecast / Android TV / Google TV z Google Cast) – Default Media Receiver;
+    // bez Usług Google Play (część przystawek TV) przycisk po prostu się nie pokazuje ([pl.iptv.tv.ui.CastHub])
+    implementation("com.google.android.gms:play-services-cast-framework:21.5.0")
     implementation("androidx.media3:media3-datasource-okhttp:$media3")
     // Stremio: programowe dekodery dźwięku FFmpeg (AC3, E-AC3, DTS, DTS-HD, TrueHD…) jako zapas, gdy TV nie ma dekodera / passthrough.
     // Prebudowany moduł Jellyfin (biblioteki natywne FFmpeg, licencja GPLv3 wg POM) – wersja musi odpowiadać Media3.

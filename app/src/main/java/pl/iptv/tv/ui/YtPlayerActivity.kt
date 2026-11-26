@@ -269,6 +269,7 @@ class YtPlayerActivity : AppCompatActivity() {
         queueBtn = barButton(PlayerIcon.QUEUE, "Następne") { openPanel(TAB_RELATED) }
         autoplayBtn = barButton(PlayerIcon.AUTOPLAY, "") { toggleAutoplay() }
         pipBtn = barButton(PlayerIcon.PIP, "Okno") { enterPip() }
+        CastHub.bind(barButton(PlayerIcon.CAST, "Przesyłaj") { castClick() })      // (7.25) tylko przy urządzeniach w pobliżu
         // (7.5) telefon: sam dźwięk – obraz odpięty (bez dekodowania), słuchanie przy wyłączonym / zablokowanym ekranie
         audioOnlyBtn = barButton(PlayerIcon.AUDIO_ONLY, "Tylko dźwięk") { toggleAudioOnly() }.apply { visibility = if (Tutorial.isTv(this@YtPlayerActivity)) View.GONE else View.VISIBLE }
         musicBtn = barButton(PlayerIcon.MUSIC, "Widok muzyczny") { setMusicView(true) }.apply { visibility = View.GONE }
@@ -333,6 +334,7 @@ class YtPlayerActivity : AppCompatActivity() {
         uiStarted = true
         YtEngine.listeners += engineListener
         followEngine()      // (7.23) kolejka mogła przejść dalej w tle (zablokowany telefon) – ekran na faktycznie grany utwór
+        CastHub.attach(this, CastHub.Kind.STUBE, castLocal)       // (7.25) urządzenia w pobliżu
         connect()
         handler.removeCallbacks(upNextTick); handler.postDelayed(upNextTick, UP_NEXT_TICK_MS)
     }
@@ -372,6 +374,7 @@ class YtPlayerActivity : AppCompatActivity() {
         uiStarted = false
         handler.removeCallbacks(upNextTick); upNextLabel.hide()
         hiddenWhilePlaying = YtEngine.video != null
+        CastHub.detach(this)
         YtEngine.listeners -= engineListener
         disconnect()
         // (7.20) zwiastun Stremio: po wyjściu odtwarzacz całkowicie zatrzymany i zwolniony (bez tła i mini-odtwarzacza)
@@ -425,7 +428,11 @@ class YtPlayerActivity : AppCompatActivity() {
             upNextLabel.hide()
             if (!status.text.endsWith("Tylko dźwięk")) status.visibility = View.GONE   // (7.23) bez napisu ładowania na środku
         }
-        override fun onLoaded(p: YtPlayable) { syncUi() }
+        override fun onLoaded(p: YtPlayable) {
+            syncUi()
+            // (7.25) kolejka przeszła dalej w trakcie przesyłania – następny utwór na odbiornik, lokalnie cisza
+            if (CastHub.isCasting(CastHub.Kind.STUBE)) { YtEngine.player?.pause(); runCatching { castMedia() }.getOrNull()?.let { CastHub.switchMedia(it) } }
+        }
         override fun onError(reason: String): Boolean { showFallback(reason); return true }
         override fun onSkipped(seg: SbSegment) {
             skipLabel.text = "⏭  Pominięto: ${SponsorBlock.label(seg.category)}"
@@ -929,6 +936,8 @@ class YtPlayerActivity : AppCompatActivity() {
             playerView.layoutParams = FrameLayout.LayoutParams(-1, videoH, Gravity.TOP).apply { topMargin = top }
             // (7.22) jednolity pasek ikon w strefie kciuka (pełne opcje – „Jakość” → „Więcej opcji”)
             if (panel.actions.childCount == 0) panel.actions.addView(PortraitPlayerUi.bar(this, portraitIcons()), FrameLayout.LayoutParams(-1, -2))
+            PortraitPlayerUi.bindCast(panel.actions)
+            PortraitPlayerUi.bindCast(panel.actions)
             panel.layoutParams = FrameLayout.LayoutParams(-1, -1).apply { topMargin = top + videoH }
             panel.visibility = View.VISIBLE
             infoBox.visibility = View.GONE
@@ -964,10 +973,43 @@ class YtPlayerActivity : AppCompatActivity() {
      * (7.22 / 7.23) Pasek ikon w pionie – dokładnie: Muzyka, Tekst, Opcje odtwarzania (to samo okno co ☰ w widoku muzycznym), Obróć.
      * „Silnik” usunięty (ustawienia silnika – Ustawienia → Odtwarzanie).
      */
+    // ---------------- (7.25) przesyłanie (Cast) ----------------
+
+    /** Odtwarzanie lokalne STube (silnik w usłudze): pauza / wznowienie od pozycji z odbiornika. */
+    val castLocal = object : CastHub.Local {
+        override fun pause() { YtEngine.player?.pause() }
+        override fun resume(positionMs: Long) { YtEngine.player?.let { p -> if (positionMs > 0 && !YtEngine.live) p.seekTo(positionMs); p.play() } }
+    }
+
+    /**
+     * Bieżący film: transmisja na żywo – HLS / DASH, film – strumień z obrazem i dźwiękiem (odbiorniki Cast nie łączą osobnych
+     * ścieżek obrazu i dźwięku z YouTube). Brak takiego strumienia – [CastHub.Unsupported] z komunikatem.
+     */
+    fun castMedia(): CastHub.Media? {
+        val v = YtEngine.video ?: return null
+        val p = YtEngine.playable ?: return null
+        val title = p.title.ifBlank { v.title }
+        val image = "https://i.ytimg.com/vi/${v.id}/hqdefault.jpg"
+        return when (p) {
+            is YtPlayable.Live -> {
+                val url = p.hlsUrl ?: p.dashUrl ?: return null
+                CastHub.Media(url, title, v.channel, if (p.hlsUrl != null) "application/x-mpegURL" else "application/dash+xml", live = true, image = image)
+            }
+            is YtPlayable.Muxed -> CastHub.Media(p.stream.url, title, p.channel.ifBlank { v.channel }, "video/mp4", image = image, positionMs = YtEngine.player?.currentPosition ?: 0)
+            is YtPlayable.Split -> {
+                val m = p.muxed ?: throw CastHub.Unsupported("Ten film YouTube ma tylko osobny obraz i dźwięk – odbiornik Cast go nie odtworzy")
+                CastHub.Media(m.url, title, p.channel.ifBlank { v.channel }, "video/mp4", image = image, positionMs = YtEngine.player?.currentPosition ?: 0)
+            }
+        }
+    }
+
+    private fun castClick() { CastHub.click(this, CastHub.Kind.STUBE, castLocal) { castMedia() } }
+
     private fun portraitIcons() = listOf(
         PortraitPlayerUi.Icon("music", PlayerIcon.MUSIC, "Muzyka") { setMusicView(!stageShown) },
         PortraitPlayerUi.Icon("lyrics", PlayerIcon.LYRICS, "Tekst") { if (stageShown) stage.selectTab(YtMusicStage.TAB_LYRICS) else portraitPanel?.toggleLyrics() },
         PortraitPlayerUi.Icon("options", PlayerIcon.CHAPTERS, "Opcje odtwarzania") { showMusicOptions() },
+        PortraitPlayerUi.Icon("cast", PlayerIcon.CAST, "Przesyłaj") { castClick() },
         PortraitPlayerUi.Icon("rotate", PlayerIcon.ROTATE, "Obróć") { PortraitPlayerUi.rotateToLandscape(this) },
     )
 

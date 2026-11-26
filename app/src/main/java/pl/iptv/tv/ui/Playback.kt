@@ -60,7 +60,7 @@ object Playback {
     }
     /** Połączenia bieżącego strumienia. */
     private var calls: StreamCalls? = null
-    private var lastMime: String? = null
+    var lastMime: String? = null; private set
 
     /** Słuchacze ekranów – przenoszeni na nowy odtwarzacz po automatycznym odbudowaniu (bez gubienia stanu ekranu). */
     private val listeners = java.util.LinkedHashSet<androidx.media3.common.Player.Listener>()

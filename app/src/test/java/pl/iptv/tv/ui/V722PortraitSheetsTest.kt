@@ -59,11 +59,12 @@ class V722PortraitSheetsTest {
         val bar = a.portraitBar!!
         assertEquals(View.VISIBLE, bar.visibility)
         val icons = (0 until bar.childCount).map { bar.getChildAt(it) }
-        assertEquals(listOf("channels", "guide", "tracks", "aspect", "engine", "rotate").map { PortraitPlayerUi.ICON_TAG + it }, icons.map { it.tag })
+        assertEquals(listOf("channels", "guide", "tracks", "aspect", "engine", "cast", "rotate").map { PortraitPlayerUi.ICON_TAG + it }, icons.map { it.tag })
         // 360 dp szerokości: wszystkie ikony w całości, każda ≥ 48 × 48 dp, podpis w jednej linii
         val w = a.resources.displayMetrics.widthPixels
         bar.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)); bar.layout(0, 0, w, bar.measuredHeight)
-        icons.forEach { assertTrue(it.width >= Ui.dp(48)); assertTrue(it.height >= Ui.dp(48)) }
+        // (7.25) „cast” ukryta bez urządzeń w pobliżu – liczą się widoczne
+        icons.filter { it.visibility == View.VISIBLE }.forEach { assertTrue(it.width >= Ui.dp(48)); assertTrue(it.height >= Ui.dp(48)) }
         assertTrue(icons.last().right <= w)
         all(bar).filterIsInstance<TextView>().forEach { assertEquals(1, it.maxLines) }
         // obraz i nakładki kończą się nad paskiem (bez nakładania na wideo)
@@ -163,7 +164,7 @@ class V722PortraitSheetsTest {
         assertEquals(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_USER, a.requestedOrientation)
         val bar = a.portraitBar!!
         // (7.23) Źródła, Odcinki / Części, Audio, Napisy, Obraz, Obróć (bez „Silnik”)
-        assertEquals(listOf("sources", "episodes", "audio", "tracks", "aspect", "rotate").map { PortraitPlayerUi.ICON_TAG + it }, (0 until bar.childCount).map { bar.getChildAt(it).tag })
+        assertEquals(listOf("sources", "episodes", "audio", "tracks", "aspect", "cast", "rotate").map { PortraitPlayerUi.ICON_TAG + it }, (0 until bar.childCount).map { bar.getChildAt(it).tag })
         assertEquals("Odcinki", (bar.getChildAt(1) as android.view.ViewGroup).getChildAt(1).let { (it as TextView).text.toString() })
         all(bar).first { it.tag == PortraitPlayerUi.ICON_TAG + "tracks" }.performClick(); idle()
         assertTrue(texts(a.lastSheet!!.root).contains(StremioPlayerActivity.SUB_DELAY))

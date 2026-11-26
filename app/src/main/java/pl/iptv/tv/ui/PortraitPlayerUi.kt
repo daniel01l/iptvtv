@@ -80,6 +80,9 @@ object PortraitPlayerUi {
         return bar
     }
 
+    /** (7.25) Ikona „cast” paska – widoczna tylko przy urządzeniach w pobliżu ([CastHub.visible]). */
+    fun bindCast(bar: android.view.View?) { bar?.findViewWithTag<android.view.View>(ICON_TAG + "cast")?.let { CastHub.bind(it) } }
+
     /** Pasek przy dolnej krawędzi [root] z odstępem systemowego paska nawigacji; [onHeight] – wysokość po pomiarze. */
     fun attachBar(a: Activity, root: FrameLayout, icons: List<Icon>, onHeight: (Int) -> Unit = {}): LinearLayout {
         val b = bar(a, icons)

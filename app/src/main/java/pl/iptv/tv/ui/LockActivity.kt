@@ -14,7 +14,10 @@ import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import androidx.lifecycle.repeatOnLifecycle
 import pl.iptv.tv.BuildConfig
 import pl.iptv.tv.data.Activation
 import pl.iptv.tv.data.Activation.State
@@ -30,9 +33,14 @@ class LockActivity : AppCompatActivity() {
 
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var box: LinearLayout
-    private val recheck = object : Runnable {
-        override fun run() { check(); handler.postDelayed(this, 30_000) }
-    }
+    /** (7.25) Stan i błąd pokazane na ekranie – widok przebudowywany tylko przy zmianie (odpytywanie co [Activation.POLL_MS]). */
+    private var shownState: State? = null
+    private var shownError: String? = null
+    private var unlocked = false
+    /** Linia „Sprawdzono …” – aktualizowana bez przebudowy ekranu. */
+    private var checkedTv: TextView? = null
+    /** Liczba sprawdzeń z odpytywania (testy). */
+    var polls = 0; private set
 
     override fun onCreate(savedInstanceState: Bundle?) {
         pl.iptv.tv.ui.TvResolution.applyMetrics(resources); pl.iptv.tv.ui.TvResolution.applyMetrics(applicationContext.resources)   // (7.20) siatka TV 960 × 540 dp
@@ -52,17 +60,49 @@ class LockActivity : AppCompatActivity() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) { override fun handleOnBackPressed() { finishAffinity() } })
         Playback.stop()
         render()
+        startPolling()
     }
 
-    override fun onResume() { super.onResume(); handler.post(recheck) }
-    override fun onPause() { super.onPause(); handler.removeCallbacks(recheck) }
+    /**
+     * (7.25) Odpytywanie powiązane z cyklem życia: co [Activation.POLL_MS] od razu po wejściu na ekran (STARTED), zatrzymane
+     * po wyjściu / zamknięciu (repeatOnLifecycle anuluje pętlę). Ten sam kod, który widzi użytkownik ([Activation.code]).
+     */
+    private fun startPolling() {
+        lifecycleScope.launch {
+            repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                while (isActive && !unlocked) {
+                    if (Activation.consent) { polls++; onChecked(Activation.check(poll = true)) }
+                    delay(Activation.POLL_MS)
+                }
+            }
+        }
+    }
 
     private fun check() {
         if (!Activation.consent) return
-        lifecycleScope.launch { if (Activation.check() == State.ACTIVE) unlock() else render() }
+        lifecycleScope.launch { onChecked(Activation.check()) }
+    }
+
+    /** Wynik sprawdzenia: aktywna – od razu dalej; inaczej ekran tylko przy zmianie stanu / błędu. */
+    private fun onChecked(st: State) {
+        if (unlocked || isFinishing) return
+        if (st == State.ACTIVE) { unlock(); return }
+        if (st != shownState || Activation.lastError != shownError) render()
+        else checkedTv?.text = checkedText()
+    }
+
+    private fun checkedText() = "Sprawdzono: " + java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date()) +
+        (Activation.lastError.takeIf { it.isNotBlank() }?.let { " – $it" } ?: "")
+
+    /** (7.25) Obrót / zmiana rozmiaru bez odtworzenia ekranu (manifest `configChanges`) – układ wąski / szeroki od nowa. */
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (!unlocked) render()
     }
 
     private fun unlock() {
+        if (unlocked) return
+        unlocked = true
         startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK))
         finish()
     }
@@ -94,14 +134,15 @@ class LockActivity : AppCompatActivity() {
     }
 
     private fun render() {
-        box.removeAllViews()
+        box.removeAllViews(); checkedTv = null
         val st = Activation.state()
+        shownState = st; shownError = Activation.lastError
         box.addView(text("D-iptv Player", 24f, Ui.accent, bold = true, top = 0))
         if (st == State.NO_CONSENT) { renderConsent(); return }
         val (title, info) = when (st) {
             State.BLOCKED -> "⛔ Dostęp zablokowany" to "Administrator zablokował aplikację na tym urządzeniu. W sprawie odblokowania skontaktuj się z nim, podając kod:"
             State.OFFLINE -> "📡 Brak połączenia" to "Aplikacja nie mogła sprawdzić aktywacji od ponad ${Activation.graceDays} dni. Połącz urządzenie z internetem i wybierz „Sprawdź ponownie”. Kod urządzenia:"
-            else -> "🔑 Aplikacja wymaga aktywacji" to "Podaj ten kod administratorowi. Po aktywacji aplikacja uruchomi się sama (sprawdzanie co 30 s)."
+            else -> "🔑 Aplikacja wymaga aktywacji" to "Podaj ten kod administratorowi. Po zatwierdzeniu urządzenia aplikacja uruchomi się sama w ciągu kilku sekund – bez ponownego wpisywania kodu i bez ponownego uruchamiania."
         }
         box.addView(text(title, 21f, bold = true, top = 18))
         box.addView(text(info, 15f, Ui.text2))
@@ -111,7 +152,7 @@ class LockActivity : AppCompatActivity() {
         if (qr != 0) box.addView(ImageView(this).apply { setImageResource(qr); setBackgroundColor(0xFFFFFFFF.toInt()); setPadding(Ui.dp(6), Ui.dp(6), Ui.dp(6), Ui.dp(6)) },
             LinearLayout.LayoutParams(Ui.dp(150), Ui.dp(150)).apply { topMargin = Ui.dp(16) })
         if (BuildConfig.CONTACT.isNotBlank()) box.addView(text("Kontakt: Telegram ${BuildConfig.CONTACT} (zeskanuj kod QR)", 14f, Ui.text2, top = 8))
-        Activation.lastError.takeIf { it.isNotBlank() }?.let { box.addView(text("Ostatnie sprawdzenie: $it", 12f, Ui.text2, top = 8)) }
+        checkedTv = text(checkedText(), 12f, Ui.text2, top = 8).also { box.addView(it) }
         val row = buttonRow(button("🔄 Sprawdź ponownie", true) { check() }, button("Zamknij", false) { finishAffinity() })
         box.addView(row)
         Ui.style(box)

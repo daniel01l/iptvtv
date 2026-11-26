@@ -152,6 +152,8 @@ object Prefs {
     var stubePin: String get() = str("stube_pin"); set(v) = put("stube_pin", v)
     /** (7.15) Odbiór linków „wyślij na telewizor” z telefonu (NSD + /api/cast). */
     var castReceiver: Boolean get() = bool("cast_receiver", false); set(v) = putBool("cast_receiver", v)
+    /** (7.25) Przycisk przesyłania (Cast) w odtwarzaczach Live TV / STube / Stremio – widoczny tylko przy urządzeniach w pobliżu. */
+    var castButton: Boolean get() = bool("cast_button", true); set(v) = putBool("cast_button", v)
     var stubeRemote: Boolean get() = bool("stube_remote", false); set(v) = putBool("stube_remote", v)
     /** STube: motyw kolorów ([pl.iptv.tv.ui.StubeTheme], 0 = jak aplikacja) i układ kafelków. */
     var stubeTheme: Int get() = int("stube_theme", 0); set(v) = putInt("stube_theme", v)

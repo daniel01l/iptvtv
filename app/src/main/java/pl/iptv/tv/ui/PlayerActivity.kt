@@ -205,6 +205,7 @@ class PlayerActivity : BaseActivity() {
         findViewById<View>(R.id.tPrev).setOnClickListener { zap(-1) }
         findViewById<View>(R.id.tNext).setOnClickListener { zap(1) }
         findViewById<View>(R.id.tClose).setOnClickListener { leaveScreen() }
+        CastHub.bind(findViewById<View>(R.id.tCast)).setOnClickListener { castClick() }       // (7.25) przesyłanie (Cast)
         findViewById<View>(R.id.tFav).setOnClickListener {
             val added = Repository.toggleFav(list[pos])
             I18n.makeToast(this, if (added) "Dodano do ulubionych" else "Usunięto z ulubionych", Toast.LENGTH_SHORT).show()
@@ -443,7 +444,9 @@ class PlayerActivity : BaseActivity() {
     override fun applyTheme() {} // odtwarzacz nie używa tła menu
 
     override fun onStart() {
-        super.onStart(); applyInfoBarPosition(); initPlayer(); playCurrent()
+        super.onStart(); applyInfoBarPosition(); initPlayer()
+        CastHub.attach(this, CastHub.Kind.LIVE, castLocal)       // (7.25) wyszukiwanie urządzeń w pobliżu
+        playCurrent()
         // pierwszy kanał na żywo: instrukcja obsługi (raz)
         if (!Prefs.tutorialShown && !isCatchup) handler.postDelayed({ if (!isFinishing) Tutorial.showOnce(this) }, 1500)
     }
@@ -461,6 +464,7 @@ class PlayerActivity : BaseActivity() {
         handler.removeCallbacksAndMessages(null)
         recentScheduled = false
         osd?.hide()                      // (7.17) ukryty OSD – pętla postępu zatrzymana
+        CastHub.detach(this)
         AutoFrameRate.reset(this)        // (7.17) AFR – domyślny tryb ekranu po wyjściu z odtwarzacza
         // odtwarzacz zostaje (kanał gra dalej w menu/ustawieniach); odłączamy tylko obraz i słuchacza
         Playback.removeListener(listener)
@@ -815,6 +819,8 @@ class PlayerActivity : BaseActivity() {
             return playCurrent()
         }
         // ten sam strumień (np. powrót z ustawień lub z podglądu w menu) gra dalej bez restartu
+        // (7.25) trwa przesyłanie na telewizor – nowy kanał tam, lokalnie cisza (bez dublowania dźwięku)
+        if (CastHub.isCasting(CastHub.Kind.LIVE)) { CastHub.switchMedia(liveMedia(ch, url)); return }
         Playback.play(this, ch, url, force = keepRetries)
         // logo sąsiednich kanałów do pamięci – przy kolejnym przełączeniu pokaże się od razu
         listOf(-1, 1, 2).forEach { d -> list.getOrNull((pos + d + list.size) % list.size)?.let { prefetchPicon(this, it) } }
@@ -1278,6 +1284,7 @@ class PlayerActivity : BaseActivity() {
                 { a -> Prefs.aspectMode = LIVE_ASPECTS[a] ?: 0; applyAspect() })
         },
         PortraitPlayerUi.Icon("engine", PlayerIcon.QUALITY, "Silnik") { lastSheet = PortraitPlayerUi.engineSheet(this, { Playback.decoderInfo() + "\n" + PortraitPlayerUi.diagnostics(Playback.player) }) },
+        PortraitPlayerUi.Icon("cast", PlayerIcon.CAST, "Przesyłaj") { castClick() },
         PortraitPlayerUi.Icon("rotate", PlayerIcon.ROTATE, "Obróć") { PortraitPlayerUi.rotateToLandscape(this) },
     )
 
@@ -1302,6 +1309,7 @@ class PlayerActivity : BaseActivity() {
             (main.layoutParams as? FrameLayout.LayoutParams)?.let { lp -> val m = if (portraitBar?.visibility == View.VISIBLE) h else 0; if (lp.bottomMargin != m) { lp.bottomMargin = m; main.layoutParams = lp } }
         }
         portraitBar?.visibility = if (show) View.VISIBLE else View.GONE
+        PortraitPlayerUi.bindCast(portraitBar)          // (7.25) ikona „Przesyłaj” – tylko przy urządzeniach w pobliżu
         if (!show) (main.layoutParams as? FrameLayout.LayoutParams)?.let { lp -> if (lp.bottomMargin != 0) { lp.bottomMargin = 0; main.layoutParams = lp } }
     }
 
@@ -2031,12 +2039,41 @@ class PlayerActivity : BaseActivity() {
      * zapisu co Ustawienia ([EngineConfigRepository]); zmiana działa od razu (przebudowa odtwarzacza w locie, archiwum – ta
      * sama pozycja), na górze na żywo kodeki obrazu i dźwięku.
      */
+    // ---------------- (7.25) przesyłanie na urządzenia w pobliżu (Cast) ----------------
+
+    /** Odtwarzanie lokalne Live TV: wstrzymanie = pełne zatrzymanie (połączenia i dekodery zwolnione), wznowienie = bieżący kanał. */
+    val castLocal = object : CastHub.Local {
+        override fun pause() { Playback.stop() }
+        override fun resume(positionMs: Long) {
+            if (isFinishing || !lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) return
+            Playback.removeListener(listener); initPlayer(); playCurrent()
+        }
+    }
+
+    /** Kanał (albo archiwum) do przesłania: adres jak w odtwarzaczu, typ strumienia rozpoznany przez [Playback]. */
+    fun liveMedia(ch: Channel, url: String): CastHub.Media {
+        val mime = (if (Playback.url == url) Playback.lastMime else null) ?: Playback.guessMime(url)
+            ?: if (url in Playback.hlsUrls) androidx.media3.common.MimeTypes.APPLICATION_M3U8 else null
+        val headers = buildMap { if (ch.userAgent.isNotBlank()) put("User-Agent", ch.userAgent); if (ch.referrer.isNotBlank()) put("Referer", ch.referrer) }
+        val prog = if (isCatchup) Repository.programmes(ch).firstOrNull { it.start == catchStart } else Repository.current(ch, System.currentTimeMillis())
+        return CastHub.Media(url, ch.name, prog?.title.orEmpty(), mime, live = !isCatchup, image = ch.logo,
+            positionMs = if (isCatchup) Playback.player?.currentPosition ?: 0 else 0, headers = headers)
+    }
+
+    private fun castClick() {
+        closePanels(); hideOverlay.run()
+        CastHub.click(this, CastHub.Kind.LIVE, castLocal) {
+            list.getOrNull(pos)?.let { ch -> liveMedia(ch, Playback.url?.takeIf { Playback.channelKey == ch.key } ?: ch.url) }
+        }
+    }
+
     private fun playbackMenu() {
         closePanels(); hideOverlay.run()
         val extras = listOfNotNull(
             "Dopasowanie silnika (automatyczne)" to { manualEngineFit() },
             "Bieżący dekoder – szczegóły" to { Dialogs.confirm(this, "Bieżący dekoder", Playback.decoderInfo()) {} },
             if (Prefs.miniMenuEnabled && Prefs.okLongAction == 0) "Szybkie menu ikon" to { openMini() } else null,
+            if (CastHub.visible) CastHub.MENU_ENTRY to { castClick() } else null,
         )
         EngineSheet.show(this, list.getOrNull(pos), { Playback.url }, extras)
     }

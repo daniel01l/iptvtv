@@ -338,6 +338,8 @@ class StremioPlayerActivity : AppCompatActivity() {
         btn(PlayerIcon.STYLE, "Styl napisów") { styleMenu() }
         // (7.23) telefon (także poziomo) – okno „Obraz” (profil, proporcje, jasność, kontrast, nasycenie); TV – dawne okno proporcji
         btn(PlayerIcon.ASPECT, "Dopasowanie obrazu") { if (Tutorial.isTv(this@StremioPlayerActivity)) aspectMenu() else lastSheet = pictureSheet() }
+        // (7.25) przesyłanie na urządzenie w pobliżu – ikona tylko, gdy są urządzenia
+        CastHub.bind(btn(PlayerIcon.CAST, "Przesyłaj na urządzenie") { castClick() })
         pipBtn = btn(PlayerIcon.PIP, "Okno") { enterPip() }.apply { visibility = if (pipSupported && !Tutorial.isTv(this@StremioPlayerActivity)) View.VISIBLE else View.GONE }
         buttonsRow.addView(topBar)
         // (7.7) bez zmiany szerokości ikon (podpis nad ikoną) – rząd nie wypycha ikon poza ekran
@@ -721,8 +723,29 @@ class StremioPlayerActivity : AppCompatActivity() {
     }
 
     // (7.5) w oknie PiP onPause nie zatrzymuje filmu (gra dalej w pływającym oknie)
-    override fun onPause() { super.onPause(); saveProgress(push = true); if (!isInPip) player?.pause() }
-    override fun onResume() { super.onResume(); player?.let { if (it.playbackState != Player.STATE_ENDED) it.play() } }
+    override fun onPause() { super.onPause(); saveProgress(push = true); if (!isInPip) player?.pause(); CastHub.detach(this) }
+    override fun onResume() {
+        super.onResume()
+        CastHub.attach(this, CastHub.Kind.STREMIO, castLocal)          // (7.25) urządzenia w pobliżu; trwa przesyłanie – lokalnie cisza
+        player?.let { if (it.playbackState != Player.STATE_ENDED && !CastHub.isCasting(CastHub.Kind.STREMIO)) it.play() }
+    }
+
+    // ---------------- (7.25) przesyłanie (Cast) ----------------
+
+    val castLocal = object : CastHub.Local {
+        override fun pause() { player?.pause() }
+        override fun resume(positionMs: Long) { player?.let { p -> if (positionMs > 0) p.seekTo(positionMs); if (!isFinishing && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) p.play() } }
+    }
+
+    /** Bieżące źródło: adres, nagłówki wtyczki, tytuł z etykietą odcinka, plakat, pozycja. */
+    fun castMedia(): CastHub.Media? {
+        if (!::stream.isInitialized || stream.url.isBlank()) return null
+        val name = intent.getStringExtra(EXTRA_NAME).orEmpty()
+        return CastHub.Media(stream.url, name.ifBlank { stream.title }, label, live = false, image = intent.getStringExtra(EXTRA_POSTER).orEmpty(),
+            positionMs = player?.currentPosition ?: 0, headers = stream.headers)
+    }
+
+    private fun castClick() { CastHub.click(this, CastHub.Kind.STREMIO, castLocal) { castMedia() } }
     override fun onDestroy() { failureDialog?.dismiss(); releasePlayer(); handler.removeCallbacksAndMessages(null); super.onDestroy() }
 
     /** (7.18) Źródło, za które wtyczka dostała już punkt w tym seansie. */
@@ -1216,6 +1239,7 @@ class StremioPlayerActivity : AppCompatActivity() {
         add(PortraitPlayerUi.Icon("audio", PlayerIcon.AUDIO, "Audio") { lastSheet = audioSheet() })
         add(PortraitPlayerUi.Icon("tracks", PlayerIcon.CC, "Napisy") { lastSheet = subtitlesSheet() })
         add(PortraitPlayerUi.Icon("aspect", PlayerIcon.ASPECT, "Obraz") { lastSheet = pictureSheet() })
+        add(PortraitPlayerUi.Icon("cast", PlayerIcon.CAST, "Przesyłaj") { castClick() })
         add(PortraitPlayerUi.Icon("rotate", PlayerIcon.ROTATE, "Obróć") { PortraitPlayerUi.rotateToLandscape(this@StremioPlayerActivity) })
     }
 
@@ -1296,6 +1320,7 @@ class StremioPlayerActivity : AppCompatActivity() {
     private fun updatePortraitBar() {
         val show = PortraitPlayerUi.active(this) && !(android.os.Build.VERSION.SDK_INT >= 24 && isInPictureInPictureMode)
         if (show && portraitBar == null) portraitBar = PortraitPlayerUi.attachBar(this, rootView, portraitIcons()) { h -> portraitBarH = h; liftControls() }
+        PortraitPlayerUi.bindCast(portraitBar)
         portraitBar?.visibility = if (show) View.VISIBLE else View.GONE
         if (::topBar.isInitialized) topBar.visibility = if (show) View.GONE else View.VISIBLE
         if (::rowSpacer.isInitialized) rowSpacer.visibility = if (show) View.GONE else View.VISIBLE

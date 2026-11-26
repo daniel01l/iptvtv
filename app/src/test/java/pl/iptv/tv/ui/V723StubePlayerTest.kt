@@ -112,8 +112,8 @@ class V723StubePlayerTest {
         assertTrue(a.portraitActive)
         val panel = a.portraitPanel!!
         val bar = panel.actions.getChildAt(0) as android.view.ViewGroup
-        assertEquals(listOf("music", "lyrics", "options", "rotate").map { PortraitPlayerUi.ICON_TAG + it }, (0 until bar.childCount).map { bar.getChildAt(it).tag })
-        assertEquals(listOf("Muzyka", "Tekst", "Opcje odtwarzania", "Obróć"), (0 until bar.childCount).map { bar.getChildAt(it).contentDescription?.toString() ?: all(bar.getChildAt(it)).filterIsInstance<TextView>().first().text.toString() })
+        assertEquals(listOf("music", "lyrics", "options", "cast", "rotate").map { PortraitPlayerUi.ICON_TAG + it }, (0 until bar.childCount).map { bar.getChildAt(it).tag })   // (7.25) cast – ukryta bez urządzeń
+        assertEquals(listOf("Muzyka", "Tekst", "Opcje odtwarzania", "Przesyłaj", "Obróć"), (0 until bar.childCount).map { bar.getChildAt(it).contentDescription?.toString() ?: all(bar.getChildAt(it)).filterIsInstance<TextView>().first().text.toString() })
         // bez koła zębatego Media3 i bez napisu ładowania na środku
         assertFalse(a.settingsGearShown)
         assertTrue(all(a.window.decorView).filterIsInstance<TextView>().none { it.isShown && it.text.contains("Wczytywanie") })

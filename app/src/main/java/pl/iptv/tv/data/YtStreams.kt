@@ -57,7 +57,9 @@ sealed class YtPlayable {
                      override val chapters: List<YtChapter> = emptyList(), override val related: List<YtVideo> = emptyList(),
                      /** Inne rozdzielczości (wybór jakości) i inne ścieżki dźwięku (języki) – osobne grupy ścieżek odtwarzacza. */
                      val videoAlts: List<YtCandidate> = emptyList(), val audioAlts: List<YtCandidate> = emptyList(),
-                     override val subtitles: List<YtSubtitle> = emptyList(), override val channel: String = "") : YtPlayable()
+                     override val subtitles: List<YtSubtitle> = emptyList(), override val channel: String = "",
+                     /** (7.25) Strumień z obrazem i dźwiękiem (zwykle 360p) – do przesłania na odbiornik Cast; null – brak. */
+                     val muxed: YtCandidate? = null) : YtPlayable()
     data class Muxed(override val title: String, override val durationS: Long, val stream: YtCandidate,
                      override val chapters: List<YtChapter> = emptyList(), override val related: List<YtVideo> = emptyList(),
                      override val subtitles: List<YtSubtitle> = emptyList(), override val channel: String = "") : YtPlayable()
@@ -186,7 +188,8 @@ object YtStreams {
         val chapters = chaptersOf(info)
         val related = runCatching { info.relatedItems.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>().mapNotNull(YtKeyless::video).take(30) }.getOrDefault(emptyList())
         if (video != null && audio != null) return YtPlayable.Split(info.name, info.duration, video, audio, chapters, related,
-            videoAlternatives(videos, video, qualityCap), audioTracks(audios, audio), subs, channel)
+            videoAlternatives(videos, video, qualityCap), audioTracks(audios, audio), subs, channel,
+            runCatching { info.videoStreams.filter { it.isUrl && it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }.map { it.candidate() }.maxByOrNull { it.height } }.getOrNull())
         // zapas: strumień z obrazem i dźwiękiem (najwyżej 360p/720p)
         val muxed = pickVideo(info.videoStreams.filter { it.isUrl && it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }.map { it.candidate() }, maxHeight)
             ?: throw YtStreamException("Brak strumienia do odtworzenia")

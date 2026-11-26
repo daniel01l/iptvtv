@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.provider.Settings
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
@@ -95,28 +96,74 @@ object Activation {
 
     val needsCheck get() = enabled && consent && System.currentTimeMillis() - sp.getLong("last_try", 0) > CHECK_EVERY_MS
 
-    /** Pobiera i sprawdza podpisaną listę; zgłasza się administratorowi (kod, wersja, model). */
-    suspend fun check(): State = withContext(Dispatchers.IO) {
+    /**
+     * (7.25) Ekran aktywacji odpytuje co [POLL_MS] – po zatwierdzeniu w D-iptv Admin aplikacja rusza po kilku sekundach
+     * (dawniej co 30 s, a adres listy zmieniał się raz na minutę – CDN mógł oddawać starą kopię przez kilka minut).
+     */
+    const val POLL_MS = 2_500L
+    /** (7.25) Zgłoszenie do administratora przy odpytywaniu – najwyżej co tyle (zmiana stanu – od razu). */
+    const val POLL_CHECKIN_MS = 60_000L
+
+    /** (7.25) Jedno sprawdzenie naraz (ekran aktywacji, pętla aplikacji, ekrany – dawniej równoległe zapisy stanu). */
+    private val checkLock = kotlinx.coroutines.sync.Mutex()
+    private val nonce = java.util.concurrent.atomic.AtomicLong()
+    private var lastCheckinAt = 0L
+    private var lastCheckinStatus: String? = null
+    /** Liczba pobrań listy (testy). */
+    @Volatile var fetches = 0; private set
+    /** Ostatni pobrany adres listy (testy – unikalny, bez pamięci podręcznej). */
+    @Volatile var lastUrl = ""; private set
+    /** Testy: odpytywanie od nowa (zgłoszenie przy pierwszym sprawdzeniu). */
+    fun resetPollForTest() { lastCheckinAt = 0; lastCheckinStatus = null; fetches = 0 }
+
+    /** Adres listy unikalny przy każdym sprawdzeniu – omija pamięć podręczną CDN / pośredników. */
+    fun freshUrl(now: Long = System.currentTimeMillis()): String =
+        listUrl + (if ('?' in listUrl) "&" else "?") + "t=" + now + "-" + nonce.incrementAndGet()
+
+    /** (7.25) Wpis dla dokładnie tego kodu, który pokazuje ekran ([code]) – klucz listy porównywany po [ActivationFormat.normalize]. */
+    fun entryFor(entries: Map<String, ActivationFormat.Entry>, code: String = this.code): ActivationFormat.Entry? =
+        entries[code] ?: ActivationFormat.normalize(code).let { c -> entries.entries.firstOrNull { ActivationFormat.normalize(it.key) == c }?.value }
+
+    /**
+     * Pobiera i sprawdza podpisaną listę; zgłasza się administratorowi (kod, wersja, model). [poll] – odpytywanie z ekranu
+     * aktywacji: zgłoszenie najwyżej co [POLL_CHECKIN_MS] (albo przy zmianie stanu). Wynik zapisany trwale (`commit`) przed
+     * zwróceniem – zamknięcie aplikacji tuż po aktywacji jej nie cofa.
+     */
+    suspend fun check(poll: Boolean = false): State = withContext(Dispatchers.IO) {
         if (!enabled || !consent) return@withContext state()
-        sp.edit().putLong("last_try", System.currentTimeMillis()).apply()
-        runCatching {
-            val url = listUrl + (if ('?' in listUrl) "&" else "?") + "t=" + System.currentTimeMillis() / 60_000
-            val body = Repository.http.newCall(Request.Builder().url(url).header("Cache-Control", "no-cache").build()).execute().use { r ->
-                if (r.code == 404) "" else { if (!r.isSuccessful) error("HTTP ${r.code}"); r.body!!.string() }
+        checkLock.withLock {
+            val now = System.currentTimeMillis()
+            sp.edit().putLong("last_try", now).apply()
+            runCatching {
+                val url = freshUrl(now); lastUrl = url; fetches++
+                val req = Request.Builder().url(url).cacheControl(okhttp3.CacheControl.FORCE_NETWORK)
+                    .header("Cache-Control", "no-cache, no-store, max-age=0").header("Pragma", "no-cache").build()
+                val body = Repository.http.newCall(req).execute().use { r ->
+                    if (r.code == 404) "" else { if (!r.isSuccessful) error("HTTP ${r.code}"); r.body!!.string() }
+                }
+                if (body.isBlank()) { save("", lastTs); lastError = ""; return@runCatching }
+                val (payload, sig) = ActivationFormat.unwrap(body)
+                if (pubKey.isBlank() || !ActivationFormat.verify(payload, sig, pubKey)) error("Nieprawidłowy podpis listy aktywacji")
+                val ts = ActivationFormat.timestamp(payload)
+                if (ts < lastTs) error("Nieaktualna lista aktywacji")            // starsza lista nie może cofnąć blokady
+                val entry = entryFor(ActivationFormat.entries(payload))
+                val st = entry?.forEdition(fullEdition).orEmpty()
+                save(st, ts)
+                if (st == ActivationFormat.ACTIVE) applyAdminLink(entry)
+                lastError = ""
+            }.onFailure { lastError = if (it is java.io.IOException) "brak połączenia z internetem" else it.message ?: "błąd" }
+            val st = status
+            if (!poll || st != lastCheckinStatus || now - lastCheckinAt >= POLL_CHECKIN_MS) {
+                lastCheckinAt = now; lastCheckinStatus = st
+                runCatching { checkin() }
             }
-            if (body.isBlank()) { status = ""; lastOk = System.currentTimeMillis(); lastError = ""; return@runCatching }
-            val (payload, sig) = ActivationFormat.unwrap(body)
-            if (pubKey.isBlank() || !ActivationFormat.verify(payload, sig, pubKey)) error("Nieprawidłowy podpis listy aktywacji")
-            val ts = ActivationFormat.timestamp(payload)
-            if (ts < lastTs) error("Nieaktualna lista aktywacji")            // starsza lista nie może cofnąć blokady
-            lastTs = ts
-            val entry = ActivationFormat.entries(payload)[code]
-            status = entry?.forEdition(fullEdition).orEmpty()
-            if (status == ActivationFormat.ACTIVE) applyAdminLink(entry)
-            lastOk = System.currentTimeMillis(); lastError = ""
-        }.onFailure { lastError = if (it is java.io.IOException) "brak połączenia z internetem" else it.message ?: "błąd" }
-        runCatching { checkin() }
-        state()
+            state()
+        }
+    }
+
+    /** Stan z listy zapisany od razu na dysk (jedna transakcja). */
+    private fun save(st: String, ts: Long) {
+        sp.edit().putString("status", st).putLong("last_ts", ts).putLong("last_ok", System.currentTimeMillis()).commit()
     }
 
     /** Zgłoszenie do administratora: tylko kod, numer instalacji, wersja, model i czas. */

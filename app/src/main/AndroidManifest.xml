@@ -116,7 +116,8 @@
             android:resizeableActivity="true"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode" />
         <activity android:name=".ui.GuideListActivity" />
-        <activity android:name=".ui.LockActivity" android:exported="false" android:launchMode="singleTask" />
+        <activity android:name=".ui.LockActivity" android:exported="false" android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|navigation" />
         <activity android:name=".ui.SetupActivity" android:screenOrientation="behind"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|navigation"
             android:windowSoftInputMode="adjustResize|stateHidden" />
@@ -128,5 +129,7 @@
         <activity android:name=".ui.PlayerActivity" android:supportsPictureInPicture="true" android:resizeableActivity="true" android:screenOrientation="behind"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize"
             android:theme="@style/PlayerTheme" />
+        <!-- (7.25) Google Cast – przesyłanie na urządzenia w pobliżu (CastHub / GoogleCastBackend) -->
+        <meta-data android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME" android:value="pl.iptv.tv.ui.CastOptionsProvider"/>
     </application>
 </manifest>

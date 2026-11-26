@@ -56,11 +56,13 @@ class V723StremioPlayerTest {
         val c = player(); val a = c.get()
         // pasek: dokładnie sześć pozycji w tej kolejności, każda ≥ 48 dp, wszystkie w szerokości ekranu
         val bar = a.portraitBar!!
-        assertEquals(listOf("sources", "episodes", "audio", "tracks", "aspect", "rotate").map { PortraitPlayerUi.ICON_TAG + it }, (0 until bar.childCount).map { bar.getChildAt(it).tag })
-        assertEquals(listOf("Źródła", "Odcinki", "Audio", "Napisy", "Obraz", "Obróć"), (0 until bar.childCount).map { bar.getChildAt(it).contentDescription.toString() })
+        // (7.25) „cast” – ukryta bez urządzeń w pobliżu
+        assertEquals(listOf("sources", "episodes", "audio", "tracks", "aspect", "cast", "rotate").map { PortraitPlayerUi.ICON_TAG + it }, (0 until bar.childCount).map { bar.getChildAt(it).tag })
+        assertEquals(android.view.View.GONE, bar.findViewWithTag<android.view.View>(PortraitPlayerUi.ICON_TAG + "cast").visibility)
+        assertEquals(listOf("Źródła", "Odcinki", "Audio", "Napisy", "Obraz", "Przesyłaj", "Obróć"), (0 until bar.childCount).map { bar.getChildAt(it).contentDescription.toString() })
         layout(a)
         val w = a.resources.displayMetrics.widthPixels
-        for (i in 0 until bar.childCount) bar.getChildAt(i).let { v -> assertTrue(v.width >= Ui.dp(PortraitPlayerUi.MIN_TOUCH_DP)); assertTrue(v.left >= 0 && v.right <= w) }
+        for (i in 0 until bar.childCount) bar.getChildAt(i).takeIf { it.visibility == View.VISIBLE }?.let { v -> assertTrue(v.width >= Ui.dp(PortraitPlayerUi.MIN_TOUCH_DP)); assertTrue(v.left >= 0 && v.right <= w) }
         // pełny pasek: ⏪ ⏯ ⏩ na środku ekranu, tytuł serialu z odcinkiem w lewym górnym rogu
         a.setBar(StremioPlayerActivity.Bar.FULL); idle(); layout(a)
         assertTrue(a.transportCentered)

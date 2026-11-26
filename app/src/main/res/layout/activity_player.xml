@@ -42,6 +42,7 @@
         <TextView android:id="@+id/tFav" style="@style/TouchBtn" android:text="☆"/>
         <TextView android:id="@+id/tPrev" style="@style/TouchBtn" android:text="▲"/>
         <TextView android:id="@+id/tNext" style="@style/TouchBtn" android:text="▼"/>
+        <TextView android:id="@+id/tCast" style="@style/TouchBtn" android:text="📡 Przesyłaj" android:visibility="gone"/>
         <TextView android:id="@+id/tClose" style="@style/TouchBtn" android:text="✕"/>
     </LinearLayout>
 

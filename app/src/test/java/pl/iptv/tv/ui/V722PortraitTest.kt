@@ -191,7 +191,7 @@ class V722PortraitTest {
         assertTrue(panel.actions.childCount == 1)                          // pasek ikon w strefie kciuka
         val bar = panel.actions.getChildAt(0) as android.view.ViewGroup
         // (7.23) dokładnie: Muzyka, Tekst, Opcje odtwarzania, Obróć (bez „Silnik”)
-        assertEquals(listOf("music", "lyrics", "options", "rotate").map { PortraitPlayerUi.ICON_TAG + it }, (0 until bar.childCount).map { bar.getChildAt(it).tag })
+        assertEquals(listOf("music", "lyrics", "options", "cast", "rotate").map { PortraitPlayerUi.ICON_TAG + it }, (0 until bar.childCount).map { bar.getChildAt(it).tag })
         assertEquals(panel.childCount - 1, panel.indexOfChild(panel.actions))  // na dole panelu
         // zakładki (7.23): Następne wideo, Dodaj do kolejki; tekst (zsynchronizowany) – przycisk „Tekst” na pasku, tryb muzyczny – „Muzyka”
         val tabs = all(panel).filter { (it.getTag(R.id.row_key) as? String)?.startsWith("yt_tab:") == true }
