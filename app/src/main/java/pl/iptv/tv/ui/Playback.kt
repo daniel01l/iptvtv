@@ -133,6 +133,7 @@ object Playback {
         }
         override fun onDownstreamFormatChanged(t: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
                                                data: androidx.media3.exoplayer.source.MediaLoadData) {
+            if (data.trackType != androidx.media3.common.C.TRACK_TYPE_TEXT) dataSeen = true
             val s = stats ?: return
             if (s.dataMs < 0 && data.trackType != androidx.media3.common.C.TRACK_TYPE_TEXT) {
                 s.dataMs = android.os.SystemClock.uptimeMillis() - s.startedAt
@@ -154,6 +155,9 @@ object Playback {
                                                initializedTimestampMs: Long, initializationDurationMs: Long) {
             audioDecoder = decoderName
         }
+        // (7.24) błąd ładowania – Media3 sam ponawia (polityka błędów ładowania); kontrolowane ponowienie startu tylko dla „cichych” połączeń
+        override fun onLoadError(t: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, l: androidx.media3.exoplayer.source.LoadEventInfo,
+                                 m: androidx.media3.exoplayer.source.MediaLoadData, e: java.io.IOException, wasCanceled: Boolean) { if (!wasCanceled) loadFailed = true }
         // (7.20) nowa sesja dźwięku (np. po zmianie ścieżki / tunelowaniu) – efekt wyrównywania głośności na nowej sesji
         override fun onAudioSessionIdChanged(t: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, audioSessionId: Int) {
             ChannelLoudness.attach(audioSessionId)
@@ -287,10 +291,14 @@ object Playback {
         // (7.22) HD / FHD / ≥ 48 kl/s – nigdy dekoder programowy (procesor TV nie nadąża: ERROR_CODE_DECODING_FAILED po ~30 s)
         if (currentHeavy) { recover("zamrożony obraz (HD – bez dekodera programowego)"); return }
         if (!softwareDecoding && pl.iptv.tv.data.Prefs.freezeFallback && c != null) {
-            channelKey?.let { frozenChannels += it }
+            val now = android.os.SystemClock.uptimeMillis()
+            channelKey?.let { frozenChannels += it; synchronized(frozenAt) { frozenAt[it] = now } }
             // (7.4) drugi kanał z zamrożonym obrazem – dekoder sprzętowy urządzenia zawodny: programowy dla całej sesji (jak 6.5);
             // pierwszy – tylko ten kanał (fałszywy alarm nie psuje pozostałych)
-            val session = frozenChannels.size >= SESSION_SOFTWARE_AFTER
+            // (7.24) tylko dwa zamrożenia w [SESSION_SOFTWARE_WINDOW_MS] – dawniej dwa pojedyncze fałszywe alarmy w odstępie
+            // godzin przełączały resztę długiego oglądania na klatkujący dekoder programowy
+            val session = recentFreezes(now) >= SESSION_SOFTWARE_AFTER
+            if (session) sessionSoftwareSince = now
             android.util.Log.w(TAG, "zamrożony obraz na dekoderze sprzętowym – przejście na programowy" +
                 (if (session) " (cała sesja)" else "") + " • ${diagnostics()}")
             sessionSoftware = true; softwareChannel = if (session) null else channelKey
@@ -303,6 +311,21 @@ object Playback {
     val frozenChannels: MutableSet<String> = java.util.Collections.synchronizedSet(HashSet())
     /** Po zamrożeniu obrazu na tylu różnych kanałach – dekoder programowy dla całej sesji. */
     const val SESSION_SOFTWARE_AFTER = 2
+    /** (7.24) Zamrożenia liczone do [SESSION_SOFTWARE_AFTER] tylko z tego okna czasu. */
+    const val SESSION_SOFTWARE_WINDOW_MS = 20 * 60_000L
+    /** (7.24) Programowy dla całej sesji najwyżej tyle – potem kolejny kanał (nie zamrożony wcześniej) znowu na sprzętowym. */
+    const val SESSION_SOFTWARE_TTL_MS = 30 * 60_000L
+    /** Chwila ostatniego zamrożenia kanału (klucz) – okno [SESSION_SOFTWARE_WINDOW_MS]. */
+    private val frozenAt = HashMap<String, Long>()
+    /** Początek programowego dla całej sesji (0 – brak). */
+    @Volatile private var sessionSoftwareSince: Long? = null
+    private fun recentFreezes(now: Long) = synchronized(frozenAt) { frozenAt.values.count { now - it <= SESSION_SOFTWARE_WINDOW_MS } }
+    private fun clearFrozen() { frozenChannels.clear(); synchronized(frozenAt) { frozenAt.clear() }; sessionSoftwareSince = null }
+    /** Tylko testy: zamrożenia i programowy dla sesji „starsze” o [ms]. */
+    fun ageFreezesForTest(ms: Long) {
+        synchronized(frozenAt) { frozenAt.replaceAll { _, t -> t - ms } }
+        sessionSoftwareSince = sessionSoftwareSince?.minus(ms)
+    }
 
     /** Tylko testy: zgłoszenie zamrożonego obrazu jak przez strażnika. */
     fun simulateFreeze() = onFrozen()
@@ -363,7 +386,7 @@ object Playback {
 
     /** Pełne zwolnienie odtwarzacza i jego połączeń (bez zmiany zapamiętanego kanału). */
     private fun releasePlayer() {
-        main.removeCallbacks(retry); main.removeCallbacks(watchdog); main.removeCallbacks(startCheck)
+        main.removeCallbacks(retry); main.removeCallbacks(watchdog); main.removeCallbacks(startCheck); main.removeCallbacks(startRetry)
         val p = player
         target?.let { if (it.player === p) it.player = null }   // widok nie trzyma zwolnionego odtwarzacza
         if (p != null) { listeners.forEach { p.removeListener(it) }; p.removeListener(recovery); runCatching { p.release() } }
@@ -690,7 +713,7 @@ object Playback {
         val ch = lastChannel ?: return; val u = url ?: return
         android.util.Log.i(TAG, "ustawienia silnika zmienione – przebudowa odtwarzacza w locie (${ch.name})")
         // ręczna zmiana – znowu ustawienia użytkownika (bez awaryjnego programowego z tej sesji)
-        sessionSoftware = false; softwareChannel = null; frozenChannels.clear()
+        sessionSoftware = false; softwareChannel = null; clearFrozen()
         ChannelEngineOptimizer.cancel()
         profile = ChannelEngines.get(ch.key)?.let { e -> e.profile?.let { if (e.streamUrl == u) it else it.copy(container = 0) } }
         hotReloads++
@@ -1092,8 +1115,12 @@ object Playback {
         // zapamiętany profil silnika kanału (Room, odczyt z pamięci); rodzaj strumienia tylko dla adresu, dla którego go dobrano
         val want = ChannelEngines.get(ch.key)?.let { e -> e.profile?.let { if (e.streamUrl == streamUrl) it else it.copy(container = 0) } }
         // (7.3) awaryjny dekoder programowy tylko dla kanału, na którym obraz zamarzł – inny kanał znów na sprzętowym
-        val leaveSoftware = sessionSoftware && softwareChannel != null && softwareChannel != ch.key
-        if (leaveSoftware) { sessionSoftware = false; softwareChannel = null }
+        // (7.24) programowy dla całej sesji wygasa po [SESSION_SOFTWARE_TTL_MS] – kanał, który nie zamarzł, znowu na sprzętowym
+        val since = sessionSoftwareSince
+        val sessionExpired = sessionSoftware && softwareChannel == null && since != null && ch.key !in frozenChannels &&
+            android.os.SystemClock.uptimeMillis() - since > SESSION_SOFTWARE_TTL_MS
+        val leaveSoftware = (sessionSoftware && softwareChannel != null && softwareChannel != ch.key) || sessionExpired
+        if (leaveSoftware) { sessionSoftware = false; softwareChannel = null; if (sessionExpired) sessionSoftwareSince = null }
         // (7.4) kanał, na którym w tej sesji już zamarzł obraz – od razu programowy (bez kolejnych 8 s zamrożenia)
         val enterSoftware = !sessionSoftware && ch.key in frozenChannels && pl.iptv.tv.data.Prefs.freezeFallback
         if (enterSoftware) { sessionSoftware = true; softwareChannel = ch.key }
@@ -1141,10 +1168,16 @@ object Playback {
         if (streamUrl != url) {
             recoveries = 0; recoveryWindow = 0                                // nowy kanał – licznik odwieszeń od zera
             closeStats(); stats = ChannelStats(ch.name, engineLabel())
+            // (7.24) podniesiony po przycięciach próg wznowienia dotyczy tylko kanału, na którym się przycinało
+            sessionRebufferBoostMs = 0; liveLoad?.reset()
         }
         url = streamUrl; channelKey = ch.key; lastMime = mime
         dropWatch.reset()
         retries = 0; stuck = 0; bufferingSince = 0; hadError = false; reachedReady = false
+        // (7.24) kontrolowane ponowienie, gdy strumień nie dał żadnych danych (martwe połączenie z puli, zawieszony adres)
+        dataSeen = false; loadFailed = false; startRetries = 0
+        main.removeCallbacks(startRetry)
+        if (streamUrl == ch.url) main.postDelayed(startRetry, START_RETRY_MS)
         // po błędzie: świeża powierzchnia obrazu (to samo, co wcześniej dawało dopiero otwarcie menu)
         if (clean) main.post { target?.let { v -> if (v.player === p) { v.player = null; v.player = p } } }
         // kanał na żywo: kontrola startu (pierwsze klatki w [START_CHECK_MS]) – inaczej dobór silnika w tle
@@ -1180,6 +1213,53 @@ object Playback {
         }
     }
 
+    /**
+     * (7.24) Kontrolowane ponowienie startu kanału na żywo: po [START_RETRY_MS] bez żadnych danych strumienia (ani formatu,
+     * ani zapasu) – połączenia przerwane, bezczynne połączenia z puli usunięte (w tle) i ponowne otwarcie tego samego źródła
+     * na tym samym odtwarzaczu, najwyżej [START_RETRY_MAX] razy co [START_RETRY_MS]. Dawniej taki kanał czekał na odczyt
+     * martwego połączenia (10 s) albo strażnika buforowania ([STALL_MS] 12 s) – „co któryś kanał długo się ładuje” po
+     * dłuższym oglądaniu (połączenia w puli wygasłe po stronie dostawcy / sieci). Szybkie przełączanie bez zmian: każde
+     * [play] anuluje zaplanowane ponowienie, więc dotyczy tylko kanału, na którym użytkownik został.
+     */
+    const val START_RETRY_MS = 3_500L
+    const val START_RETRY_MAX = 2
+    /** Ponowienia startu bieżącego kanału / wszystkie w procesie (diagnostyka i testy). */
+    @Volatile var startRetries = 0; private set
+    @Volatile var startRetriesTotal = 0; private set
+    /** Bieżący start dostał dane strumienia (format obrazu / dźwięku). */
+    @Volatile private var dataSeen = false
+    /** Bieżący start miał błąd ładowania (Media3 ponawia sam). */
+    @Volatile private var loadFailed = false
+
+    /** Czy ponowić start: brak danych i zapasu, bez trwającej obsługi błędu, w limicie prób. */
+    fun startRetryDue(hasData: Boolean, bufferedMs: Long, ready: Boolean, errorHandling: Boolean, done: Int): Boolean =
+        !ready && !hasData && bufferedMs < START_RETRY_BUFFERED_MS && !errorHandling && done < START_RETRY_MAX
+    const val START_RETRY_BUFFERED_MS = 300L
+
+    private val startRetry = object : Runnable {
+        override fun run() {
+            val p = player ?: return; val u = url ?: return
+            if (!p.playWhenReady || p.playerError != null) return
+            if (!startRetryDue(dataSeen, p.totalBufferedDuration, reachedReady, retries > 0 || hadError || loadFailed, startRetries)) return
+            startRetries++; startRetriesTotal++
+            android.util.Log.w(TAG, "start bez danych po ${(android.os.SystemClock.uptimeMillis() - startedAt) / 1000} s – " +
+                "ponowne połączenie (próba $startRetries) • ${diagnostics()}")
+            // najpierw stop (ładowanie anulowane – bez fałszywego błędu ładowania), potem przerwanie połączeń tej grupy
+            p.stop(); calls?.cancelActive()
+            val pool = streamHttp.connectionPool
+            // zamykanie gniazd (TLS) poza wątkiem UI; ponowne otwarcie po usunięciu – nowe połączenie nie trafi na martwe z puli
+            Thread({
+                runCatching { pool.evictAll() }
+                main.post {
+                    if (player !== p || url != u || reachedReady || dataSeen) return@post
+                    loadFailed = false; bufferingSince = 0
+                    p.prepare(); p.playWhenReady = true
+                    if (startRetries < START_RETRY_MAX) { main.removeCallbacks(this); main.postDelayed(this, START_RETRY_MS) }
+                }
+            }, "StreamReconnect").start()
+        }
+    }
+
     enum class StartDecision { WAIT, NONE, OPTIMIZE }
 
     /**
@@ -1203,7 +1283,7 @@ object Playback {
      * konkuruje o dekoder ani o połączenie u dostawcy). Kanał, adres i obraz zostają.
      */
     fun holdForProbe() {
-        main.removeCallbacks(retry); main.removeCallbacks(startCheck)
+        main.removeCallbacks(retry); main.removeCallbacks(startCheck); main.removeCallbacks(startRetry)
         player?.stop(); calls?.cancelActive()
         bufferingSince = 0; stuck = 0
     }
@@ -1303,7 +1383,7 @@ object Playback {
         releasePlayer()
         profile = null
         hadError = false; retries = 0; recoveries = 0; recoveryWindow = 0
-        sessionSoftware = false; softwareChannel = null; frozenChannels.clear()          // ręczna zmiana silnika / wyjście – znowu ustawienia użytkownika
+        sessionSoftware = false; softwareChannel = null; clearFrozen()          // ręczna zmiana silnika / wyjście – znowu ustawienia użytkownika
         sessionAfrFps = null                                                                // (7.22) dopasowanie 50 Hz tylko na sesję
         trial = null; noIntervention.clear()
         sessionRebufferBoostMs = 0; liveLoad = null                                         // (7.17) adaptacja bufora – od nowa

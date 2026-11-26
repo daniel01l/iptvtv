@@ -54,6 +54,29 @@ object EngineProfiles {
 
     fun activeLabel(): String = active()?.label ?: CUSTOM
 
+    /** (7.24) Profil domyślny – świeża instalacja i „Przywróć domyślny profil silnika”. */
+    val DEFAULT = Profile.FAST
+
+    /** Klucze [Prefs] zapisywane przez profile – którykolwiek zapisany = użytkownik ma już własne ustawienia silnika. */
+    val PROFILE_KEYS = Prefs.ENGINE_KEYS + setOf("zap_ms", "clean_dec", "low_max_h", "low_buf_mb")
+
+    /**
+     * (7.24) Jednorazowo przy starcie ([IptvApp]): [DEFAULT] tylko przy pierwszej instalacji ([freshInstall]) i gdy nie ma
+     * jeszcze żadnego zapisanego ustawienia silnika. Po aktualizacji (albo przy istniejących ustawieniach, np. z kopii) tylko
+     * znacznik [Prefs.engineProfileInit] – profil użytkownika (także domyślny „Automatyczny” starszych wersji) zostaje.
+     * Zwraca true, gdy ustawiono [DEFAULT].
+     */
+    fun applyFirstRunDefault(freshInstall: Boolean): Boolean {
+        if (Prefs.engineProfileInit) return false
+        val untouched = freshInstall && PROFILE_KEYS.none { Prefs.has(it) }
+        if (untouched) apply(DEFAULT)
+        Prefs.engineProfileInit = true
+        return untouched
+    }
+
+    /** (7.24) Wyraźny reset do ustawień domyślnych silnika – [DEFAULT]. */
+    fun resetToDefault() { apply(DEFAULT); Prefs.engineProfileInit = true }
+
     /** Etykieta „Bufor – minimum” ze stanem ochrony (np. „2 s (tryb szybki)”, „+1,5 s – ochrona po przycięciach”). */
     fun bufferLabel(s: Int = Prefs.bufMinS, boostMs: Int = Playback.sessionRebufferBoostMs): String {
         val base = when {

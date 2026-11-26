@@ -1087,6 +1087,8 @@ class SettingsActivity : BaseActivity() {
 
         header("Silnik odtwarzania i akceleracja")
         profilePills()
+        // (7.24) wyraźny reset – profil domyślny „Szybkie przełączanie (Sport / Live TV)”
+        row(RESET_ENGINE_PROFILE) { EngineProfiles.resetToDefault(); build(keepFocus = true) }
         // (7.17) bufor dla każdego urządzenia ze stanem ochrony (np. „2 s (tryb szybki)”, „+1,5 s ochrony” po przycięciach)
         val bufs = EngineProfiles.BUFFER_VALUES
         choice("Bufor – minimum", bufs.map { if (it == Prefs.bufMinS) EngineProfiles.bufferLabel(it) else EngineProfiles.bufferLabel(it, 0) },
@@ -1989,6 +1991,8 @@ class SettingsActivity : BaseActivity() {
         private const val REQ_APK_INSTALL = 16; private const val REQ_APK_SEND = 17
         /** (7.22) Przełącznik strażnika klatkowania (Ustawienia i okno silnika w odtwarzaczu). */
         const val AUTO_STUTTER_TITLE = "Automatyczna korekta przy zacinaniu obrazu"
+        /** (7.24) Reset profilu silnika do domyślnego („Szybkie przełączanie (Sport / Live TV)”). */
+        const val RESET_ENGINE_PROFILE = "↺ Przywróć domyślny profil silnika"
         /** (7.22) Ustawienia → Wygląd. */
         const val UI_RESOLUTION_TITLE = "Rozdzielczość interfejsu"
         const val UI_RESOLUTION_NOTE = "Wielkość menu, okien i kafelków (obraz wideo bez zmian). Na telefonie trzymanym pionowo zawsze obowiązuje gęstość systemu."

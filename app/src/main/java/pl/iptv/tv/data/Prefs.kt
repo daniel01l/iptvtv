@@ -80,6 +80,8 @@ object Prefs {
     var engineProfilesVersion: Int get() = int("engine_profiles_v", 0); set(v) = putInt("engine_profiles_v", v)
     /** (7.22) Jednorazowa zamiana zapisanych trybów zgodności (programowy + TextureView) na sprzętowy + TextureView – wykonana. */
     var engineCompatHw: Boolean get() = bool("engine_compat_hw", false); set(v) = putBool("engine_compat_hw", v)
+    /** (7.24) Profil silnika ustalony (świeża instalacja – „Szybkie przełączanie”, aktualizacja – ustawienia użytkownika bez zmian). */
+    var engineProfileInit: Boolean get() = bool("engine_profile_init", false); set(v) = putBool("engine_profile_init", v)
     /** (7.22) Kanały z obrazem HD / FHD lub ≥ 48 kl/s (klucze, najwyżej 500). */
     var hdChannels: Set<String> get() = str("hd_channels").split('\n').filter { it.isNotBlank() }.toSet(); set(v) = put("hd_channels", v.joinToString("\n"))
     /** (7.5) Kanał, dla którego trwa ręczne dopasowanie silnika – po awarii aplikacji w trakcie prób bez powtórki (pętla awarii). */

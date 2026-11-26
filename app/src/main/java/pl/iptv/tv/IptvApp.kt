@@ -124,6 +124,11 @@ class IptvApp : Application(), coil.ImageLoaderFactory {
             val pi = packageManager.getPackageInfo(packageName, 0)
             pl.iptv.tv.ui.Ui.applyFirstRunTheme(pi.firstInstallTime == pi.lastUpdateTime)
         }
+        // (7.24) profil silnika „Szybkie przełączanie” tylko przy pierwszej instalacji; po aktualizacji ustawienia użytkownika bez zmian
+        if (android.os.Build.FINGERPRINT != "robolectric") S.safe("engineProfile") {
+            val pi = packageManager.getPackageInfo(packageName, 0)
+            pl.iptv.tv.ui.EngineProfiles.applyFirstRunDefault(pi.firstInstallTime == pi.lastUpdateTime)
+        }
         S.safe("launcher") { pl.iptv.tv.ui.X25Theme.refreshLauncher(this) }
         S.safe("reminders") { ReminderScheduler.schedule(this) }
         S.safe("remoteServer") { if (pl.iptv.tv.remote.RemoteServer.wanted) pl.iptv.tv.remote.RemoteServer.start(this) }

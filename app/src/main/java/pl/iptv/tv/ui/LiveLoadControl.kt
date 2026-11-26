@@ -47,6 +47,12 @@ class AdaptiveLiveLoadControl(private val delegate: DefaultLoadControl, val base
     private val events = ArrayDeque<Long>()
     val rebufferMs get() = baseRebufferMs + boostMs
 
+    /**
+     * (7.24) Nowy kanał – próg od podstawy. Dawniej podniesiony próg (do +3 s w trybie szybkim) zostawał na wszystkie kolejne
+     * kanały do końca sesji: po dłuższym oglądaniu każde przycięcie na dowolnym kanale czekało na większy zapas.
+     */
+    @Synchronized fun reset() { boostMs = 0; events.clear() }
+
     /** Przycięcie (READY → BUFFERING) w chwili [nowMs]; true – próg podniesiony. */
     @Synchronized fun onRebuffer(nowMs: Long): Boolean {
         events.addLast(nowMs)
