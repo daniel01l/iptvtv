@@ -124,17 +124,54 @@ object StremioTmdb {
      * `watch_region` = [region], `sort_by=popularity.desc`, język aplikacji ([language] – po polsku `pl-PL`). Do [limit] pozycji
      * z identyfikatorem IMDb (`external_ids` – zgodny z wtyczkami Stremio), w kolejności rankingu. Null – brak klucza / błąd sieci.
      */
-    suspend fun discover(type: String, providers: String, region: String = "PL", limit: Int = 10): List<StremioMetaPreview>? {
+    suspend fun discover(type: String, providers: String, region: String = "PL", limit: Int = 10, pages: Int = 1): List<StremioMetaPreview>? {
         if (!available) return null
         val kind = if (type == "series") "tv" else "movie"
-        // (7.22) kilka identyfikatorów platformy naraz („1899|384” = LUB w TMDB) – jedno zapytanie zamiast kolejnych prób
-        val o = get("/discover/$kind", "with_watch_providers=$providers&watch_region=$region&sort_by=popularity.desc&language=${language()}&include_adult=false&page=1")
-            ?: return null
-        val results = o.optJSONArray("results") ?: return emptyList()
-        // (7.22) bez `external_ids` dla każdej pozycji (dawniej ~20 zapytań na rząd – HTTP 429 na TV): identyfikator TMDB,
-        // a IMDb (tt…) dopiero po kliknięciu ([imdbFor])
-        return (0 until results.length()).mapNotNull { results.optJSONObject(it) }.mapNotNull { preview(it, kind, type) }.distinctBy { it.id }.take(limit)
+        val out = ArrayList<StremioMetaPreview>()
+        for (page in 1..pages.coerceAtLeast(1)) {
+            // (7.22) kilka identyfikatorów platformy naraz („1899|384” = LUB w TMDB) – jedno zapytanie zamiast kolejnych prób
+            val o = get("/discover/$kind", "with_watch_providers=$providers&watch_region=$region&sort_by=popularity.desc&language=${language()}&include_adult=false&page=$page")
+                ?: if (page == 1) return null else break
+            val results = o.optJSONArray("results") ?: break
+            // (7.22) bez `external_ids` dla każdej pozycji (dawniej ~20 zapytań na rząd – HTTP 429 na TV): identyfikator TMDB,
+            // a IMDb (tt…) dopiero po kliknięciu ([imdbFor])
+            out += (0 until results.length()).mapNotNull { results.optJSONObject(it) }.mapNotNull { preview(it, kind, type) }
+            if (results.length() < 20 || out.size >= limit) break
+        }
+        return out.distinctBy { it.id }.take(limit)
     }
+
+    /** (7.26) Strony tygodniowego rankingu trendów (po 20 pozycji) – pierwsze 100 tytułów tygodnia. */
+    const val TRENDING_PAGES = 5
+    /** (7.26) Ranking trendów w pamięci (wspólny dla wszystkich platform danego rodzaju). */
+    const val TRENDING_TTL_MS = 3 * 3_600_000L
+    private val trendCache = HashMap<String, Pair<Long, Map<String, Int>>>()
+
+    /**
+     * (7.26) Bieżące trendy tygodnia TMDB (`/trending/movie|tv/week` – tytuły najczęściej oglądane / wyszukiwane w ostatnich
+     * 7 dniach): identyfikator pozycji ([tmdbId]) → miejsce w rankingu (0 = najwyżej). Null – brak klucza / sieci (wtedy ranking
+     * popularności z [discover]). Pamięć [TRENDING_TTL_MS], zapytania na wątku IO.
+     */
+    suspend fun trendingWeek(type: String, now: Long = System.currentTimeMillis()): Map<String, Int>? {
+        if (!available) return null
+        val kind = if (type == "series") "tv" else "movie"
+        val key = "$kind/${language()}"
+        synchronized(trendCache) { trendCache[key] }?.takeIf { now - it.first < TRENDING_TTL_MS }?.let { return it.second }
+        val ids = ArrayList<String>()
+        for (page in 1..TRENDING_PAGES) {
+            val o = get("/trending/$kind/week", "language=${language()}&page=$page") ?: if (page == 1) return null else break
+            val r = o.optJSONArray("results") ?: break
+            (0 until r.length()).mapNotNull { r.optJSONObject(it)?.optLong("id")?.takeIf { id -> id > 0 } }.forEach { ids += tmdbId(kind, it) }
+            if (r.length() < 20) break
+        }
+        if (ids.isEmpty()) return null
+        val rank = ids.distinct().withIndex().associate { it.value to it.index }
+        synchronized(trendCache) { trendCache[key] = now to rank }
+        return rank
+    }
+
+    /** (7.26) Testy: ranking trendów od nowa. */
+    fun clearTrending() { synchronized(trendCache) { trendCache.clear() } }
 
     /** (7.22) Identyfikator zastępczy pozycji TMDB („tmdb:movie:123” / „tmdb:tv:456”) – rozwiązywany do IMDb przy otwarciu. */
     const val ID_PREFIX = "tmdb:"
@@ -218,5 +255,5 @@ object StremioTmdb {
     const val ATTRIBUTION = "This product uses the TMDB API but is not endorsed or certified by TMDB."
 
     /** Testy. */
-    fun clearCache() = synchronized(cache) { cache.clear() }
+    fun clearCache() { synchronized(cache) { cache.clear() }; clearTrending() }
 }

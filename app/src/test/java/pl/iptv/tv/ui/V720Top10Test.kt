@@ -76,6 +76,8 @@ class V720Top10Test {
                         val prov = provs.firstOrNull { it != 1899 && it != 531 } ?: return ok(JSONObject().put("results", JSONArray()))
                         results(prov * 100 + if (tv) 50 else 0, 12, tv)
                     }
+                    // (7.26) trendy tygodnia – pierwsze pozycje platform (kolejność rzędów jak w rankingu popularności)
+                    p.startsWith("/tmdb/trending/") -> ok(JSONObject().put("results", JSONArray((if (p.startsWith("/tmdb/trending/tv")) listOf(851, 38451, 177351, 33751, 11951) else listOf(801, 38401, 177301, 33701, 11901)).map { JSONObject().put("id", it) })))
                     p.contains("/external_ids") -> {
                         val id = Regex("/(movie|tv)/(\\d+)/").find(p)!!.groupValues[2].toInt()
                         ok(JSONObject().put("imdb_id", if (id % 100 == 3) "" else "tt$id"))     // pozycja bez IMDb – pominięta
@@ -139,7 +141,7 @@ class V720Top10Test {
         // ręczna zmiana: co 24 h
         Prefs.stremioTop10Hours = 24
         clock += 24 * 3_600_000L; assertTrue(StremioTop10.isStale(netflix))
-        assertEquals(96, StremioTop10.DEFAULT_HOURS); assertEquals(4 * 24 * 60 * 60 * 1000L, 96 * 3_600_000L)
+        assertEquals("(7.26) domyślnie 6 h – trendy tygodnia", 6, StremioTop10.DEFAULT_HOURS)
         Unit
     }
 

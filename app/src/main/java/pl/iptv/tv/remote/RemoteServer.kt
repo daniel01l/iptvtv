@@ -52,10 +52,39 @@ object RemoteServer {
         return Prefs.remotePin
     }
 
+    /**
+     * Adresy IPv4 urządzenia, najpierw ten w sieci lokalnej (Wi-Fi / Ethernet) – pierwszy trafia do kodów QR.
+     * (7.25) Dawniej kolejność z systemu: pierwszy bywał adresem sieci komórkowej, VPN albo hotspotu – telefon po zeskanowaniu
+     * kodu nie mógł otworzyć strony, a ręcznie wpisany adres Wi-Fi działał.
+     */
     fun localIps(): List<String> = runCatching {
         NetworkInterface.getNetworkInterfaces().toList().filter { it.isUp && !it.isLoopback }
-            .flatMap { it.inetAddresses.toList() }.filterIsInstance<Inet4Address>().map { it.hostAddress!! }
+            .flatMap { n -> n.inetAddresses.toList().filterIsInstance<Inet4Address>().map { n.name.orEmpty() to it.hostAddress!! } }
+            .let { rankIps(it) }
     }.getOrDefault(emptyList())
+
+    /** (7.25) Kolejność adresów: (nazwa interfejsu, IPv4) → najpierw Wi-Fi / Ethernet z adresem prywatnym, na końcu komórkowe / VPN / link-local. */
+    fun rankIps(list: List<Pair<String, String>>): List<String> = list.sortedBy { (name, ip) -> ipRank(name, ip) }.map { it.second }.distinct()
+
+    private fun ipRank(name: String, ip: String): Int {
+        val n = name.lowercase()
+        val p = ip.split('.').mapNotNull { it.toIntOrNull() }
+        val private = p.size == 4 && (p[0] == 10 || (p[0] == 192 && p[1] == 168) || (p[0] == 172 && p[1] in 16..31))
+        val linkLocal = p.size == 4 && p[0] == 169 && p[1] == 254
+        val cgnat = p.size == 4 && p[0] == 100 && p[1] in 64..127
+        val mobile = listOf("rmnet", "ccmni", "pdp", "radio", "wwan", "clat", "v4-", "seth", "usb", "rndis").any { n.startsWith(it) }
+        val tunnel = listOf("tun", "ppp", "ipsec", "wg", "tap", "dummy", "docker", "veth", "br-", "virbr", "p2p", "ap", "swlan").any { n.startsWith(it) }
+        val lan = listOf("wlan", "eth", "en", "wl", "mlan", "ra").any { n.startsWith(it) } && !tunnel
+        return when {
+            linkLocal -> 9
+            lan && private -> 0
+            lan -> 1
+            private && !mobile && !tunnel -> 2
+            mobile || cgnat -> 7
+            tunnel -> 6
+            else -> 4
+        }
+    }
 
     val appContext: Context get() = app
 

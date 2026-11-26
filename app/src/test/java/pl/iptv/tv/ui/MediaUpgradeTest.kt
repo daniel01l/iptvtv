@@ -89,9 +89,11 @@ class MediaUpgradeTest {
         val n = QrCode.matrix("https://www.google.com/device").width
         val scale = b.width / n
         assertTrue(scale >= 1 && b.width % n == 0)
-        // margines 2 moduły białe, zaraz za nim czarny róg wzorca położenia
+        // (7.25) margines QrCode.QUIET_ZONE (4) moduły białe, zaraz za nim czarny róg wzorca położenia
         assertEquals(android.graphics.Color.WHITE, b.getPixel(0, 0))
-        assertEquals(android.graphics.Color.BLACK, b.getPixel(2 * scale + scale / 2, 2 * scale + scale / 2))
+        val q = QrCode.QUIET_ZONE
+        assertEquals(android.graphics.Color.WHITE, b.getPixel((q - 1) * scale + scale / 2, (q - 1) * scale + scale / 2))
+        assertEquals(android.graphics.Color.BLACK, b.getPixel(q * scale + scale / 2, q * scale + scale / 2))
     }
 
     // ---------------- miksy ----------------

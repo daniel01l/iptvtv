@@ -12,20 +12,30 @@ import java.io.File
 
 /**
  * (7.20) Rzędy „Top 10” platform streamingowych na tablicy Stremio: dla każdej widocznej platformy osobno filmy i seriale
- * (po najwyżej [SIZE] pozycji) – ranking popularności TMDB w regionie PL ([StremioTmdb.discover]). (7.22) 10 platform
+ * (po najwyżej [SIZE] pozycji). (7.26) Kolejność z bieżących trendów tygodnia TMDB ([StremioTmdb.trendingWeek], [rankByTrend]) –
+ * pula tytułów platformy w regionie PL ([StremioTmdb.discover], [POOL_PAGES] strony), zapasowo ranking popularności. (7.22) 10 platform
  * ([PLATFORMS], wybór w oknie „Klucz TMDB”, domyślnie pięć pierwszych), identyfikatory kilku wersji platformy w jednym
  * zapytaniu („1899|384”), mniej niż [FILL_BELOW] wyników w PL – uzupełnienie z US, najwyżej [PARALLEL_ROWS] zapytania naraz,
  * w pamięci podręcznej tylko rzędy z ≥ [MIN_CACHE_ITEMS] pozycjami; pozycje z identyfikatorem TMDB (IMDb po kliknięciu).
  *
  * Pamięć podręczna: plik JSON `stremio_top10.json` w `cacheDir` (pozycje + `lastUpdatedTimestamp` każdego rzędu) – tablica
  * wczytuje rzędy od razu z pliku, a sieć tylko w tle i tylko gdy od ostatniej aktualizacji minął [intervalMs]
- * (domyślnie 96 h = 4 dni, `Prefs.stremioTop10Hours`) albo rząd jest pusty.
+ * (domyślnie 6 h, `Prefs.stremioTop10Hours`; zapis bez trendów – po [FALLBACK_RETRY_MS]) albo rząd jest pusty.
  */
 object StremioTop10 {
     const val SIZE = 10
-    const val DEFAULT_HOURS = 96
+    /** (7.26) Domyślnie co 6 h – trendy tygodnia zmieniają się w ciągu dnia (dawniej 96 h dla rankingu popularności). */
+    const val DEFAULT_HOURS = 6
     /** Do wyboru w Ustawieniach (godziny). */
-    val HOUR_CHOICES = listOf(24, 48, 72, 96, 168, 336)
+    val HOUR_CHOICES = listOf(3, 6, 12, 24, 48, 96)
+    /** (7.26) Źródło rzędu: trendy tygodnia ([SOURCE_TREND]) albo zapasowo – sama popularność ([SOURCE_POPULAR]). */
+    const val SOURCE_TREND = "trend_week"
+    const val SOURCE_POPULAR = "popular"
+    /** (7.26) Rząd zapasowy (bez trendów) – ponowna próba trendów po tym czasie, nie po pełnym [intervalMs]. */
+    const val FALLBACK_RETRY_MS = 30 * 60_000L
+    /** (7.26) Pula tytułów platformy (strony [StremioTmdb.discover]) układana wg trendów tygodnia. */
+    const val POOL_PAGES = 3
+    const val POOL_SIZE = 60
     const val FILE = "stremio_top10.json"
 
     /**
@@ -78,7 +88,7 @@ object StremioTop10 {
     val intervalMs: Long get() = runCatching { Prefs.stremioTop10Hours }.getOrDefault(DEFAULT_HOURS).coerceAtLeast(1) * 3_600_000L
 
     /** Zapisany rząd: pozycje w kolejności rankingu i czas ostatniej aktualizacji. */
-    data class Cached(val items: List<StremioMetaPreview>, val lastUpdatedTimestamp: Long)
+    data class Cached(val items: List<StremioMetaPreview>, val lastUpdatedTimestamp: Long, val source: String = SOURCE_TREND)
 
     @Volatile private var dir: File? = null
     private val mem = HashMap<String, Cached>()
@@ -112,7 +122,7 @@ object StremioTop10 {
                         mem[k] = Cached((0 until a.length()).mapNotNull { a.optJSONObject(it) }.map { j ->
                             StremioMetaPreview(j.optString("id"), j.optString("type"), j.optString("name"), j.optString("poster"),
                                 description = j.optString("description"), releaseInfo = j.optString("year"), imdbRating = j.optString("rating"), released = j.optString("released"))
-                        }.filter { it.id.isNotBlank() }, r.optLong("lastUpdatedTimestamp"))
+                        }.filter { it.id.isNotBlank() }, r.optLong("lastUpdatedTimestamp"), r.optString("source"))
                     }
                 }
             }
@@ -128,7 +138,7 @@ object StremioTop10 {
         synchronized(mem) {
             // (7.22) tylko rzędy znanych platform z co najmniej [MIN_CACHE_ITEMS] pozycjami (dawne klucze, np. „paramount/…”, wypadają)
             mem.filter { (k, c) -> k in known && c.items.size >= MIN_CACHE_ITEMS }.forEach { (k, c) ->
-                rows.put(k, JSONObject().put("lastUpdatedTimestamp", c.lastUpdatedTimestamp).put("items", JSONArray().apply {
+                rows.put(k, JSONObject().put("lastUpdatedTimestamp", c.lastUpdatedTimestamp).put("source", c.source).put("items", JSONArray().apply {
                     c.items.forEach { m -> put(JSONObject().put("id", m.id).put("type", m.type).put("name", m.name).put("poster", m.poster)
                         .put("description", m.description).put("year", m.releaseInfo).put("rating", m.imdbRating).put("released", m.released)) }
                 }))
@@ -144,7 +154,9 @@ object StremioTop10 {
     /** Wymaga pobrania: brak zapisu, pusty rząd albo od ostatniej aktualizacji minęło co najmniej [intervalMs]. */
     fun isStale(spec: RowSpec, at: Long = now()): Boolean {
         val c = cached(spec) ?: return true
-        return c.items.size < MIN_CACHE_ITEMS || at - c.lastUpdatedTimestamp >= intervalMs
+        // (7.26) zapis bez trendów (zapasowy albo z wersji przed 7.26 – ranking popularności) – trendy ponownie po [FALLBACK_RETRY_MS]
+        val every = if (c.source == SOURCE_TREND) intervalMs else minOf(intervalMs, FALLBACK_RETRY_MS)
+        return c.items.size < MIN_CACHE_ITEMS || at - c.lastUpdatedTimestamp >= every
     }
 
     /**
@@ -161,17 +173,32 @@ object StremioTop10 {
 
     private suspend fun fetch(spec: RowSpec): List<StremioMetaPreview>? {
         if (!StremioTmdb.available) return null
-        val pl = StremioTmdb.discover(spec.type, spec.platform.providers, "PL", limit = SIZE) ?: return null
+        // (7.26) bieżące trendy tygodnia (wspólne dla platform; null – sieć / klucz: zapasowo ranking popularności)
+        val trend = runCatching { StremioTmdb.trendingWeek(spec.type) }.getOrNull()?.takeIf { it.isNotEmpty() }
+        val pages = if (trend != null) POOL_PAGES else 1
+        val limit = if (trend != null) POOL_SIZE else SIZE
+        val pl = StremioTmdb.discover(spec.type, spec.platform.providers, "PL", limit = limit, pages = pages) ?: return null
         fetchCount.incrementAndGet()
         // (7.22) mało wyników w PL (np. nowa platforma w TMDB) – uzupełnienie z regionu US, polskie tytuły (język aplikacji)
-        val us = if (pl.size < FILL_BELOW) StremioTmdb.discover(spec.type, spec.platform.providers, FILL_REGION, limit = SIZE).orEmpty() else emptyList()
-        val list = (pl + us).distinctBy { it.id }.take(SIZE)
-        // (7.22) nigdy pusty / szczątkowy rząd w pamięci podręcznej – przy następnym otwarciu pobranie od nowa
+        val us = if (pl.size < FILL_BELOW) StremioTmdb.discover(spec.type, spec.platform.providers, FILL_REGION, limit = limit, pages = pages).orEmpty() else emptyList()
+        val list = rankByTrend((pl + us).distinctBy { it.id }, trend).take(SIZE)
+        // (7.22) nigdy pusty / szczątkowy rząd w pamięci podręcznej – przy następnym otwarciu pobranie od nowa;
+        // (7.26) pusta odpowiedź – dotychczasowy zapis zostaje (zapas), ekran pokazuje go dalej
         if (list.size >= MIN_CACHE_ITEMS) {
-            synchronized(mem) { mem[spec.key] = Cached(list, now()) }
+            val hits = trend?.let { t -> list.count { it.id in t } } ?: 0
+            synchronized(mem) { mem[spec.key] = Cached(list, now(), if (hits > 0) SOURCE_TREND else SOURCE_POPULAR) }
             lock.withLock { save() }
-        }
+        } else cached(spec)?.items?.takeIf { it.isNotEmpty() }?.let { return it }
         return list
+    }
+
+    /**
+     * (7.26) Top 10 z bieżących trendów: tytuły platformy obecne w tygodniowym rankingu – w kolejności rankingu (miejsce 1
+     * pierwsze), dalej pozostałe w kolejności popularności (uzupełnienie do 10). Bez trendów – kolejność bez zmian.
+     */
+    fun rankByTrend(items: List<StremioMetaPreview>, trend: Map<String, Int>?): List<StremioMetaPreview> {
+        if (trend.isNullOrEmpty()) return items
+        return items.withIndex().sortedWith(compareBy({ trend[it.value.id] ?: Int.MAX_VALUE }, { it.index })).map { it.value }
     }
 
     /** Odświeżenie wszystkich nieaktualnych rzędów (równolegle po platformach); zwraca rzędy, które się zmieniły. */

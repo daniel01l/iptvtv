@@ -212,7 +212,7 @@ object Prefs {
     /** (7.17) Biblioteka Stremio (tytuły dodane przyciskiem „Dodaj do biblioteki”) – JSON, [StremioLibrary]. */
     var stremioLibrary: String get() = str("stremio_library"); set(v) = put("stremio_library", v)
     /** (7.20) Co ile godzin rzędy „Top 10” Stremio są pobierane od nowa (domyślnie 96 h = 4 dni). */
-    var stremioTop10Hours: Int get() = int("stremio_top10_h", 96); set(v) = putInt("stremio_top10_h", v)
+    var stremioTop10Hours: Int get() = int("stremio_top10_h", pl.iptv.tv.data.StremioTop10.DEFAULT_HOURS); set(v) = putInt("stremio_top10_h", v)
     /** (7.22) Platformy z widocznymi rzędami Top 10 (klucze [StremioTop10.Platform.key]); null – nie wybierano (domyślne). */
     var stremioTop10Platforms: Set<String>?
         get() = if (!sp.contains("stremio_top10_p")) null else str("stremio_top10_p").split(',').filter { it.isNotBlank() }.toSet()

@@ -1175,13 +1175,14 @@ class SettingsActivity : BaseActivity() {
         header(CAST_HEADER)
         toggle(CAST_TOGGLE, { Prefs.castButton }) { on -> Prefs.castButton = on; CastHub.settingChanged(this) }
         note(if (!Prefs.castButton) CAST_NOTE_OFF else CAST_NOTE)
-        // (7.20) rzędy „Top 10” platform w Stremio: odświeżanie domyślnie co 4 dni (96 h), zmiana ręczna i pobranie od razu
+        // (7.20) rzędy „Top 10” platform w Stremio; (7.26) z trendów tygodnia, odświeżanie domyślnie co 6 h, zmiana ręczna i pobranie od razu
         header("Stremio – Top 10")
+        note(TOP10_TREND_NOTE)
         val T = pl.iptv.tv.data.StremioTop10
         val hours = T.HOUR_CHOICES
         fun hLabel(h: Int) = if (h % 24 == 0) (h / 24).let { d -> if (d == 1) "co 1 dzień" else "co $d dni" } + " ($h h)" else "co $h h"
         choice("Odświeżanie Top 10", hours.map { hLabel(it) }, { hours.indexOf(Prefs.stremioTop10Hours).let { if (it < 0) hours.indexOf(T.DEFAULT_HOURS) else it } }, look = false,
-            descriptions = hours.map { if (it == T.DEFAULT_HOURS) "Zalecane – rankingi platform zmieniają się wolno" else "" }) { Prefs.stremioTop10Hours = hours[it] }
+            descriptions = hours.map { if (it == T.DEFAULT_HOURS) "Zalecane – trendy tygodnia zmieniają się w ciągu dnia" else "" }) { Prefs.stremioTop10Hours = hours[it] }
         row("Odśwież Top 10 teraz") {
             if (!pl.iptv.tv.data.StremioTmdb.available) { toast("Top 10 wymaga klucza TMDB (Stremio → ★ Klucz TMDB)"); return@row }
             T.init(this); toast("Pobieranie Top 10…")
@@ -1997,6 +1998,7 @@ class SettingsActivity : BaseActivity() {
         const val AUTO_STUTTER_TITLE = "Automatyczna korekta przy zacinaniu obrazu"
         /** (7.24) Reset profilu silnika do domyślnego („Szybkie przełączanie (Sport / Live TV)”). */
         const val RESET_ENGINE_PROFILE = "↺ Przywróć domyślny profil silnika"
+        const val TOP10_TREND_NOTE = "Kolejność według bieżących trendów tygodnia (TMDB – tytuły najchętniej oglądane w ostatnich 7 dniach) wśród tytułów danej platformy. Bez sieci – ostatnia zapisana lista."
         const val CAST_HEADER = "Przesyłanie na urządzenia w pobliżu (Cast)"
         const val CAST_TOGGLE = "Przycisk „Przesyłaj” w odtwarzaczach (Live TV, STube, Stremio)"
         const val CAST_NOTE = "Przycisk pojawia się tylko, gdy w tej samej sieci Wi-Fi jest Chromecast, Android TV lub Google TV z Google Cast. Obraz i dźwięk przechodzą na telewizor, a tutaj odtwarzanie jest wstrzymane; zakończenie przesyłania albo błąd odbiornika wraca do odtwarzania na tym urządzeniu. Na TV: przytrzymaj OK w odtwarzaczu."
