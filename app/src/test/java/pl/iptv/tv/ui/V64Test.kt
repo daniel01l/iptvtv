@@ -175,7 +175,8 @@ class V64Test {
         val title = all.first { it.text == "Tytuł filmu" }
         assertTrue(title.textSize >= Ui.dp(24)); assertTrue(title.isShown)
         assertTrue(all.any { it.text.toString() == "📺 Kanał Autora" && it.isShown })
-        assertTrue(all.any { it.text.startsWith("⏭ Co następuje:  ▶ Film nx1") && it.isShown })
+        // (7.23) „Co następuje” nie pojawia się z kontrolkami – dopiero od 95 % utworu (V723StubePlayerTest)
+        assertFalse(all.any { it.text.startsWith("⏭ Co następuje") && it.isShown })
         // przyciski: jakość, napisy/audio (wg ścieżek), PiP tylko z obsługą systemu
         // 7.0: kapsuły z ikoną (bez emoji) – jakość „Auto …”, autoodtwarzanie
         assertTrue(all.any { it.text.startsWith("Auto") && it.isFocusable && it.compoundDrawables[0] is PlayerIcon })

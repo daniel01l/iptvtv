@@ -38,14 +38,7 @@ open class BaseActivity : AppCompatActivity() {
     protected open val isPlayerScreen = false
 
     /** Orientacja ekranu wg Ustawienia → Wygląd (telefon). */
-    private fun applyOrientation() {
-        val o = when (Prefs.orientation) {
-            1 -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_USER
-            2 -> if (isPlayerScreen) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_USER else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
-            else -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        }
-        if (requestedOrientation != o) requestedOrientation = o
-    }
+    private fun applyOrientation() = OrientationPolicy.apply(this)   // (7.23) wspólna polityka ([OrientationPolicy])
 
     override fun onCreate(savedInstanceState: Bundle?) {
         pl.iptv.tv.ui.TvResolution.applyMetrics(resources); pl.iptv.tv.ui.TvResolution.applyMetrics(applicationContext.resources)   // (7.20) siatka TV 960 × 540 dp

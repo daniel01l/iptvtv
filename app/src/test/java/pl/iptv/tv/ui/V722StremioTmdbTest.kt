@@ -212,21 +212,29 @@ class V722StremioTmdbTest {
         Prefs.orientation = 2
         try {
             val a = Robolectric.buildActivity(StremioActivity::class.java).setup().get()
-            waitFor { a.heroMeta != null && a.rowTitles.count { it.startsWith("Top 10") } == 10 }
-            // karta wyróżnionego tytułu 16:10 u góry (pierwszy rząd – Obecnie w kinach), przyciski Odtwórz / + Do obejrzenia
+            waitFor { a.rowTitles.count { it.startsWith("Top 10") } == 10 }
+            // (7.23) Odkrywaj bez historii oglądania – bez karty banerowej (nie losowy tytuł)
+            assertNull(a.heroMeta); assertTrue(all(a.rowsBox).none { it.tag == StremioActivity.HERO_TAG })
+            assertFalse(a.rowTitles.contains(StremioActivity.CONTINUE_ROW))
+            // Filmy: karta 16:10 u góry z propozycjami filmów (pierwszy rząd – Obecnie w kinach), przyciski Odtwórz / + Do obejrzenia
+            a.setFilter(StremioActivity.FILTER_MOVIES)
+            waitFor { a.heroMeta != null }
             val hero = all(a.rowsBox).first { it.tag == StremioActivity.HERO_TAG }
             assertSame(hero, a.rowsBox.getChildAt(0))
             val w = a.resources.displayMetrics.widthPixels - pl.iptv.tv.ui.Ui.dp(24)
             assertEquals(w * 10 / 16, hero.layoutParams.height)
-            assertEquals("tmdb:movie:9001", a.heroMeta!!.id)
+            // propozycje filmów: pierwszy wypełniony rząd (kina albo Top 10 – kolejność odpowiedzi sieci)
+            val heroId = a.heroMeta!!.id; assertTrue(heroId, heroId.startsWith("tmdb:movie:")); assertEquals("movie", a.heroMeta!!.type)
+            val num = heroId.substringAfterLast(':')
             val texts = all(hero).filterIsInstance<TextView>().map { it.text.toString() }
-            assertTrue(texts.containsAll(listOf("Polski tytuł 9001", StremioActivity.HERO_PLAY, StremioActivity.HERO_WATCHLIST)))
+            assertTrue(texts.containsAll(listOf("Polski tytuł $num", StremioActivity.HERO_PLAY, StremioActivity.HERO_WATCHLIST, StremioActivity.HERO_SUGGEST_MOVIES)))
             assertTrue(texts.any { it.startsWith("★ 7.5") })
             // „+ Do obejrzenia” – IMDb rozwiązany, tytuł na liście
-            all(hero).first { it.tag == "keepcolor hero_watchlist" }.performClick(); waitFor { pl.iptv.tv.data.StremioLibrary.contains("tt9001") }
-            assertTrue(pl.iptv.tv.data.StremioLibrary.contains("tt9001"))
+            all(hero).first { it.tag == "keepcolor hero_watchlist" }.performClick(); waitFor { pl.iptv.tv.data.StremioLibrary.contains("tt$num") }
+            assertTrue(pl.iptv.tv.data.StremioLibrary.contains("tt$num"))
             // pionowa kolumna rzędów: najpierw kina, potem Top 10 włączonych platform
             assertEquals(StremioActivity.IN_CINEMAS, a.rowTitles.first())
+            assertFalse(a.rowTitles.contains(StremioActivity.CONTINUE_ROW))
             // dolny pasek: Stremio zaznaczone; „Do obejrzenia” – Biblioteka na tym samym ekranie, z dodanym tytułem
             val nav = a.portraitNav!!
             assertTrue(nav.getChildAt(1).isSelected)

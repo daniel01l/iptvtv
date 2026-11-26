@@ -21,6 +21,10 @@ data class Channel(
     val epgOverride: String? = null,
     /** Numer na liście (1..n, 0 dla ukrytych). */
     val number: Int = 0,
+    /** (7.23) Rodzaj pozycji z listy (`tvg-type` / `type`: movie, series, live…) – moduł VOD ([M3uVod]). */
+    val tvgType: String = "",
+    /** (7.23) Gatunek z listy (`tvg-genre` / `genre` / `category`) – moduł VOD; puste – gatunek z nazwy grupy. */
+    val genre: String = "",
 ) {
     /** Klucz kanału w EPG (id z XMLTV) – ustawiany po wczytaniu EPG. */
     @Volatile var epgKey: String? = null

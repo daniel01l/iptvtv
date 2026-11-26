@@ -114,6 +114,7 @@ object StremioMetas {
      * tytuł i gatunki z TMDB `pl-PL` ([pl.iptv.tv.data.StremioTmdb.localize]); brak polskiego tłumaczenia – dane angielskie.
      */
     suspend fun get(type: String, id: String): StremioMeta? {
+        if (pl.iptv.tv.data.M3uVod.isM3uId(id)) return null            // (7.23) pozycja z listy M3U – bez zapytań do wtyczek
         cached(type, id)?.let { return it }
         val polish = pl.iptv.tv.data.StremioTmdb.polishWanted
         val addons = StremioStore.addons().map { it.first }.filter { it.supports("meta", type, id) }

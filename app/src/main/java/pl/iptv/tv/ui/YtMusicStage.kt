@@ -597,7 +597,8 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
      * Okno opcji (zamiast systemowego okna): panel z prawej (telefon w pionie – od dołu), zaokrąglony, w kolorach motywu z cienką
      * obwódką akcentu, tło ściemnione; wiersze z ikonami, zaznaczony – kolor zaznaczenia motywu. WSTECZ zamyka ([closeOptions]).
      */
-    fun showOptions(title: String, opts: List<Opt>, headerIcon: String = PlayerIcon.MUSIC) {
+    /** [into] (7.23) – kontener spoza widoku muzycznego (zwykły odtwarzacz wideo, przycisk „Opcje odtwarzania”): to samo okno nad obrazem. */
+    fun showOptions(title: String, opts: List<Opt>, headerIcon: String = PlayerIcon.MUSIC, into: ViewGroup? = null) {
         closeOptions(refocus = false)
         if (opts.isEmpty()) return
         sheetOpener = findFocus()
@@ -647,7 +648,7 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
         card.layoutParams = lp
         dim.addView(card)
         (card.layoutParams as LayoutParams).height = if (wide) (dm.heightPixels - dp(48)).coerceAtMost(dp(76) * opts.size + dp(110)) else (dm.heightPixels * 0.62f).toInt().coerceAtMost(dp(60) * opts.size + dp(110))
-        addView(dim, LayoutParams(-1, -1))
+        (into ?: this).addView(dim, LayoutParams(-1, -1))
         sheet = dim
         bodyRef?.let { (it as? ViewGroup)?.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS }
         card.alpha = 0f; card.translationX = if (wide) dp(40).toFloat() else 0f; card.translationY = if (wide) 0f else dp(60).toFloat()
@@ -659,9 +660,9 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
     fun closeOptions(refocus: Boolean = true) {
         val s = sheet ?: return
         sheet = null
-        removeView(s)
+        (s.parent as? ViewGroup)?.removeView(s)
         bodyRef?.let { (it as? ViewGroup)?.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS }
-        if (refocus) { val o = sheetOpener; if (o != null && o.isAttachedToWindow) o.requestFocus() else playBtn.requestFocus() }
+        if (refocus) { val o = sheetOpener; if (o != null && o.isAttachedToWindow) o.requestFocus() else if (isShown) playBtn.requestFocus() }
         sheetOpener = null
     }
 

@@ -66,7 +66,7 @@
             </intent-filter>
         </activity>
         <activity android:name=".ui.MainActivity" android:exported="true" android:windowSoftInputMode="stateHidden"
-            android:screenOrientation="sensorLandscape">
+            android:screenOrientation="behind">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -98,7 +98,7 @@
         <activity android:name=".ui.StremioDetailActivity" android:screenOrientation="behind" />
         <activity android:name=".ui.StremioAddonsActivity" android:screenOrientation="behind" />
         <!-- (7.5) obraz w obrazie na telefonach / tabletach (pływające okno, film gra dalej) -->
-        <activity android:name=".ui.StremioPlayerActivity" android:theme="@style/PlayerTheme" android:screenOrientation="sensorLandscape"
+        <activity android:name=".ui.StremioPlayerActivity" android:theme="@style/PlayerTheme" android:screenOrientation="behind"
             android:supportsPictureInPicture="true" android:resizeableActivity="true"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboard|keyboardHidden|navigation|uiMode" />
         <!-- motyw X25: pulpit z kafelkami (Jetpack Compose), nad listą kanałów -->
@@ -111,13 +111,14 @@
         <activity android:name=".ui.STubeActivity" android:screenOrientation="behind"
             android:windowSoftInputMode="adjustResize|stateHidden" />
         <!-- odtwarzacz STube: jedna instancja (nowy film / pełny ekran z mini-playera – ta sama), obraz w obrazie (PiP – system przenosi okno do osobnego zadania, menu zostaje) -->
-        <activity android:name=".ui.YtPlayerActivity" android:theme="@style/PlayerTheme" android:screenOrientation="sensorLandscape"
+        <activity android:name=".ui.YtPlayerActivity" android:theme="@style/PlayerTheme" android:screenOrientation="behind"
             android:launchMode="singleTask" android:supportsPictureInPicture="true"
             android:resizeableActivity="true"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode" />
         <activity android:name=".ui.GuideListActivity" />
         <activity android:name=".ui.LockActivity" android:exported="false" android:launchMode="singleTask" />
         <activity android:name=".ui.SetupActivity" android:screenOrientation="behind"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|navigation"
             android:windowSoftInputMode="adjustResize|stateHidden" />
         <activity android:name=".ui.EpgSearchActivity" android:screenOrientation="behind"
             android:windowSoftInputMode="adjustResize|stateHidden" />

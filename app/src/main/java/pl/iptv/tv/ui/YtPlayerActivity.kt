@@ -61,6 +61,12 @@ class YtPlayerActivity : AppCompatActivity() {
         /** Otwarcie bieżącego filmu silnika (mini-player, powiadomienie) – bez wczytywania od nowa. */
         const val EXTRA_RESUME_CURRENT = "resume_current"
         const val SEEK_STEP_MS = 10_000L
+        /** (7.23) Arkusz wyniku wyszukiwarki „Dodaj do kolejki”. */
+        const val QUEUE_ADD = "Dodaj"; const val QUEUE_ADD_NEXT = "Dodaj i odtwórz następnie"
+        /** (7.23) Pigułka „Proponowane / Co następuje”: od [UP_NEXT_FRACTION] długości utworu, przez [UP_NEXT_MS] z ładującym się obramowaniem. */
+        const val UP_NEXT_FRACTION = 0.95; const val UP_NEXT_MS = 10_000L; const val UP_NEXT_TICK_MS = 500L
+        /** (7.23) Podwójne stuknięcie: lewy / prawy pas tej szerokości (ułamek obrazu) przewija o [SEEK_STEP_MS]. */
+        const val DOUBLE_TAP_SIDE = 0.4f
         const val SAVE_EVERY_MS = YtEngine.SAVE_EVERY_MS
         const val START_TIMEOUT_MS = YtEngine.START_TIMEOUT_MS
         const val TAB_RELATED = 0; const val TAB_QUEUE = 1; const val TAB_CHANNEL = 2; const val TAB_SIMILAR = 3
@@ -95,7 +101,11 @@ class YtPlayerActivity : AppCompatActivity() {
     private lateinit var titleView: TextView
     private lateinit var channelView: TextView
     private lateinit var chapterLabel: TextView
-    private lateinit var upNextLabel: TextView
+    /** (7.23) Pigułka „Proponowane / Co następuje” – tylko od 95 % utworu, przez 10 s ([UpNextPill]). */
+    private lateinit var upNextLabel: UpNextPill
+    /** Film, dla którego pigułka już się pojawiła (raz na utwór). */
+    private var upNextShownFor: String? = null
+    val upNextPill: UpNextPill? get() = if (::upNextLabel.isInitialized) upNextLabel else null
     private lateinit var optionsBar: LinearLayout
     private lateinit var optionsScroll: android.widget.HorizontalScrollView
     private lateinit var speedBtn: TextView
@@ -136,6 +146,38 @@ class YtPlayerActivity : AppCompatActivity() {
         ?: YtVideo(videoId, intent.getStringExtra(EXTRA_TITLE).orEmpty(), intent.getStringExtra(EXTRA_CHANNEL).orEmpty(), intent.getStringExtra(EXTRA_THUMB).orEmpty())
     /** „Od początku” – tylko pierwsze wczytanie tego ekranu. */
     private var fromStartPending = false
+    /**
+     * (7.23) Film z intentu czeka na wczytanie (nowe otwarcie ekranu / nowy film z zewnątrz w [onNewIntent]). Po wczytaniu false:
+     * od tej chwili jedynym źródłem prawdy o bieżącym utworze jest silnik ([YtEngine.video]) – intent tylko go odzwierciedla.
+     * Dawniej po zablokowaniu telefonu (onStop odpinał słuchacza silnika) kolejka grała dalej w tle, intent zostawał przy utworze
+     * z chwili blokady, a po odblokowaniu [connect] uznawał go za „inny film” i uruchamiał go ponownie.
+     */
+    private var loadPending = false
+    /** Ekran schowany ([onStop]), gdy silnik coś grał – brak filmu po powrocie = koniec w tle, a nie film do wczytania. */
+    private var hiddenWhilePlaying = false
+    /** Liczba dopasowań ekranu do utworu silnika po powrocie z tła (testy). */
+    var followedEngine = 0; private set
+
+    /**
+     * (7.23) Ekran wraca (odblokowanie, powrót z tła, odtworzenie aktywności): bieżący utwór i jego miejsce w kolejce zawsze z silnika,
+     * nigdy z intentu / stanu zapamiętanego przed blokadą. Zmiana utworu – nowy intent, tytuł, widok muzyczny, panel pionowy i kursor
+     * listy „Następne” na faktycznie odtwarzanym utworze. Nic nie jest wczytywane ani uruchamiane od nowa.
+     */
+    private fun followEngine() {
+        if (loadPending || trailerMode) return
+        val v = YtEngine.video ?: return
+        if (v.id == videoId && !intent.getBooleanExtra(EXTRA_RESUME_CURRENT, false)) return
+        val changed = v.id != videoId
+        setIntent(intent(this, v))
+        fromStartPending = false
+        if (changed) {
+            followedEngine++
+            // odliczanie / panel końca dotyczyły utworu sprzed blokady – nieaktualne
+            cancelAutoplay(); if (endedPanel) { endedPanel = false; panel?.close() }
+            stageSig = ""
+        }
+        showTitle()
+    }
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
 
     /**
@@ -169,7 +211,7 @@ class YtPlayerActivity : AppCompatActivity() {
             pl.iptv.tv.data.StubeMixes.isTrack(YtVideo(videoId, title, ch, duration = YtKeyless.isoDuration(current?.durationS ?: 0)))
     }
 
-    override fun onResume() { super.onResume(); StubeTheme.enter() }
+    override fun onResume() { super.onResume(); StubeTheme.enter(); followEngine() }
     override fun onPause() { super.onPause(); StubeTheme.exit() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -236,13 +278,9 @@ class YtPlayerActivity : AppCompatActivity() {
         infoBox.addView(chapterLabel, LinearLayout.LayoutParams(-2, -2).apply { topMargin = Ui.dp(8) })
         infoBox.addView(optionsScroll, LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(12) })
         root.addView(infoBox, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
-        // „Co następuje” – następna pozycja kolejki (film STube lub kanał TV), nad paskiem postępu
-        upNextLabel = TextView(this).apply {
-            setTextColor(Color.WHITE); textSize = 16f; visibility = View.GONE; maxLines = 2; maxWidth = Ui.dp(460)
-            ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(Ui.dp(16), Ui.dp(10), Ui.dp(16), Ui.dp(10))
-            background = GradientDrawable().apply { setColor(pl.iptv.tv.ui.theme.ObsidianViews.overlay(0xD0101010.toInt())); cornerRadius = Ui.dp(14).toFloat(); setStroke(Ui.dp(1), Ui.withAlpha(Ui.accent, 0xA0)) }
-        }
-        root.addView(upNextLabel, FrameLayout.LayoutParams(-2, -2, Gravity.END or Gravity.BOTTOM).apply { setMargins(0, 0, Ui.dp(32), Ui.dp(110)) })
+        // (7.23) „Proponowane / Co następuje” – pigułka od 95 % utworu, przez 10 s, w dolnej części obrazu po prawej (strona następnego)
+        upNextLabel = UpNextPill(this).apply { maxWidth = Ui.dp(420); setOnClickListener { playUpNext() } }
+        root.addView(upNextLabel, FrameLayout.LayoutParams(-2, -2, Gravity.END or Gravity.BOTTOM).apply { setMargins(0, 0, Ui.dp(24), Ui.dp(64)) })
         root.addView(buildShelf(), FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply { bottomMargin = Ui.dp(96) })
         shelfHandle = TextView(this).apply {
             text = "⌃"; textSize = 20f; gravity = Gravity.CENTER; isFocusable = true; isClickable = true; visibility = View.GONE; contentDescription = "Następne utwory"
@@ -279,7 +317,10 @@ class YtPlayerActivity : AppCompatActivity() {
         applyOrientationRequest(); applyOrientationLayout()
         // pasek postępu jak w YouTube: czerwony, ◄► na pasku przewija o 10 s
         PlayerChrome.styleTimeBar(playerView, PlayerChrome.YT_RED)
+        hideSettingsGear()
         fromStartPending = intent.getBooleanExtra(EXTRA_FROM_START, false) && savedInstanceState == null
+        // (7.23) odtworzona aktywność (savedInstanceState) – film z intentu był już wczytany, bieżący utwór z silnika
+        loadPending = savedInstanceState == null && !intent.getBooleanExtra(EXTRA_RESUME_CURRENT, false)
         if (videoId.isBlank()) { finish(); return }
         showTitle()
         handler.postDelayed(idleTick, AMBIENT_TICK_MS)
@@ -291,7 +332,9 @@ class YtPlayerActivity : AppCompatActivity() {
         active = java.lang.ref.WeakReference(this)
         uiStarted = true
         YtEngine.listeners += engineListener
+        followEngine()      // (7.23) kolejka mogła przejść dalej w tle (zablokowany telefon) – ekran na faktycznie grany utwór
         connect()
+        handler.removeCallbacks(upNextTick); handler.postDelayed(upNextTick, UP_NEXT_TICK_MS)
     }
 
     /** Połączenie z usługą; film tego ekranu wczytywany tylko, gdy silnik gra coś innego (powrót z tła – bez przerwy). */
@@ -305,12 +348,16 @@ class YtPlayerActivity : AppCompatActivity() {
             playerView.player = c.player
             c.setBackground(YtEngine.audioOnly)
             applyAudioOnlyView()
+            followEngine()
             stageBackground = null; updateStage()
             val same = YtEngine.video?.id == videoId
             when {
                 same && YtEngine.error != null -> showFallback(YtEngine.error!!)
-                same -> syncUi()
-                else -> { status.visibility = View.VISIBLE; status.text = video.title.ifBlank { "Wczytywanie…" } + "\n\nWczytywanie…"
+                same -> { syncUi(); if (stageShown) stage.refresh() }
+                // (7.23) silnik skończył w tle (koniec kolejki, ✖ w powiadomieniu) – bez ponownego startu utworu z chwili blokady
+                !loadPending && hiddenWhilePlaying && YtEngine.video == null -> { if (!isFinishing) finish() }
+                else -> { status.visibility = View.GONE      // (7.23) bez napisu „Wczytywanie – tytuł” na środku obrazu
+                    loadPending = false
                     c.load(video, fromStartPending); fromStartPending = false }
             }
         }
@@ -323,6 +370,8 @@ class YtPlayerActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         uiStarted = false
+        handler.removeCallbacks(upNextTick); upNextLabel.hide()
+        hiddenWhilePlaying = YtEngine.video != null
         YtEngine.listeners -= engineListener
         disconnect()
         // (7.20) zwiastun Stremio: po wyjściu odtwarzacz całkowicie zatrzymany i zwolniony (bez tła i mini-odtwarzacza)
@@ -354,11 +403,12 @@ class YtPlayerActivity : AppCompatActivity() {
         super.onNewIntent(i)
         setIntent(i)
         if (!i.getBooleanExtra(EXTRA_RESUME_CURRENT, false) && i.getStringExtra(EXTRA_ID) != YtEngine.video?.id) stageSticky = false   // film wybrany z zewnątrz – znowu decydują jego znaczniki
-        if (i.getBooleanExtra(EXTRA_RESUME_CURRENT, false) || i.getStringExtra(EXTRA_ID) == YtEngine.video?.id) { syncUi(); return }
+        if (i.getBooleanExtra(EXTRA_RESUME_CURRENT, false) || i.getStringExtra(EXTRA_ID) == YtEngine.video?.id) { loadPending = false; followEngine(); syncUi(); return }
         // inny film (STube, telefon) w tym samym oknie – także w trybie PiP
         fromStartPending = i.getBooleanExtra(EXTRA_FROM_START, false)
+        loadPending = true    // (7.23) jawny wybór nowego filmu – jedyny przypadek, w którym intent wygrywa z silnikiem
         showTitle()
-        client?.let { it.load(video, fromStartPending); fromStartPending = false }
+        client?.let { loadPending = false; it.load(video, fromStartPending); fromStartPending = false }
     }
 
     private fun clock(ms: Long): String {
@@ -372,15 +422,10 @@ class YtPlayerActivity : AppCompatActivity() {
         override fun onLoading(v: YtVideo) {
             if (v.id != videoId) { setIntent(intent(this@YtPlayerActivity, v)) }   // następny z kolejki – ten sam ekran
             showTitle()
-            status.visibility = View.VISIBLE; status.text = v.title.ifBlank { "Wczytywanie…" } + "\n\nWczytywanie…"
+            upNextLabel.hide()
+            if (!status.text.endsWith("Tylko dźwięk")) status.visibility = View.GONE   // (7.23) bez napisu ładowania na środku
         }
-        override fun onLoaded(p: YtPlayable) {
-            syncUi()
-            if (player?.playbackState != Player.STATE_READY) {
-                status.visibility = View.VISIBLE
-                status.text = p.title.ifBlank { "Wczytywanie…" } + "\n\n" + (YtEngine.resumedFrom.takeIf { it > 0 }?.let { "Wznawianie od " + clock(it) } ?: "Wczytywanie…")
-            }
-        }
+        override fun onLoaded(p: YtPlayable) { syncUi() }
         override fun onError(reason: String): Boolean { showFallback(reason); return true }
         override fun onSkipped(seg: SbSegment) {
             skipLabel.text = "⏭  Pominięto: ${SponsorBlock.label(seg.category)}"
@@ -631,7 +676,7 @@ class YtPlayerActivity : AppCompatActivity() {
             shelf.animate().translationY(0f).alpha(1f).setDuration(220).start()
         } else if (!show) { shelf.animate().cancel(); shelf.translationY = 0f; shelf.alpha = 1f; shelf.visibility = View.GONE }
         shelfHandle.visibility = if (avail && !shelfOpen) View.VISIBLE else View.GONE
-        if (show) upNextLabel.visibility = View.GONE
+        if (show) upNextLabel.hide()
     }
 
     /** Wysuwa półkę od dołu i zaznacza ostatnio wybrany kafelek. */
@@ -684,8 +729,54 @@ class YtPlayerActivity : AppCompatActivity() {
             suggestions.isNotEmpty() -> "Proponowane:  ▶ ${suggestions.first().title}"
             else -> ""
         }
-        upNextLabel.text = text
-        upNextLabel.visibility = if (text.isNotEmpty() && playerView.isControllerFullyVisible && !isInPip && !shelfShown) View.VISIBLE else View.GONE
+        upNextText = text
+        // (7.23) bez pokazywania przy kontrolkach – tylko aktualizacja treści już widocznej pigułki
+        if (upNextLabel.shown && text.isNotEmpty()) upNextLabel.text = text else if (text.isEmpty()) upNextLabel.hide()
+    }
+    private var upNextText = ""
+
+    /**
+     * (7.23) Co [UP_NEXT_TICK_MS]: przy [UP_NEXT_FRACTION] długości utworu (raz na utwór, nie transmisja, poza PiP i półką) pigułka
+     * „Proponowane / Co następuje” na [UP_NEXT_MS] z ładującym się obramowaniem; po tym czasie znika sama.
+     */
+    private val upNextTick = object : Runnable {
+        override fun run() { checkUpNext(); handler.postDelayed(this, UP_NEXT_TICK_MS) }
+    }
+
+    /** [posMs] / [durMs] – pozycja i długość (domyślnie z odtwarzacza; testy podają własne). */
+    fun checkUpNext(posMs: Long? = null, durMs: Long? = null) {
+        val p = player
+        if (live || isInPip || upNextShownFor == videoId) return
+        val dur = (durMs ?: p?.duration)?.takeIf { it != C.TIME_UNSET && it > 0 } ?: return
+        val pos = posMs ?: p?.currentPosition ?: return
+        if (pos < dur * UP_NEXT_FRACTION) return
+        updateUpNext()
+        if (upNextText.isEmpty() || shelfShown) return
+        upNextShownFor = videoId
+        placeUpNext()
+        upNextLabel.start(upNextText)
+    }
+
+    /** Pigułka w dolnej części obrazu: w pionie – nad dolną krawędzią przypiętego okna 16:9, w poziomie – nad dolną krawędzią ekranu. */
+    private fun placeUpNext() {
+        val lp = upNextLabel.layoutParams as FrameLayout.LayoutParams
+        if (portraitActive) {
+            val pv = playerView.layoutParams as FrameLayout.LayoutParams
+            upNextLabel.measure(View.MeasureSpec.makeMeasureSpec(Ui.dp(420), View.MeasureSpec.AT_MOST), View.MeasureSpec.UNSPECIFIED)
+            lp.gravity = Gravity.END or Gravity.TOP
+            lp.setMargins(0, (pv.topMargin + pv.height - upNextLabel.measuredHeight - Ui.dp(12)).coerceAtLeast(0), Ui.dp(12), 0)
+        } else { lp.gravity = Gravity.END or Gravity.BOTTOM; lp.setMargins(0, 0, Ui.dp(24), Ui.dp(64)) }
+        upNextLabel.layoutParams = lp
+    }
+
+    /** Dotknięcie pigułki: następna pozycja kolejki albo pierwsza propozycja – od razu. */
+    private fun playUpNext() {
+        upNextLabel.hide()
+        val q = StubeQueue.cached.firstOrNull { !(it.isVideo && it.ref == videoId) }
+        when {
+            q != null -> YtEngine.next()
+            suggestions.isNotEmpty() -> playNow(suggestions.first())
+        }
     }
 
     // ---------------- widok muzyczny (7.9) ----------------
@@ -714,7 +805,7 @@ class YtPlayerActivity : AppCompatActivity() {
             stage.visibility = if (want) View.VISIBLE else View.GONE
             playerView.useController = !want && !isInPip
             if (want) {
-                playerView.hideController(); infoBox.visibility = View.GONE; upNextLabel.visibility = View.GONE; shelf.visibility = View.GONE
+                playerView.hideController(); infoBox.visibility = View.GONE; shelf.visibility = View.GONE
                 if (panel?.isOpen != true) stage.focusDefault()
             }
         }
@@ -818,9 +909,7 @@ class YtPlayerActivity : AppCompatActivity() {
      * a film gra dalej w usłudze ([YtEngine]) bez ponownego startu strumienia.
      */
     private fun applyOrientationRequest() {
-        if (Tutorial.isTv(this)) return
-        val o = if (Prefs.orientation != 0) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_USER else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        if (requestedOrientation != o) runCatching { requestedOrientation = o }
+        OrientationPolicy.apply(this)   // (7.23) wspólna polityka – także przed onCreate (IptvApp), manifest „behind”
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -860,6 +949,7 @@ class YtPlayerActivity : AppCompatActivity() {
         stageWideBuilt = wide
         val root = rootView ?: return
         val idx = root.indexOfChild(stage).takeIf { it >= 0 } ?: return
+        stage.closeOptions(refocus = false)       // (7.23) okno opcji mogło być otwarte nad wideo (w rootView)
         root.removeView(stage)
         stage = YtMusicStage(this, stageHost).apply { visibility = View.GONE }
         root.addView(stage, idx, FrameLayout.LayoutParams(-1, -1))
@@ -870,33 +960,33 @@ class YtPlayerActivity : AppCompatActivity() {
     /** Ostatnio otwarty arkusz (testy). */
     var lastSheet: PortraitSheet? = null; private set
 
-    /** (7.22) Pasek ikon w pionie: Tryb muzyczny, Tekst, Jakość / prędkość, Silnik, Obróć. */
+    /**
+     * (7.22 / 7.23) Pasek ikon w pionie – dokładnie: Muzyka, Tekst, Opcje odtwarzania (to samo okno co ☰ w widoku muzycznym), Obróć.
+     * „Silnik” usunięty (ustawienia silnika – Ustawienia → Odtwarzanie).
+     */
     private fun portraitIcons() = listOf(
         PortraitPlayerUi.Icon("music", PlayerIcon.MUSIC, "Muzyka") { setMusicView(!stageShown) },
-        PortraitPlayerUi.Icon("lyrics", PlayerIcon.LYRICS, "Tekst") { portraitPanel?.selectTab(YtPortraitPanel.TAB_LYRICS) },
-        PortraitPlayerUi.Icon("quality", PlayerIcon.SPEED, "Jakość") { lastSheet = qualitySheet() },
-        PortraitPlayerUi.Icon("engine", PlayerIcon.QUALITY, "Silnik") { lastSheet = PortraitPlayerUi.engineSheet(this, { PortraitPlayerUi.diagnostics(YtEngine.player) }) },
+        PortraitPlayerUi.Icon("lyrics", PlayerIcon.LYRICS, "Tekst") { if (stageShown) stage.selectTab(YtMusicStage.TAB_LYRICS) else portraitPanel?.toggleLyrics() },
+        PortraitPlayerUi.Icon("options", PlayerIcon.CHAPTERS, "Opcje odtwarzania") { showMusicOptions() },
         PortraitPlayerUi.Icon("rotate", PlayerIcon.ROTATE, "Obróć") { PortraitPlayerUi.rotateToLandscape(this) },
     )
 
-    /** Jakość obrazu (Automatycznie / dostępne wysokości) i prędkość (kafelki), dalej pełne opcje odtwarzacza. */
-    private fun qualitySheet(): PortraitSheet {
-        val s = PortraitSheet(this, "Jakość i prędkość")
-        fun build() {
-            s.clear()
-            val qs = qualities(); val cur = Prefs.ytQuality
-            s.section("Jakość obrazu")
-            if (qs.isEmpty()) s.info("Jakość niedostępna dla tego filmu")
-            else s.tiles(listOf("Auto") + qs.map { "${it}p" }, if (cur == 0) 0 else qs.indexOf(cur).let { if (it < 0) 0 else it + 1 }) { i -> setQuality(if (i == 0) 0 else qs[i - 1]); build() }
-            if (!live) {
-                s.section("Prędkość odtwarzania")
-                val sp = Prefs.ytSpeedPct.takeIf { it in SPEEDS } ?: 100
-                s.tiles(SPEEDS.map { speedLabel(it) }, SPEEDS.indexOf(sp)) { i -> setSpeed(SPEEDS[i]); build() }
-            }
-            s.section("Więcej")
-            s.action("Audio, napisy, korektor i inne opcje") { optionsMenu() }
+    /**
+     * (7.23) Wybrany w wyszukiwarce „Dodaj do kolejki” utwór [v]: „Dodaj” (na koniec kolejki) albo „Dodaj i odtwórz następnie”
+     * (zaraz za bieżącym, po wcześniej dodanych w ten sposób – [StubeQueue.add] z next). Po wyborze – [onAdded] (czyszczenie pola).
+     */
+    fun queueChoiceSheet(v: YtVideo, onAdded: () -> Unit): PortraitSheet {
+        val s = PortraitSheet(this, v.title.ifBlank { "Dodaj do kolejki" })
+        if (v.channel.isNotBlank()) s.info(v.channel)
+        fun add(next: Boolean) = lifecycleScope.launch {
+            StubeQueue.add(QueueItem.of(v), next = next)
+            toast(if (next) "Odtworzy się następnie: ${v.title}" else "Dodano do kolejki: ${v.title}")
+            onAdded()
+            stageSig = ""; updateStage(); updateButtons()
         }
-        build(); s.show(); return s
+        s.action(QUEUE_ADD) { add(false) }
+        s.action(QUEUE_ADD_NEXT) { add(true) }
+        s.show(); lastSheet = s; return s
     }
 
     private val portraitHost = object : YtPortraitPanel.Host {
@@ -910,6 +1000,8 @@ class YtPlayerActivity : AppCompatActivity() {
             return YtLyrics.find(titleView.text.toString(), stageArtist(), sec)
         }
         override fun lyricDelayMs() = YtLyrics.delayFor(videoId)
+        override suspend fun search(q: String): List<YtVideo> = YtKeyless.search(q)
+        override fun searchPicked(v: YtVideo, onAdded: () -> Unit) { queueChoiceSheet(v, onAdded) }
     }
 
     val pipSupported: Boolean get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
@@ -969,7 +1061,7 @@ class YtPlayerActivity : AppCompatActivity() {
         // w oknie PiP: sam obraz (bez paska i nakładek); powrót – pełny odtwarzacz
         playerView.useController = !inPip && !stageShown
         updateStage()
-        if (inPip) { infoBox.visibility = View.GONE; upNextLabel.visibility = View.GONE; panel?.close(); hideAmbient() }
+        if (inPip) { infoBox.visibility = View.GONE; upNextLabel.hide(); panel?.close(); hideAmbient() }
         // okno PiP zamknięte (✕) – koniec odtwarzania; rozwinięte – ekran wraca do zwykłego trybu
         else if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) { YtEngine.stop(); finish() }
         // (7.22) PiP – sam obraz; powrót – układ pionowy / poziomy wg orientacji
@@ -1090,8 +1182,9 @@ class YtPlayerActivity : AppCompatActivity() {
             add(YtMusicStage.Opt(PlayerIcon.LYRICS, "Teksty piosenek", if (Prefs.ytLyrics) "wł." else "wył.") {
                 Prefs.ytLyrics = !Prefs.ytLyrics; stage.resetLyrics(); toast("Teksty piosenek " + if (Prefs.ytLyrics) "włączone" else "wyłączone")
             })
-            if (stage.hasSyncedLyrics) add(YtMusicStage.Opt(PlayerIcon.LYRICS, "Synchronizacja tekstu", stage.delayLabel()) { lyricsSyncMenu() })
-            add(YtMusicStage.Opt(PlayerIcon.VIDEO, "Teledysk (wideo)") { setMusicView(false) })
+            if (stageShown && stage.hasSyncedLyrics) add(YtMusicStage.Opt(PlayerIcon.LYRICS, "Synchronizacja tekstu", stage.delayLabel()) { lyricsSyncMenu() })
+            if (stageShown) add(YtMusicStage.Opt(PlayerIcon.VIDEO, "Teledysk (wideo)") { setMusicView(false) })
+            else if (!live) add(YtMusicStage.Opt(PlayerIcon.MUSIC, "Widok muzyczny") { setMusicView(true) })
             if (!Tutorial.isTv(this@YtPlayerActivity)) add(YtMusicStage.Opt(PlayerIcon.AUDIO_ONLY, "Tylko dźwięk", if (YtEngine.audioOnly) "wł." else "wył.") { toggleAudioOnly() })
             if (pipSupported && !YtEngine.audioOnly) add(YtMusicStage.Opt(PlayerIcon.PIP, "Obraz w obrazie") { enterPip() })
             add(YtMusicStage.Opt(PlayerIcon.QUEUE, "Propozycje i kolejka") { openPanel(TAB_RELATED) })
@@ -1102,7 +1195,8 @@ class YtPlayerActivity : AppCompatActivity() {
             add(YtMusicStage.Opt(PlayerIcon.INFO, "Wygaszacz teraz") { showAmbient() })
             add(YtMusicStage.Opt(PlayerIcon.STOP, "Zatrzymaj odtwarzanie") { YtEngine.stop(); finish() })
         }
-        stage.showOptions("Opcje odtwarzania", opts)
+        // (7.23) przycisk „Opcje odtwarzania” (pasek w pionie) – to samo okno także nad zwykłym wideo
+        stage.showOptions("Opcje odtwarzania", opts, into = if (stageShown) null else rootView)
     }
 
     /** Opcje odtwarzania (MENU na pilocie). */
@@ -1176,6 +1270,7 @@ class YtPlayerActivity : AppCompatActivity() {
         panel?.close()
         lifecycleScope.launch { StubeQueue.removeRef(QueueItem.KIND_YT, v.id) }
         setIntent(intent(this, v))
+        loadPending = false
         showTitle()
         client?.load(v, false) ?: YtEngine.load(this, v)
     }
@@ -1271,6 +1366,48 @@ class YtPlayerActivity : AppCompatActivity() {
         put("chapter", chapterIndex.takeIf { it >= 0 }?.let { chapters[it].title } ?: "")
     }
 
+    /** (7.23) Ikona ustawień Media3 (koło zębate) usunięta z nakładki – opcje: „Opcje odtwarzania” / MENU. */
+    private fun hideSettingsGear() {
+        val gear = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_settings) ?: return
+        gear.visibility = View.GONE
+        // układ paska Media3 przenosi przyciski przy zmianie szerokości – ikona zostaje schowana
+        gear.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ -> if (v.visibility != View.GONE) v.post { v.visibility = View.GONE } }
+    }
+    /** Ikona ustawień widoczna (testy). */
+    val settingsGearShown: Boolean get() = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_settings)?.visibility == View.VISIBLE
+
+    /**
+     * (7.23) Podwójne stuknięcie w obraz: lewy pas ([DOUBLE_TAP_SIDE] szerokości) – przewinięcie do tyłu, prawy – do przodu
+     * o [SEEK_STEP_MS] (kolejne stuknięcia sumują się w plakietce [seekHidden]). Pojedyncze stuknięcie – jak dotąd (pasek).
+     */
+    private val doubleTap by lazy {
+        android.view.GestureDetector(this, object : android.view.GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: android.view.MotionEvent) = true
+            override fun onDoubleTap(e: android.view.MotionEvent): Boolean = doubleTapAt(e.x, e.y)
+        })
+    }
+
+    /** Podwójne stuknięcie w punkcie okna ([x], [y]); true – przewinięto (testy). */
+    fun doubleTapAt(x: Float, y: Float): Boolean {
+        val p = player ?: return false
+        if (live || stageShown || isInPip || panel?.isOpen == true || (::stage.isInitialized && stage.optionsOpen)) return false
+        val loc = IntArray(2); playerView.getLocationInWindow(loc)
+        val lx = x - loc[0]; val ly = y - loc[1]
+        if (ly < 0 || ly > playerView.height || playerView.width <= 0) return false
+        val dir = when {
+            lx < playerView.width * DOUBLE_TAP_SIDE -> -1
+            lx > playerView.width * (1 - DOUBLE_TAP_SIDE) -> 1
+            else -> return false
+        }
+        seekHidden(p, dir, 0)
+        return true
+    }
+
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        if (!Tutorial.isTv(this)) doubleTap.onTouchEvent(ev)
+        return super.dispatchTouchEvent(ev)
+    }
+
     private fun onControllerVisibility(v: Int) {
         // (7.22) telefon pionowo: tytuł i przyciski w panelu pod obrazem – bez nakładki na wideo
         infoBox.visibility = if (isInPip || portraitActive) View.GONE else v
@@ -1327,6 +1464,11 @@ class YtPlayerActivity : AppCompatActivity() {
         if (panel?.isOpen == true) return super.dispatchKeyEvent(event)
         if (event.keyCode == KeyEvent.KEYCODE_MENU) { if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) optionsMenu(); return true }
         if (event.keyCode == KeyEvent.KEYCODE_WINDOW) { if (event.action == KeyEvent.ACTION_DOWN) enterPip(); return true }
+        // (7.23) okno opcji otwarte nad zwykłym wideo: WSTECZ zamyka je
+        if (!stageShown && ::stage.isInitialized && stage.optionsOpen) {
+            if (event.keyCode == KeyEvent.KEYCODE_BACK) { if (event.action == KeyEvent.ACTION_DOWN) stage.closeOptions(); return true }
+            return super.dispatchKeyEvent(event)
+        }
         // widok muzyczny prowadzi fokus sam (przyciski, pasek, lista, tekst); klawisze multimedialne działają jak w odtwarzaczu
         if (stageShown) {
             // okno opcji w widoku muzycznym: WSTECZ zamyka je (nie cały odtwarzacz)
@@ -1443,6 +1585,15 @@ class YtPlayerActivity : AppCompatActivity() {
         val sign = if (seekAccum >= 0) "+" else "−"
         seekBadge.text = "$sign${Math.abs(seekAccum) / 1000} s   ${fmt(target)}" + if (p.duration > 0) " / ${fmt(p.duration)}" else ""
         seekProgress.progress = if (p.duration > 0) (target * 1000 / p.duration).toInt() else 0
+        // (7.23) w pionie plakietka na dole przypiętego okna 16:9 (nie na panelu pod obrazem)
+        (seekBox.layoutParams as? FrameLayout.LayoutParams)?.let { lp ->
+            if (portraitActive) {
+                val pv = playerView.layoutParams as FrameLayout.LayoutParams
+                seekBox.measure(View.MeasureSpec.makeMeasureSpec(resources.displayMetrics.widthPixels, View.MeasureSpec.EXACTLY), View.MeasureSpec.UNSPECIFIED)
+                lp.gravity = Gravity.TOP; lp.topMargin = (pv.topMargin + pv.height - seekBox.measuredHeight).coerceAtLeast(0)
+            } else { lp.gravity = Gravity.BOTTOM; lp.topMargin = 0 }
+            seekBox.layoutParams = lp
+        }
         seekBox.visibility = View.VISIBLE
         handler.removeCallbacks(hideSeek); handler.postDelayed(hideSeek, 1500)
     }

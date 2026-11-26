@@ -268,6 +268,8 @@ object Repository {
         allChannels = all
         channels = all.filter { !it.hidden && !Parental.hideFromLists(it) }
         byKey = all.associateBy { it.key }
+        // (7.23) filmy i seriale z listy – katalog VOD budowany w tle (Dispatchers.Default), bez blokowania wątku UI
+        VodLibrary.invalidate(version, channels)          // widoczne pozycje (bez ukrytych i zablokowanych kontrolą rodzicielską)
         mapEpg()
     }
 

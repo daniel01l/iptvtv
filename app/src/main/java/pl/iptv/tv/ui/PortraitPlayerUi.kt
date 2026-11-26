@@ -98,10 +98,11 @@ object PortraitPlayerUi {
      * odtwarzacza i bez ponownego startu strumienia (ekrany mają `configChanges`).
      */
     fun rotateToLandscape(a: androidx.activity.ComponentActivity) {
-        val prev = a.requestedOrientation
-        a.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        if (OrientationPolicy.isForced(a)) return
+        // (7.23) przez [OrientationPolicy]: po WSTECZ albo wyjściu z ekranu – z powrotem orientacja z Ustawień (nie „zapamiętany” poziom)
+        OrientationPolicy.forceLandscape(a)
         a.onBackPressedDispatcher.addCallback(a, object : androidx.activity.OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() { a.requestedOrientation = prev; isEnabled = false; remove() }
+            override fun handleOnBackPressed() { isEnabled = false; remove(); if (OrientationPolicy.isForced(a)) OrientationPolicy.release(a) else a.onBackPressedDispatcher.onBackPressed() }
         })
     }
 

@@ -89,6 +89,8 @@ object M3uParser {
                         catchupDays = if (days == 0 && type.isNotEmpty()) 7 else days,
                         userAgent = ua.ifEmpty { a["http-user-agent"] ?: a["user-agent"] ?: "" },
                         referrer = ref.ifEmpty { a["http-referrer"] ?: a["referrer"] ?: "" },
+                        tvgType = a["tvg-type"] ?: a["type"] ?: "",
+                        genre = a["tvg-genre"] ?: a["genre"] ?: a["category"] ?: "",
                     )
                     attrs = null; name = ""; extGroup = ""; ua = ""; ref = ""
                 }

@@ -217,7 +217,7 @@ class X25DashboardActivity : BaseActivity() {
             SystemTools.isLauncherEnabled(this) && SystemTools.isDefaultHome(this) -> Dialogs.menu(this, "Menu", listOf(
                 "▦ Aplikacje" to { SystemTools.showApps(this) },
                 "⚙ Ustawienia systemu" to { SystemTools.openSystemSettings(this) },
-                "⚙ Ustawienia aplikacji" to { startActivity(Intent(this, SettingsActivity::class.java)) },
+                "⚙ Ustawienia aplikacji" to { startActivity(SettingsActivity.intentFrom(this)) },
             ))
             else -> finishAffinity()
         }
@@ -296,7 +296,7 @@ class X25DashboardActivity : BaseActivity() {
             add(FlyItem("Przywróć układ domyślny", "", X25Icons.RESET) {
                 closeFlyout(); lifecycleScope.launch { tiles = X25Store.reset(); pendingFocus = "t:" + (tiles.firstOrNull()?.id ?: "") }
             })
-            add(FlyItem("Ustawienia aplikacji", "", X25Action.SETTINGS) { closeFlyout(); startActivity(Intent(this@X25DashboardActivity, SettingsActivity::class.java)) })
+            add(FlyItem("Ustawienia aplikacji", "", X25Action.SETTINGS) { closeFlyout(); startActivity(SettingsActivity.intentFrom(this@X25DashboardActivity)) })
             add(FlyItem("Wyłącz motyw X25", "Powrót do poprzedniego wyglądu", X25Icons.POWER) { flyout.clear(); X25Theme.setEnabled(false); finish() })
         }))
     }

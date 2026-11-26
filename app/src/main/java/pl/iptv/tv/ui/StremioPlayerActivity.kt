@@ -77,6 +77,19 @@ class StremioPlayerActivity : AppCompatActivity() {
             AspectRatioFrameLayout.RESIZE_MODE_ZOOM to "Powiększ (przytnij krawędzie)", AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH to "Dopasuj do szerokości")
         /** Krok opóźnienia napisów. */
         const val DELAY_STEP = 250
+        /** (7.23) Położenie napisów: odstęp od dołu obrazu (ułamek wysokości – SubtitleView.setBottomPaddingFraction). */
+        val SUB_POSITIONS = listOf(0.03f to "Nisko", 0.08f to "Standardowo", 0.18f to "Wyżej", 0.32f to "Wysoko")
+        /** (7.23) Proporcje w oknie „Obraz”: tryb dopasowania PlayerView i wymuszony stosunek (null – z materiału). */
+        val PIC_ASPECTS = listOf(Triple("Dopasuj", AspectRatioFrameLayout.RESIZE_MODE_FIT, null as Float?),
+            Triple("Wypełnij / Przytnij", AspectRatioFrameLayout.RESIZE_MODE_ZOOM, null as Float?),
+            Triple("Rozciągnij", AspectRatioFrameLayout.RESIZE_MODE_FILL, null as Float?),
+            Triple("16:9", AspectRatioFrameLayout.RESIZE_MODE_FIT, 16f / 9f), Triple("4:3", AspectRatioFrameLayout.RESIZE_MODE_FIT, 4f / 3f))
+        /** (7.23) Okno „Obraz” – nazwy sekcji (testy). */
+        const val PIC_PROFILE = "Profil obrazu"; const val PIC_ASPECT = "Proporcje obrazu"
+        const val PIC_BRIGHTNESS = "Jasność"; const val PIC_CONTRAST = "Kontrast"; const val PIC_SATURATION = "Nasycenie"; const val PIC_RESET = "Resetuj"
+        const val SUB_DELAY = "Przesunięcie napisów"; const val SUB_COLOR = "Kolor napisów"; const val SUB_SIZE = "Rozmiar napisów"; const val SUB_POSITION = "Położenie napisów"
+        /** (7.23) Podwójne stuknięcie: lewy / prawy pas tej szerokości obrazu przewija o [SEEK_STEP_MS]. */
+        const val DOUBLE_TAP_SIDE = 0.4f
         /** (7.15) Próg procentowy (było: 4 min przed końcem) albo początek napisów końcowych z rozdziałów – [StremioResume.nextDue]. */
         fun nextDue(durationMs: Long, positionMs: Long, creditsStartMs: Long = -1): Boolean {
             if (durationMs == C.TIME_UNSET) return false
@@ -108,6 +121,7 @@ class StremioPlayerActivity : AppCompatActivity() {
     private lateinit var titleView: TextView
     private lateinit var nextCard: TextView
     private lateinit var nextBtn: TextView
+    private val TITLE_TAG = "stremio_title"; private val CENTER_TAG = "stremio_center_transport"
 
     private val type get() = intent.getStringExtra(EXTRA_TYPE).orEmpty()
     private val metaId get() = intent.getStringExtra(EXTRA_META).orEmpty()
@@ -152,6 +166,20 @@ class StremioPlayerActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val p = StremioStore.progressOf(metaId)
             val explicit = intent.getStringExtra(EXTRA_VIDEO).orEmpty()
+            // (7.23) film / odcinek z listy M3U – adres z katalogu listy (bez wtyczek i bez konta Stremio)
+            if (pl.iptv.tv.data.M3uVod.isM3uId(metaId)) {
+                val cat = pl.iptv.tv.data.VodLibrary.current()
+                val vid = explicit.ifBlank { p?.videoId.orEmpty() }.ifBlank { cat.show(metaId)?.episodes?.firstOrNull()?.id ?: metaId }
+                val ch = cat.channelFor(vid)
+                if (isFinishing) return@launch
+                if (ch == null) { I18n.makeToast(this@StremioPlayerActivity, "Tej pozycji nie ma już na liście", Toast.LENGTH_LONG).show(); finish(); return@launch }
+                val ep = cat.episode(vid)
+                stream = pl.iptv.tv.data.M3uVod.stream(ch); videoId = vid; label = ep?.let { pl.iptv.tv.data.M3uVod.episodeLabel(it) }.orEmpty()
+                intent.putExtra(EXTRA_STREAM, stream.toJson().toString()).putExtra(EXTRA_VIDEO, vid).putExtra(EXTRA_LABEL, label)
+                loadingView.visibility = View.GONE
+                startChecked(resume = true)
+                return@launch
+            }
             val meta = if (type == "series") StremioMetas.get(type, metaId) else null
             val target = if (explicit.isNotBlank()) StremioResume.Target(explicit, label, false)
                 else if (p != null) StremioResume.target(p, meta) else StremioResume.Target(metaId, "", false)
@@ -183,7 +211,10 @@ class StremioPlayerActivity : AppCompatActivity() {
     private fun build(): View {
         val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         // (7.5) własny pasek sterowania ([controls]) zamiast kontrolera PlayerView: przewijanie ◄► bez menu, OK – menu z fokusem na ⏯
-        playerView = PlayerView(this).apply {
+        // (7.23) telefon: TextureView – profil / jasność / kontrast / nasycenie nakładane na żywo ([PictureAdjust]); TV – SurfaceView (4K/HDR)
+        // jak dotąd, chyba że zapisano korektę obrazu
+        val texture = !Tutorial.isTv(this) || !PictureAdjust.current().isDefault
+        playerView = (if (texture) layoutInflater.inflate(R.layout.stremio_player_texture, root, false) as PlayerView else PlayerView(this)).apply {
             useController = false
             resizeMode = ASPECTS.getOrElse(Prefs.stremioAspect) { ASPECTS[0] }.first
             setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
@@ -191,6 +222,8 @@ class StremioPlayerActivity : AppCompatActivity() {
             setOnClickListener { setBar(if (bar == Bar.FULL) Bar.HIDDEN else Bar.FULL) }
         }
         root.addView(playerView, FrameLayout.LayoutParams(-1, -1))
+        forcedRatio = PIC_ASPECTS.getOrNull(Prefs.stremioAspectRatio + 2)?.third?.takeIf { Prefs.stremioAspectRatio > 0 }
+        applyPicture()
         // fokus „spoczynkowy” przy schowanym pasku – klawisze nie trafiają do niewidocznych przycisków
         root.isFocusable = true; root.isFocusableInTouchMode = false; rootView = root
         // napisy rysowane przez nas (opóźnienie, rozmiar, kolor – także dla napisów z wtyczek)
@@ -203,8 +236,12 @@ class StremioPlayerActivity : AppCompatActivity() {
             // (7.8) tytuł nie wchodzi pod kartę „Następny odcinek” (prawy górny róg)
             setPadding(Ui.dp(40), Ui.dp(22), Ui.dp(if (resources.configuration.screenWidthDp < 600) 40 else 420), 0); maxLines = 2; visibility = View.GONE
         }
-        root.addView(titleView, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
+        titleView.gravity = Gravity.START; titleView.tag = TITLE_TAG
+        root.addView(titleView, FrameLayout.LayoutParams(-1, -2, Gravity.TOP or Gravity.START))
         root.addView(buildControls(), FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
+        // (7.23) pion: ⏪ ⏯ ⏩ wyśrodkowane na ekranie (przenoszone z dolnego paska w [placeTransport])
+        centerRow = LinearLayout(this).apply { gravity = Gravity.CENTER; clipChildren = false; clipToPadding = false; visibility = View.GONE; tag = CENTER_TAG }
+        root.addView(centerRow, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
         // (7.8) karta „Następny odcinek” w prawym górnym rogu – nie zasłania obrazu ani sterowania na dole
         val narrow = resources.configuration.screenWidthDp < 600
         nextCard = TextView(this).apply {
@@ -282,12 +319,12 @@ class StremioPlayerActivity : AppCompatActivity() {
         buttonsRow = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; clipChildren = false; clipToPadding = false }
         fun left(icon: String, t: String, a: () -> Unit) = iconButton(icon, t) { a(); scheduleHide() }
             .also { buttonsRow.addView(it, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = Ui.dp(10) }) }
-        left(PlayerIcon.REW, "Do tyłu 10 s") { seekBy(-SEEK_STEP_MS, badge = false) }
+        rewBtn = left(PlayerIcon.REW, "Do tyłu 10 s") { seekBy(-SEEK_STEP_MS, badge = false) }
         playBtn = left(PlayerIcon.PAUSE, "Pauza") { togglePlay() }
-        left(PlayerIcon.FWD, "Do przodu 10 s") { seekBy(SEEK_STEP_MS, badge = false) }
+        fwdBtn = left(PlayerIcon.FWD, "Do przodu 10 s") { seekBy(SEEK_STEP_MS, badge = false) }
         nextBtn = PlayerChrome.button(this, PlayerIcon.NEXT, "Następny odcinek") { playNext() }.apply { visibility = View.GONE }
         buttonsRow.addView(nextBtn, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(6) })
-        buttonsRow.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+        rowSpacer = View(this); buttonsRow.addView(rowSpacer, LinearLayout.LayoutParams(0, 1, 1f))
         topBar = LinearLayout(this).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL; clipChildren = false; clipToPadding = false }
         // ikony funkcji (7.4): zaznaczona wysuwa swój podpis
         fun btn(icon: String, t: String, a: () -> Unit) = iconButton(icon, t) { a(); scheduleHide() }
@@ -299,7 +336,8 @@ class StremioPlayerActivity : AppCompatActivity() {
         btn(PlayerIcon.CC, "Napisy") { subtitlesMenu() }
         btn(PlayerIcon.DELAY, "Opóźnienie napisów") { delayMenu() }
         btn(PlayerIcon.STYLE, "Styl napisów") { styleMenu() }
-        btn(PlayerIcon.ASPECT, "Dopasowanie obrazu") { aspectMenu() }
+        // (7.23) telefon (także poziomo) – okno „Obraz” (profil, proporcje, jasność, kontrast, nasycenie); TV – dawne okno proporcji
+        btn(PlayerIcon.ASPECT, "Dopasowanie obrazu") { if (Tutorial.isTv(this@StremioPlayerActivity)) aspectMenu() else lastSheet = pictureSheet() }
         pipBtn = btn(PlayerIcon.PIP, "Okno") { enterPip() }.apply { visibility = if (pipSupported && !Tutorial.isTv(this@StremioPlayerActivity)) View.VISIBLE else View.GONE }
         buttonsRow.addView(topBar)
         // (7.7) bez zmiany szerokości ikon (podpis nad ikoną) – rząd nie wypycha ikon poza ekran
@@ -370,6 +408,7 @@ class StremioPlayerActivity : AppCompatActivity() {
             if (controls.findFocus() != null) rootView.requestFocus()
             controls.animate().alpha(0f).setDuration(220).withEndAction { if (bar == Bar.HIDDEN) controls.visibility = View.GONE }.start()
             titleView.visibility = View.GONE
+            if (::centerRow.isInitialized) centerRow.visibility = View.GONE
             return
         }
         controls.animate().cancel(); controls.alpha = 1f; controls.visibility = View.VISIBLE
@@ -377,7 +416,9 @@ class StremioPlayerActivity : AppCompatActivity() {
         captionBox.visibility = buttonsRow.visibility                // (7.7) bez pustego pasa nad paskiem postępu przy przewijaniu
         seekBadge.visibility = if (m == Bar.SEEK) View.VISIBLE else View.GONE
         titleView.visibility = if (m == Bar.FULL) View.VISIBLE else View.GONE
+        if (::centerRow.isInitialized) centerRow.visibility = if (m == Bar.FULL && transportCentered) View.VISIBLE else View.GONE
         if (m == Bar.SEEK && controls.findFocus() != null) rootView.requestFocus()
+        if (m == Bar.FULL && was != Bar.FULL) placeTitle(transportCentered)     // (7.23) odstęp paska stanu znany dopiero po wstawkach okna
         if (m == Bar.FULL) { updateControls(); updateNextButtonVisibility(); if (was != Bar.FULL) playBtn.requestFocus() }
         scheduleHide()
     }
@@ -549,6 +590,8 @@ class StremioPlayerActivity : AppCompatActivity() {
             // (7.20) interfejs w siatce 1080p, obraz 4K w pełnej rozdzielczości (bufor powierzchni wideo = rozmiar materiału)
             override fun onVideoSizeChanged(v: androidx.media3.common.VideoSize) {
                 TvResolution.nativeVideoBuffer(playerView.videoSurfaceView as? android.view.SurfaceView, v.width, v.height, TvResolution.displayHeightPx(this@StremioPlayerActivity), limited = false)
+                // (7.23) PlayerView ustawia proporcje z materiału – wymuszone 16:9 / 4:3 z okna „Obraz” zostają
+                if (forcedRatio != null) playerView.post { applyForcedRatio() }
             }
             override fun onPlaybackStateChanged(state: Int) { if (state == Player.STATE_ENDED) onEnded() }
             override fun onPlayerError(error: PlaybackException) {
@@ -840,6 +883,7 @@ class StremioPlayerActivity : AppCompatActivity() {
         val color = SUB_COLORS.getOrElse(Prefs.stremioSubColor) { SUB_COLORS[0] }.first
         subView.setStyle(CaptionStyleCompat(color, Color.TRANSPARENT, Color.TRANSPARENT, CaptionStyleCompat.EDGE_TYPE_OUTLINE, Color.BLACK, null))
         subView.setFractionalTextSize(SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * SUB_SIZES.getOrElse(Prefs.stremioSubSize) { SUB_SIZES[1] }.first)
+        subView.setBottomPaddingFraction(SUB_POSITIONS.getOrElse(Prefs.stremioSubPos) { SUB_POSITIONS[1] }.first)   // (7.23) położenie
     }
 
     private fun styleMenu() = Dialogs.menu(this, "Styl napisów", listOf(
@@ -867,6 +911,126 @@ class StremioPlayerActivity : AppCompatActivity() {
     }
 
     fun setAspect(i: Int) { Prefs.stremioAspect = i; playerView.resizeMode = ASPECTS[i].first }
+
+    // ---------------- (7.23) okno „Obraz”: profil, proporcje, jasność, kontrast, nasycenie – na żywo ----------------
+
+    /** Nakłada zapisaną korektę obrazu na powierzchnię (TextureView; bez restartu strumienia). */
+    fun applyPicture(v: PictureAdjust.Values = PictureAdjust.current()) = PictureAdjust.apply(playerView.videoSurfaceView, v)
+
+    private fun contentFrame() = playerView.findViewById<AspectRatioFrameLayout>(androidx.media3.ui.R.id.exo_content_frame)
+
+    private fun applyForcedRatio() {
+        val r = forcedRatio ?: return
+        contentFrame()?.setAspectRatio(r)
+    }
+
+    /** Bieżąca pozycja [PIC_ASPECTS]. */
+    fun pictureAspectIndex(): Int = when {
+        Prefs.stremioAspectRatio == 1 -> 3
+        Prefs.stremioAspectRatio == 2 -> 4
+        playerView.resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> 1
+        playerView.resizeMode == AspectRatioFrameLayout.RESIZE_MODE_FILL -> 2
+        else -> 0
+    }
+
+    /** Proporcje [i] z [PIC_ASPECTS]: tryb dopasowania i wymuszony stosunek (16:9 / 4:3) – od razu, bez restartu. */
+    fun setPictureAspect(i: Int) {
+        val (_, mode, ratio) = PIC_ASPECTS[i.coerceIn(PIC_ASPECTS.indices)]
+        Prefs.stremioAspect = ASPECTS.indexOfFirst { it.first == mode }.coerceAtLeast(0)
+        Prefs.stremioAspectRatio = when (i) { 3 -> 1; 4 -> 2; else -> 0 }
+        forcedRatio = ratio
+        playerView.resizeMode = mode
+        val f = contentFrame()
+        if (ratio != null) f?.setAspectRatio(ratio)
+        else player?.videoSize?.takeIf { it.width > 0 && it.height > 0 }?.let { v -> f?.setAspectRatio(v.width * v.pixelWidthHeightRatio / v.height) }
+    }
+
+    /**
+     * Okno „Obraz”: profil kolorów (Standardowy / Kino / Sport / Żywy), proporcje (Dopasuj, Wypełnij / Przytnij, Rozciągnij, 16:9,
+     * 4:3), suwaki Jasności, Kontrastu i Nasycenia, „Resetuj” (wartości domyślne) oraz prędkość. Każda zmiana działa od razu.
+     */
+    fun pictureSheet(): PortraitSheet {
+        val s = PortraitSheet(this, "Obraz")
+        fun build() {
+            s.clear()
+            val v = PictureAdjust.current()
+            fun set(n: PictureAdjust.Values) { PictureAdjust.save(n); applyPicture(n) }
+            s.section(PIC_PROFILE)
+            s.tiles(PictureAdjust.Profile.entries.map { it.label }, v.profile.ordinal, perRow = 2) { set(PictureAdjust.current().copy(profile = PictureAdjust.Profile.entries[it])); build() }
+            s.section(PIC_ASPECT)
+            s.tiles(PIC_ASPECTS.map { it.first }, pictureAspectIndex()) { setPictureAspect(it); build() }
+            s.section(PIC_BRIGHTNESS)
+            s.slider(PictureAdjust.BRIGHTNESS_MIN, PictureAdjust.BRIGHTNESS_MAX, 1, v.brightness, { b -> (if (b > 0) "+" else "") + b }) { set(PictureAdjust.current().copy(brightness = it)) }
+            s.section(PIC_CONTRAST)
+            s.slider(PictureAdjust.CONTRAST_MIN, PictureAdjust.CONTRAST_MAX, 1, v.contrast, { c -> "$c%" }) { set(PictureAdjust.current().copy(contrast = it)) }
+            s.section(PIC_SATURATION)
+            s.slider(PictureAdjust.SATURATION_MIN, PictureAdjust.SATURATION_MAX, 1, v.saturation, { c -> "$c%" }) { set(PictureAdjust.current().copy(saturation = it)) }
+            s.action(PIC_RESET, close = false) { set(PictureAdjust.DEFAULT); setPictureAspect(0); build() }
+            if (player != null) {
+                s.section("Prędkość odtwarzania")
+                val sp = player?.playbackParameters?.speed ?: 1f
+                s.tiles(PortraitPlayerUi.SPEEDS.map { PortraitPlayerUi.speedLabel(it) }, PortraitPlayerUi.SPEEDS.indexOfFirst { kotlin.math.abs(it - sp) < 0.01f }) { player?.setPlaybackSpeed(PortraitPlayerUi.SPEEDS[it]); build() }
+            }
+        }
+        build(); s.show(); return s
+    }
+
+    // ---------------- (7.23) okna „Audio” i „Napisy” ----------------
+
+    /** Ścieżki dźwięku (karty, wybór od razu). */
+    fun audioSheet(): PortraitSheet {
+        val s = PortraitSheet(this, "Audio")
+        fun build() {
+            s.clear()
+            val p = player
+            val audio = p?.currentTracks?.groups.orEmpty().filter { it.type == C.TRACK_TYPE_AUDIO }
+            s.section("Ścieżka dźwięku")
+            if (audio.isEmpty()) s.info("Brak informacji o ścieżkach dźwięku")
+            else s.choices(audio.mapIndexed { i, g -> PortraitPlayerUi.trackName(g.mediaTrackGroup.getFormat(0), i) }, audio.indexOfFirst { it.isSelected }) { i ->
+                p?.let { PortraitPlayerUi.selectTrack(it, C.TRACK_TYPE_AUDIO, audio[i]) }; s.root.postDelayed({ if (s.isShowing) build() }, 300)
+            }
+        }
+        build(); s.show(); return s
+    }
+
+    /** Napisy: wyłączone / wbudowane / z wtyczek, przesunięcie (synchronizacja), kolor, rozmiar i położenie – wszystko od razu. */
+    fun subtitlesSheet(): PortraitSheet {
+        val s = PortraitSheet(this, "Napisy")
+        fun build() {
+            s.clear()
+            val p = player
+            val text = p?.currentTracks?.groups.orEmpty().filter { it.type == C.TRACK_TYPE_TEXT }
+            val ext = addonSubs.sortedWith(compareBy({ !StremioDecoders.isPolishSubtitle(it.lang) }, { it.lang }))
+            s.section("Napisy")
+            val off = subsOff || (externalSub == null && text.none { it.isSelected })
+            val labels = listOf("Wyłączone") + text.mapIndexed { i, g -> "Wbudowane: " + PortraitPlayerUi.trackName(g.mediaTrackGroup.getFormat(0), i) } + ext.map { "${StremioSubs.langName(it.lang)}  ·  ${it.addon}" }
+            val sel = when {
+                off -> 0
+                externalSub != null -> ext.indexOfFirst { it.url == externalSub?.url }.takeIf { it >= 0 }?.plus(1 + text.size) ?: 0
+                else -> text.indexOfFirst { it.isSelected }.plus(1)
+            }
+            s.choices(labels, sel) { i ->
+                langManual = true
+                when {
+                    i == 0 -> { subsOff = true; externalSub = null; subView.setCues(emptyList())
+                        p?.let { it.trackSelectionParameters = it.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() } }
+                    i <= text.size -> { subsOff = false; externalSub = null; lines = emptyList(); p?.let { PortraitPlayerUi.selectTrack(it, C.TRACK_TYPE_TEXT, text[i - 1]) } }
+                    else -> selectExternal(ext[i - 1 - text.size])
+                }
+                s.root.postDelayed({ if (s.isShowing) build() }, 300)
+            }
+            s.section(SUB_DELAY)
+            s.slider(-PortraitPlayerUi.DELAY_RANGE_MS, PortraitPlayerUi.DELAY_RANGE_MS, 100, subDelayMs.coerceIn(-PortraitPlayerUi.DELAY_RANGE_MS, PortraitPlayerUi.DELAY_RANGE_MS),
+                { v -> String.format(java.util.Locale.US, "%+.1f s", v / 1000f).replace('.', ',') }) { changeDelay(it - subDelayMs) }
+            s.section(SUB_COLOR)
+            s.tiles(SUB_COLORS.map { it.second }, Prefs.stremioSubColor.coerceIn(SUB_COLORS.indices)) { Prefs.stremioSubColor = it; applySubStyle(); build() }
+            s.section(SUB_SIZE)
+            s.tiles(SUB_SIZES.map { it.second }, Prefs.stremioSubSize.coerceIn(SUB_SIZES.indices)) { Prefs.stremioSubSize = it; applySubStyle(); build() }
+            s.section(SUB_POSITION)
+            s.tiles(SUB_POSITIONS.map { it.second }, Prefs.stremioSubPos.coerceIn(SUB_POSITIONS.indices), perRow = 2) { Prefs.stremioSubPos = it; applySubStyle(); build() }
+        }
+        build(); s.show(); return s
+    }
 
     private fun aspectMenu() = Dialogs.choiceLive(this, "Dopasowanie obrazu", ASPECTS.map { it.second }, Prefs.stremioAspect.coerceIn(ASPECTS.indices)) { setAspect(it) }
 
@@ -1006,6 +1170,7 @@ class StremioPlayerActivity : AppCompatActivity() {
         val had = partsBtn.isFocused
         partsBtn.visibility = if (show) View.VISIBLE else View.GONE
         if (had && !show) firstIcon()?.requestFocus()
+        updateEpisodesIcon()
     }
 
     /** (7.20) Pozycja panelu obejrzana (✓ „Obejrzano”) i postęp rozpoczętej (pasek) – z Biblioteki (obejrzane + postęp). */
@@ -1032,9 +1197,7 @@ class StremioPlayerActivity : AppCompatActivity() {
 
     /** Telefon (nie TV): obrót także do pionu przy orientacji pionowej / automatycznej w Ustawieniach; domyślnie – jak dotąd poziomo. */
     private fun setupPortrait() {
-        if (!Tutorial.isTv(this)) runCatching {
-            requestedOrientation = if (Prefs.orientation != 0) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_USER else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        }
+        OrientationPolicy.apply(this)   // (7.23) wspólna polityka – także przed onCreate (IptvApp), manifest „behind”
         updatePortraitBar()
     }
 
@@ -1043,15 +1206,90 @@ class StremioPlayerActivity : AppCompatActivity() {
         updatePortraitBar()
     }
 
+    /**
+     * (7.23) Dolny pasek w pionie – dokładnie: Źródła, Odcinki / Części (serial – zawsze; film – tylko gdy są inne części, [updateEpisodesIcon]),
+     * Audio, Napisy, Obraz, Obróć. Pozycje równej szerokości (min. 48 dp) – sześć mieści się bez przycinania także przy 360 dp.
+     */
     private fun portraitIcons() = buildList {
         add(PortraitPlayerUi.Icon("sources", PlayerIcon.PLUG, "Źródła") { lastSheet = sourcesSheet() })
-        add(PortraitPlayerUi.Icon("tracks", PlayerIcon.CC, "Napisy") { lastSheet = tracksSheetStremio() })
         add(PortraitPlayerUi.Icon("episodes", PlayerIcon.QUEUE, if (type == "series") "Odcinki" else "Części") { episodesSheet() })
-        add(PortraitPlayerUi.Icon("aspect", PlayerIcon.ASPECT, "Obraz") { lastSheet = aspectSheet() })
-        add(PortraitPlayerUi.Icon("engine", PlayerIcon.QUALITY, "Silnik") {
-            lastSheet = PortraitPlayerUi.engineSheet(this@StremioPlayerActivity, { "Etap dekodera: " + (if (decoderStage == StremioDecoders.Stage.SAFE) "zgodny (FFmpeg)" else "standardowy") + "\n" + PortraitPlayerUi.diagnostics(player) })
-        })
+        add(PortraitPlayerUi.Icon("audio", PlayerIcon.AUDIO, "Audio") { lastSheet = audioSheet() })
+        add(PortraitPlayerUi.Icon("tracks", PlayerIcon.CC, "Napisy") { lastSheet = subtitlesSheet() })
+        add(PortraitPlayerUi.Icon("aspect", PlayerIcon.ASPECT, "Obraz") { lastSheet = pictureSheet() })
         add(PortraitPlayerUi.Icon("rotate", PlayerIcon.ROTATE, "Obróć") { PortraitPlayerUi.rotateToLandscape(this@StremioPlayerActivity) })
+    }
+
+    /** Ikona „Odcinki / Części” na dolnym pasku: serial zawsze, film – tylko z innymi częściami ([relatedParts]). */
+    private fun updateEpisodesIcon() {
+        val v = portraitBar?.findViewWithTag<View>(PortraitPlayerUi.ICON_TAG + "episodes") ?: return
+        v.visibility = if (type == "series" || relatedParts.size >= 2) View.VISIBLE else View.GONE
+    }
+
+    // ---------------- (7.23) pion: ⏪ ⏯ ⏩ na środku, tytuł w lewym górnym rogu ----------------
+
+    private lateinit var centerRow: LinearLayout
+    private lateinit var rewBtn: TextView
+    private lateinit var fwdBtn: TextView
+    private lateinit var rowSpacer: View
+    /** Przyciski transportu na środku ekranu (pion) – testy. */
+    var transportCentered = false; private set
+
+    /** Pion: ⏪ ⏯ ⏩ przeniesione na środek ekranu (większe odstępy); poziom / TV – z powrotem w lewym dolnym rogu paska. */
+    private fun placeTransport(center: Boolean) {
+        if (!::centerRow.isInitialized || center == transportCentered) return
+        val focused = listOf(rewBtn, playBtn, fwdBtn).firstOrNull { it.isFocused }
+        listOf(rewBtn, playBtn, fwdBtn).forEach { (it.parent as? android.view.ViewGroup)?.removeView(it) }
+        if (center) {
+            listOf(rewBtn, playBtn, fwdBtn).forEach { b -> centerRow.addView(b, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(14); marginEnd = Ui.dp(14) }) }
+            playBtn.scaleX = 1.25f; playBtn.scaleY = 1.25f
+        } else {
+            listOf(rewBtn, playBtn, fwdBtn).forEachIndexed { i, b -> buttonsRow.addView(b, i, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = Ui.dp(10) }) }
+            playBtn.scaleX = 1f; playBtn.scaleY = 1f
+        }
+        transportCentered = center
+        centerRow.visibility = if (center && bar == Bar.FULL) View.VISIBLE else View.GONE
+        focused?.requestFocus()
+    }
+
+    /** Tytuł w lewym górnym rogu: w pionie pod paskiem stanu, z odstępem od karty „Następny odcinek”. */
+    private fun placeTitle(portraitNow: Boolean) {
+        val top = if (portraitNow) (androidx.core.view.ViewCompat.getRootWindowInsets(rootView)?.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars())?.top ?: 0) else 0
+        titleView.textSize = if (portraitNow) 18f else 22f
+        titleView.setPadding(Ui.dp(if (portraitNow) 16 else 40), top + Ui.dp(if (portraitNow) 12 else 22), Ui.dp(if (resources.configuration.screenWidthDp < 600) 40 else 420), 0)
+    }
+
+    // ---------------- (7.23) podwójne stuknięcie po bokach ----------------
+
+    private val doubleTap by lazy {
+        android.view.GestureDetector(this, object : android.view.GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: android.view.MotionEvent) = true
+            override fun onDoubleTap(e: android.view.MotionEvent): Boolean = doubleTapAt(e.x, e.y)
+        })
+    }
+
+    private fun hit(v: View?, x: Float, y: Float): Boolean {
+        if (v == null || v.visibility != View.VISIBLE || !v.isShown) return false
+        val l = IntArray(2); v.getLocationInWindow(l)
+        return x >= l[0] && x < l[0] + v.width && y >= l[1] && y < l[1] + v.height
+    }
+
+    /** Podwójne stuknięcie w punkcie okna: lewy pas – do tyłu, prawy – do przodu o [SEEK_STEP_MS] (wskaźnik przewijania); true – przewinięto. */
+    fun doubleTapAt(x: Float, y: Float): Boolean {
+        if (player == null || (android.os.Build.VERSION.SDK_INT >= 24 && isInPictureInPictureMode)) return false
+        // przyciski paska, środkowy rząd i dolny pasek ikon – zwykłe kliknięcia
+        if ((bar == Bar.FULL && hit(buttonsRow, x, y)) || hit(centerRow, x, y) || hit(portraitBar, x, y) || hit(nextCard, x, y)) return false
+        val l = IntArray(2); playerView.getLocationInWindow(l)
+        val w = playerView.width; if (w <= 0) return false
+        val lx = x - l[0]; val ly = y - l[1]
+        if (ly < 0 || ly > playerView.height) return false
+        val dir = when { lx < w * DOUBLE_TAP_SIDE -> -1; lx > w * (1 - DOUBLE_TAP_SIDE) -> 1; else -> return false }
+        seekBy(dir * SEEK_STEP_MS, badge = true)
+        return true
+    }
+
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        if (!Tutorial.isTv(this)) doubleTap.onTouchEvent(ev)
+        return super.dispatchTouchEvent(ev)
     }
 
     /** Pion: pasek przy dolnej krawędzi, pasek sterowania (przewijanie) nad nim, ikony górne ukryte (te same funkcje w pasku). */
@@ -1060,6 +1298,8 @@ class StremioPlayerActivity : AppCompatActivity() {
         if (show && portraitBar == null) portraitBar = PortraitPlayerUi.attachBar(this, rootView, portraitIcons()) { h -> portraitBarH = h; liftControls() }
         portraitBar?.visibility = if (show) View.VISIBLE else View.GONE
         if (::topBar.isInitialized) topBar.visibility = if (show) View.GONE else View.VISIBLE
+        if (::rowSpacer.isInitialized) rowSpacer.visibility = if (show) View.GONE else View.VISIBLE
+        placeTransport(show); placeTitle(show); updateEpisodesIcon()
         liftControls()
     }
 
@@ -1089,27 +1329,7 @@ class StremioPlayerActivity : AppCompatActivity() {
         s.show(); return s
     }
 
-    private fun tracksSheetStremio(): PortraitSheet = PortraitPlayerUi.tracksSheet(this, player,
-        external = {
-            addonSubs.sortedWith(compareBy({ !StremioDecoders.isPolishSubtitle(it.lang) }, { it.lang })).map { sub ->
-                PortraitPlayerUi.Choice("${StremioSubs.langName(sub.lang)}  ·  ${sub.addon}", externalSub?.url == sub.url) { langManual = true; selectExternal(sub) }
-            }
-        },
-        subsOff = { subsOff },
-        onSubsOff = { val p = player; langManual = true; subsOff = true; externalSub = null; subView.setCues(emptyList())
-            p?.let { it.trackSelectionParameters = it.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() } },
-        delay = PortraitPlayerUi.Delay({ subDelayMs }) { changeDelay(it - subDelayMs) })
-
-    /** Proporcje (Dopasuj / Wypełnij / Rozciągnij / 16:9 / 4:3) i prędkość odtwarzania. */
-    private fun aspectSheet(): PortraitSheet {
-        val cur = when (Prefs.stremioAspect) { 1 -> PortraitPlayerUi.Aspect.STRETCH; 2 -> PortraitPlayerUi.Aspect.FILL; else -> forcedRatio?.let { if (it > 1.5f) PortraitPlayerUi.Aspect.R16_9 else PortraitPlayerUi.Aspect.R4_3 } ?: PortraitPlayerUi.Aspect.FIT }
-        return PortraitPlayerUi.aspectSpeedSheet(this, cur, { a ->
-            forcedRatio = when (a) { PortraitPlayerUi.Aspect.R16_9 -> 16f / 9f; PortraitPlayerUi.Aspect.R4_3 -> 4f / 3f; else -> null }
-            setAspect(when (a) { PortraitPlayerUi.Aspect.STRETCH -> 1; PortraitPlayerUi.Aspect.FILL -> 2; else -> 0 })
-            playerView.findViewById<AspectRatioFrameLayout>(androidx.media3.ui.R.id.exo_content_frame)?.let { f -> forcedRatio?.let { f.setAspectRatio(it) } }
-        }, player?.playbackParameters?.speed ?: 1f, { sp -> player?.setPlaybackSpeed(sp) })
-    }
-    /** Wymuszone proporcje 16:9 / 4:3 z arkusza (null – z materiału). */
+    /** Wymuszone proporcje 16:9 / 4:3 z okna „Obraz” (null – z materiału; [Prefs.stremioAspectRatio]). */
     private var forcedRatio: Float? = null
 
     /** Odcinki serialu (bieżący sezon) albo części filmu – lista w arkuszu, bieżący oznaczony, wybór odtwarza i zamyka arkusz. */

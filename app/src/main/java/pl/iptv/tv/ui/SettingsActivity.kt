@@ -33,6 +33,30 @@ class SettingsActivity : BaseActivity() {
     /** (7.22) Telefon pionowo: zakładka „Więcej” dolnego paska. */
     override val portraitTab get() = MobilePortraitScaffold.Tab.MORE
     override val ps5Hints = true
+
+    /**
+     * (7.23) Ustawienia otwarte z pulpitu ([fromDashboard] – Nowoczesny, PS5, X25; telefon i TV): Live TV zatrzymane i zwolnione
+     * (dekodery, połączenia, fokus audio – [Playback.suspendForApp] w [BaseActivity.onResume]), w tle tylko tło aktywnego motywu
+     * (bez obrazu kanału). Po wyjściu – z powrotem na ten sam pulpit ([returnToOrigin]); kanał wraca tak jak przed wejściem
+     * (pulpit, który sam wstrzymuje telewizję, nadal ją wstrzymuje). Ustawienia otwarte z innych ekranów – bez zmian.
+     */
+    val openedFromDashboard: Boolean get() = intent?.getBooleanExtra(EXTRA_FROM_DASHBOARD, false) == true
+    override val pausesLiveTv get() = openedFromDashboard
+    private var returning = false
+
+    /** Wyjście z Ustawień otwartych z pulpitu: pulpit pod spodem – zwykły powrót; pulpit zamknięty (np. zmiana motywu) – otwarty ponownie. */
+    private fun returnToOrigin() {
+        if (!openedFromDashboard || returning) return
+        returning = true
+        val o = origin?.get()
+        if (o != null && !o.isFinishing && !o.isDestroyed) return          // pulpit pod spodem – finish() wraca na niego
+        // pulpit aktywnego motywu (X25 / Nowoczesny / PS5 – po zmianie motywu w Ustawieniach to może być inny niż ten, z którego weszliśmy);
+        // pulpity wyłączone – zwykły powrót na ekran pod spodem
+        if (X25Theme.dashboardOn) { X25Theme.openDashboard(this); returnedTo = X25Theme.dashboardIntent(this).component?.className }
+    }
+
+    override fun finish() { returnToOrigin(); super.finish() }
+
     private lateinit var container: LinearLayout
     /** (7.20) Ustawienia silnika, z którymi zbudowano ekran (obserwacja [EngineConfigRepository.effectiveConfig]). */
     private var seenEngine: PlayerEngineConfig? = null
@@ -1939,6 +1963,23 @@ class SettingsActivity : BaseActivity() {
     }
 
     companion object {
+        /** (7.23) Ustawienia otwarte z pulpitu – [fromDashboard]. */
+        const val EXTRA_FROM_DASHBOARD = "from_dashboard"; const val EXTRA_ORIGIN = "origin"
+        /** Pulpit, z którego otwarto Ustawienia (powrót). */
+        @Volatile var origin: java.lang.ref.WeakReference<android.app.Activity>? = null; private set
+        /** Ponowne otwarcie pulpitu przy wyjściu (testy). */
+        @Volatile var returnedTo: String? = null; internal set
+
+        /** Ekrany pulpitu (wszystkie motywy). Nowy pulpit – dopisać tutaj. */
+        fun isDashboard(a: android.app.Activity) = a is ModernHomeActivity || a is Ps5HomeActivity || a is X25DashboardActivity
+
+        /** Ustawienia z ekranu [a]: z pulpitu – tryb „z pulpitu” (Live TV zatrzymane, powrót na ten pulpit), inaczej jak dotąd. */
+        fun intentFrom(a: android.app.Activity): Intent {
+            val i = Intent(a, SettingsActivity::class.java)
+            if (isDashboard(a)) { origin = java.lang.ref.WeakReference(a); returnedTo = null; i.putExtra(EXTRA_FROM_DASHBOARD, true).putExtra(EXTRA_ORIGIN, a.javaClass.name) }
+            return i
+        }
+
         /** (7.6) Karta pod kursorem pilota otwiera się po tej chwili (dawniej 250 ms). */
         const val TAB_FOCUS_DELAY_MS = 180L
         /** (7.6) Przejście treści przy zmianie karty. */

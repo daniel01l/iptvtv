@@ -38,8 +38,17 @@ class LockActivity : AppCompatActivity() {
         pl.iptv.tv.ui.TvResolution.applyMetrics(resources); pl.iptv.tv.ui.TvResolution.applyMetrics(applicationContext.resources)   // (7.20) siatka TV 960 × 540 dp
         super.onCreate(savedInstanceState)
         window.decorView.setBackgroundColor(Ui.bg)
-        box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; setPadding(Ui.dp(28), Ui.dp(24), Ui.dp(28), Ui.dp(24)) }
-        setContentView(ScrollView(this).apply { isFillViewport = true; addView(box) })
+        box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; val s = Ui.dp(if (resources.configuration.screenWidthDp < 600) 16 else 28); setPadding(s, Ui.dp(24), s, Ui.dp(24)) }
+        val sv = ScrollView(this).apply { isFillViewport = true; addView(box) }
+        setContentView(sv)
+        // (7.23) telefon: treść pod paskami systemowymi z własnymi odstępami (pasek stanu / nawigacji / wycięcie) – przyciski nie są zasłonięte
+        if (!Tutorial.isTv(this)) {
+            runCatching { androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false) }
+            androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(sv) { v, ins ->
+                val b = ins.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars() or androidx.core.view.WindowInsetsCompat.Type.displayCutout())
+                v.setPadding(b.left, b.top, b.right, b.bottom); ins
+            }
+        }
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) { override fun handleOnBackPressed() { finishAffinity() } })
         Playback.stop()
         render()
@@ -66,6 +75,18 @@ class LockActivity : AppCompatActivity() {
         layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(top) }
     }
 
+    /** (7.23) Wąski ekran (telefon pionowo): przyciski jeden pod drugim na całą szerokość, mniejszy kod urządzenia. */
+    private val narrow get() = resources.configuration.screenWidthDp < 600
+
+    /** Rząd przycisków: obok siebie (szeroki ekran / TV) albo w kolumnie (wąski). */
+    private fun buttonRow(a: View, b: View): LinearLayout = LinearLayout(this).apply {
+        gravity = Gravity.CENTER; layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(18) }
+        if (narrow) {
+            orientation = LinearLayout.VERTICAL
+            addView(a, LinearLayout.LayoutParams(-1, -2)); addView(b, LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(10) })
+        } else { addView(a); addView(View(this@LockActivity), LinearLayout.LayoutParams(Ui.dp(12), 1)); addView(b) }
+    }
+
     private fun button(t: String, primary: Boolean, onClick: () -> Unit) = TextView(this).apply {
         text = t; tag = "item"; textSize = 17f; gravity = Gravity.CENTER; isFocusable = true; isClickable = true
         setPadding(Ui.dp(26), Ui.dp(12), Ui.dp(26), Ui.dp(12)); setOnClickListener { onClick() }
@@ -84,17 +105,14 @@ class LockActivity : AppCompatActivity() {
         }
         box.addView(text(title, 21f, bold = true, top = 18))
         box.addView(text(info, 15f, Ui.text2))
-        box.addView(text(Activation.code, 44f, Ui.accent, bold = true, top = 14).apply { letterSpacing = 0.12f; setTextIsSelectable(false) })
+        box.addView(text(Activation.code, if (narrow) 30f else 44f, Ui.accent, bold = true, top = 14).apply { letterSpacing = if (narrow) 0.06f else 0.12f; setTextIsSelectable(false) })
         // kontakt: QR do Telegrama
         val qr = resources.getIdentifier("contact_qr", "drawable", packageName)
         if (qr != 0) box.addView(ImageView(this).apply { setImageResource(qr); setBackgroundColor(0xFFFFFFFF.toInt()); setPadding(Ui.dp(6), Ui.dp(6), Ui.dp(6), Ui.dp(6)) },
             LinearLayout.LayoutParams(Ui.dp(150), Ui.dp(150)).apply { topMargin = Ui.dp(16) })
         if (BuildConfig.CONTACT.isNotBlank()) box.addView(text("Kontakt: Telegram ${BuildConfig.CONTACT} (zeskanuj kod QR)", 14f, Ui.text2, top = 8))
         Activation.lastError.takeIf { it.isNotBlank() }?.let { box.addView(text("Ostatnie sprawdzenie: $it", 12f, Ui.text2, top = 8)) }
-        val row = LinearLayout(this).apply { gravity = Gravity.CENTER; layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(18) } }
-        row.addView(button("🔄 Sprawdź ponownie", true) { check() })
-        row.addView(View(this), LinearLayout.LayoutParams(Ui.dp(12), 1))
-        row.addView(button("Zamknij", false) { finishAffinity() })
+        val row = buttonRow(button("🔄 Sprawdź ponownie", true) { check() }, button("Zamknij", false) { finishAffinity() })
         box.addView(row)
         Ui.style(box)
         row.getChildAt(0).requestFocus()
@@ -109,10 +127,7 @@ Co wysyła aplikacja: tylko kod tego urządzenia (nie da się z niego odczytać 
 Aplikacja NIE wysyła: list kanałów, adresów, haseł, historii oglądania, plików ani adresu IP do administratora. Nie zawiera reklam ani narzędzi śledzących.
 
 Aplikacja jest wyłącznie odtwarzaczem i nie dostarcza żadnych treści – korzystasz z własnych list.""", 14f, Ui.text2))
-        val row = LinearLayout(this).apply { gravity = Gravity.CENTER; layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(18) } }
-        row.addView(button("✔ Zgadzam się", true) { Activation.consent = true; render(); check() })
-        row.addView(View(this), LinearLayout.LayoutParams(Ui.dp(12), 1))
-        row.addView(button("Wyjdź", false) { finishAffinity() })
+        val row = buttonRow(button("✔ Zgadzam się", true) { if (!Activation.consent) { Activation.consent = true; render(); check() } }, button("Wyjdź", false) { finishAffinity() })
         box.addView(row)
         Ui.style(box)
         row.getChildAt(0).requestFocus()

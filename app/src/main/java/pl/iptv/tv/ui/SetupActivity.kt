@@ -43,40 +43,119 @@ class SetupActivity : BaseActivity() {
     private var status: TextView? = null
     private var busy = false
     private var wizard: PermissionWizard? = null
+    private lateinit var root: LinearLayout
+    private lateinit var nav: LinearLayout
+    private lateinit var btnSkip: TextView
+    /** Odstępy pasków systemowych / klawiatury (telefon – rysowanie pod paskami, odstępy liczone tutaj). */
+    private var insets = androidx.core.graphics.Insets.NONE
+    /** (7.23) Wąski ekran (telefon pionowo) – układ kolumnowy, przyciski nawigacji równej szerokości (testy). */
+    var narrowLayout = false; private set
+    /** Liczba przebudów treści kroku (testy – obrót nie przebudowuje kroku). */
+    var builds = 0; private set
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         pos = savedInstanceState?.getInt("step") ?: 0
         newId = savedInstanceState?.getString("newId")
-        // telefon: węższe marginesy, pasek kroków przewijany w bok
-        val narrow = resources.configuration.screenWidthDp < 600
-        val side = if (narrow) 12 else 48
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(Ui.dp(side), Ui.dp(if (narrow) 12 else 20), Ui.dp(side), Ui.dp(12)) }
-        head = TextView(this).apply { textSize = if (narrow) 19f else 24f; tag = "accent"; setTypeface(typeface, 1) }
+        // telefon: węższe marginesy, pasek kroków przewijany w bok; (7.23) układ przeliczany przy obrocie bez tworzenia ekranu od nowa ([relayout])
+        root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        head = TextView(this).apply { tag = "accent"; setTypeface(typeface, 1) }
         root.addView(head)
         stepsBar = LinearLayout(this).apply { setPadding(0, Ui.dp(8), 0, Ui.dp(8)) }
         root.addView(android.widget.HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; isFocusable = false; addView(stepsBar) })
         scroll = ScrollView(this).apply { isFocusable = false }
-        container = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; tag = "panel"
-            setPadding(Ui.dp(if (narrow) 10 else 18), Ui.dp(14), Ui.dp(if (narrow) 10 else 18), Ui.dp(18)) }
+        container = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; tag = "panel" }
         scroll.addView(container)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        val nav = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, Ui.dp(12), 0, 0) }
+        nav = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, Ui.dp(12), 0, 0) }
         btnBack = navButton("◄ Wstecz") { go(pos - 1) }
-        nav.addView(btnBack)
-        nav.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
-        nav.addView(navButton("Pomiń krok") { if (addMode && step == 1 && newId == null) toast("Najpierw podaj adres listy") else go(pos + 1) })
+        btnSkip = navButton("Pomiń krok") { if (addMode && step == 1 && newId == null) toast("Najpierw podaj adres listy") else go(pos + 1) }
         btnNext = navButton("Dalej ►") { next() }
-        nav.addView(btnNext)
         root.addView(nav)
         setThemedContent(root)
+        // (7.23) telefon: treść pod paskami systemowymi z własnymi odstępami (pasek stanu, nawigacji, wycięcie, klawiatura) –
+        // przyciski nigdy nie są zasłonięte; TV bez zmian (pełny ekran)
+        if (!Tutorial.isTv(this)) {
+            runCatching { androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false) }
+            androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { _, ins ->
+                val t = androidx.core.view.WindowInsetsCompat.Type.systemBars() or androidx.core.view.WindowInsetsCompat.Type.displayCutout()
+                val bars = ins.getInsets(t); val ime = ins.getInsets(androidx.core.view.WindowInsetsCompat.Type.ime())
+                insets = androidx.core.graphics.Insets.of(bars.left, bars.top, bars.right, maxOf(bars.bottom, ime.bottom))
+                applyPadding(); ins
+            }
+        }
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() { if (pos > 0) go(pos - 1) else if (addMode) finish() else finishSetup() }
+            override fun handleOnBackPressed() {
+                // (7.23) w trakcie wczytywania – bez zmiany kroku (wynik wczytywania nie trafia do innego kroku)
+                if (busy) { toast("Trwa wczytywanie – poczekaj chwilę"); return }
+                if (pos > 0) go(pos - 1) else if (addMode) finish() else finishSetup()
+            }
         })
+        relayout()
+        pos = pos.coerceIn(0, order.lastIndex)
         build()
+        // (7.23) wpisane dane po odtworzeniu ekranu (np. zamknięcie przez system w tle) – te same pola tego samego kroku
+        savedInstanceState?.takeIf { it.getInt("step", -1) == pos }?.let { s ->
+            s.getString("f1")?.let { field?.setText(it) }; s.getString("f2")?.let { field2?.setText(it) }
+            s.getString("fName")?.let { fieldName?.setText(it) }; s.getString("fExp")?.let { fieldExpiry?.setText(it) }
+        }
     }
 
-    override fun onSaveInstanceState(out: Bundle) { super.onSaveInstanceState(out); out.putInt("step", pos); out.putString("newId", newId) }
+    override fun onSaveInstanceState(out: Bundle) {
+        super.onSaveInstanceState(out); out.putInt("step", pos); out.putString("newId", newId)
+        field?.let { out.putString("f1", it.text.toString()) }; field2?.let { out.putString("f2", it.text.toString()) }
+        fieldName?.let { out.putString("fName", it.text.toString()) }; fieldExpiry?.let { out.putString("fExp", it.text.toString()) }
+    }
+
+    /** (7.23) Obrót (manifest `configChanges`): ten sam ekran, krok, wpisy, fokus i trwające wczytywanie – tylko układ od nowa. */
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        relayout()
+        androidx.core.view.ViewCompat.requestApplyInsets(root)
+    }
+
+    /** Odstępy i układ przycisków wg szerokości: wąski (< 600 dp) – mniejsze marginesy, przyciski równej szerokości (do 2 linii). */
+    private fun relayout() {
+        val narrow = resources.configuration.screenWidthDp < 600
+        narrowLayout = narrow
+        head.textSize = if (narrow) 19f else 24f
+        head.maxLines = 3
+        container.setPadding(Ui.dp(if (narrow) 10 else 18), Ui.dp(14), Ui.dp(if (narrow) 10 else 18), Ui.dp(18))
+        nav.removeAllViews()
+        listOf(btnBack, btnSkip, btnNext).forEach { b ->
+            b.textSize = if (narrow) 14f else 17f
+            b.maxLines = if (narrow) 2 else 1
+            b.gravity = Gravity.CENTER
+            b.setPadding(Ui.dp(if (narrow) 8 else 22), Ui.dp(12), Ui.dp(if (narrow) 8 else 22), Ui.dp(12))
+        }
+        if (narrow) {
+            listOf(btnBack, btnSkip, btnNext).forEachIndexed { i, b -> nav.addView(b, LinearLayout.LayoutParams(0, -2, 1f).apply { if (i > 0) marginStart = Ui.dp(6) }) }
+        } else {
+            nav.addView(btnBack, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(10) })
+            nav.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+            nav.addView(btnSkip, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(10) })
+            nav.addView(btnNext, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(10) })
+        }
+        // wiersze z wartością: w wąskim układzie wartość pod tytułem (bez ucinania)
+        for (i in 0 until container.childCount) (container.getChildAt(i) as? LinearLayout)?.takeIf { it.tag == "item" && it.childCount == 2 }?.let { styleRow(it, narrow) }
+        applyPadding()
+    }
+
+    private fun applyPadding() {
+        val narrow = narrowLayout
+        val side = Ui.dp(if (narrow) 12 else 48)
+        root.setPadding(side + insets.left, Ui.dp(if (narrow) 12 else 20) + insets.top, side + insets.right, Ui.dp(12) + insets.bottom)
+    }
+
+    private fun styleRow(r: LinearLayout, narrow: Boolean) {
+        r.orientation = if (narrow) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
+        r.gravity = if (narrow) Gravity.START else Gravity.CENTER_VERTICAL
+        (r.getChildAt(0) as? TextView)?.layoutParams = if (narrow) LinearLayout.LayoutParams(-1, -2) else LinearLayout.LayoutParams(0, -2, 1f)
+        (r.getChildAt(1) as? TextView)?.apply {
+            layoutParams = if (narrow) LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(2) } else LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(10) }
+            maxLines = 3; maxWidth = if (narrow) Int.MAX_VALUE else resources.displayMetrics.widthPixels * 2 / 5
+        }
+    }
     override fun onResume() { super.onResume(); wizard?.onResume(); if (wizard?.running != true && step == 0) build() }
     override fun onRequestPermissionsResult(rc: Int, p: Array<out String>, r: IntArray) { super.onRequestPermissionsResult(rc, p, r); wizard?.onPermissionResult(rc) }
 
@@ -84,7 +163,6 @@ class SetupActivity : BaseActivity() {
         val narrow = resources.configuration.screenWidthDp < 600
         text = t; tag = "item"; textSize = if (narrow) 15f else 17f; isFocusable = true; isClickable = true; maxLines = 1
         setPadding(Ui.dp(if (narrow) 12 else 22), Ui.dp(12), Ui.dp(if (narrow) 12 else 22), Ui.dp(12))
-        layoutParams = LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(if (narrow) 6 else 10) }
         setOnClickListener { if (!busy) onClick() }
     }
 
@@ -112,7 +190,8 @@ class SetupActivity : BaseActivity() {
             1 -> {
                 val src = field?.text?.toString()?.trim().orEmpty()
                 val need = src.isNotBlank() && (src != Prefs.playlistSource || Repository.allChannels.isEmpty() || (addMode && newId == null))
-                if (need) loadPlaylist(src) { ok -> if (ok) { saveStep(); go(pos + 1) } }
+                val at = pos
+                if (need) loadPlaylist(src) { ok -> if (ok && pos == at && !isFinishing) { saveStep(); go(pos + 1) } }
                 else if (addMode && newId == null) setStatus("Podaj link lub plik listy.")
                 else if (Repository.allChannels.isEmpty()) {
                     Dialogs.confirm(this, "Brak listy", "Nie wczytano listy kanałów. Przejść dalej mimo to?") { go(pos + 1) }
@@ -120,7 +199,8 @@ class SetupActivity : BaseActivity() {
             }
             2 -> {
                 saveStep()
-                if (Prefs.effectiveEpgUrl.isNotBlank() && Repository.epg.programmes.isEmpty()) loadEpg { go(pos + 1) } else go(pos + 1)
+                val at = pos
+                if (Prefs.effectiveEpgUrl.isNotBlank() && Repository.epg.programmes.isEmpty()) loadEpg { if (pos == at && !isFinishing) go(pos + 1) } else go(pos + 1)
             }
             else -> go(pos + 1)
         }
@@ -149,7 +229,7 @@ class SetupActivity : BaseActivity() {
                 setPadding(0, 0, Ui.dp(14), 0); if (i == pos) setTypeface(typeface, 1)
             })
         }
-        container.removeAllViews(); field = null; field2 = null; fieldName = null; fieldExpiry = null; status = null
+        container.removeAllViews(); field = null; field2 = null; fieldName = null; fieldExpiry = null; status = null; builds++
         when (step) { 0 -> stepWelcome(); 1 -> stepPlaylist(); 2 -> stepEpg(); 3 -> stepCatchup(); 4 -> stepLook(); else -> stepStart() }
         btnBack.visibility = if (pos == 0) View.INVISIBLE else View.VISIBLE
         btnNext.text = if (pos == order.lastIndex) (if (addMode) "✓ Zapisz listę" else "✓ Zakończ") else "Dalej ►"
@@ -175,7 +255,7 @@ class SetupActivity : BaseActivity() {
             setPadding(Ui.dp(14), Ui.dp(12), Ui.dp(14), Ui.dp(12)); setOnClickListener { if (!busy) onClick() }
         }
         r.addView(TextView(this).apply { text = Ui.stripIcon(title); textSize = 16f }, LinearLayout.LayoutParams(0, -2, 1f))
-        if (value != null) r.addView(TextView(this).apply { text = value; textSize = 15f; tag = "text2" })
+        if (value != null) { r.addView(TextView(this).apply { text = value; textSize = 15f; tag = "text2" }); styleRow(r, narrowLayout) }
         container.addView(r, LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(4) })
         return r
     }
@@ -190,6 +270,9 @@ class SetupActivity : BaseActivity() {
         text(label, 14f, "text2")
         val e = EditText(this).apply {
             setText(initial); this.hint = hint; tag = "field"; setSingleLine()
+            // (7.23) klawiatura: „Dalej” na klawiaturze przechodzi do następnego pola; pole widoczne nad klawiaturą (odstęp ime)
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_NEXT or android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI
+            setOnFocusChangeListener { v, has -> if (has) scroll.postDelayed({ scroll.smoothScrollTo(0, (v.top - Ui.dp(48)).coerceAtLeast(0)) }, 250) }
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
             setPadding(Ui.dp(12), Ui.dp(10), Ui.dp(12), Ui.dp(10))
         }
@@ -351,6 +434,7 @@ class SetupActivity : BaseActivity() {
     // ---------------- wczytywanie ----------------
 
     private fun loadPlaylist(src: String, done: (Boolean) -> Unit) {
+        if (busy) return                                                    // (7.23) bez podwójnego wczytywania
         if (src.isBlank()) { setStatus("Podaj adres listy."); done(false); return }
         if (!src.startsWith("http", true) && !src.startsWith("content:") && !isAppPrivate(src) && Build.VERSION.SDK_INT >= 30 &&
             !runCatching { android.os.Environment.isExternalStorageManager() }.getOrDefault(false)) {
@@ -374,6 +458,7 @@ class SetupActivity : BaseActivity() {
     }
 
     private fun loadEpg(done: () -> Unit) {
+        if (busy) return
         if (Prefs.effectiveEpgUrl.isBlank()) { setStatus("Brak adresu EPG."); done(); return }
         busy = true; setStatus("Pobieranie EPG… (może potrwać)")
         lifecycleScope.launch {

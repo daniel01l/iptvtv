@@ -132,14 +132,17 @@ class IptvApp : Application(), coil.ImageLoaderFactory {
         S.safe("updater") { pl.iptv.tv.update.Updater.autoCheck(this) }
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(a: Activity) { started++ }
+            // (7.23) jedna polityka orientacji dla wszystkich ekranów (także przyszłych) – przed utworzeniem okna, bez chwilowego poziomu
+            override fun onActivityPreCreated(a: Activity, b: Bundle?) { pl.iptv.tv.ui.OrientationPolicy.apply(a) }
             override fun onActivityStopped(a: Activity) {
+                pl.iptv.tv.ui.OrientationPolicy.onStopped(a)
                 started = (started - 1).coerceAtLeast(0)
                 // aplikacja w tle (żaden ekran nie jest widoczny) – zatrzymaj odtwarzanie
                 if (started == 0) stopHandler.postDelayed({ if (started == 0) pl.iptv.tv.ui.Playback.stop() }, 1500)
             }
-            override fun onActivityCreated(a: Activity, b: Bundle?) {}
+            override fun onActivityCreated(a: Activity, b: Bundle?) { pl.iptv.tv.ui.OrientationPolicy.apply(a) }   // API < 29 (bez onActivityPreCreated)
             // (7.8) tłumaczenie interfejsu na każdym ekranie (bez narzutu przy języku polskim)
-            override fun onActivityResumed(a: Activity) { pl.iptv.tv.ui.I18n.attach(a.window) }
+            override fun onActivityResumed(a: Activity) { pl.iptv.tv.ui.OrientationPolicy.apply(a); pl.iptv.tv.ui.I18n.attach(a.window) }
             override fun onActivityPaused(a: Activity) {}
             override fun onActivitySaveInstanceState(a: Activity, b: Bundle) {}
             override fun onActivityDestroyed(a: Activity) {}

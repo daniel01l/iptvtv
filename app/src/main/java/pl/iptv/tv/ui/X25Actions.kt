@@ -40,7 +40,7 @@ object X25Actions {
                 ?: toast(a, "Kanał „${act.title}” nie jest dostępny na bieżącej liście")
             X25Action.GUIDE -> a.startActivity(Intent(a, GuideActivity::class.java).putExtra(GuideActivity.EXTRA_CHANNEL, Prefs.lastChannel))
             X25Action.EPG_SEARCH -> a.startActivity(Intent(a, EpgSearchActivity::class.java))
-            X25Action.SETTINGS -> a.startActivity(Intent(a, SettingsActivity::class.java))
+            X25Action.SETTINGS -> a.startActivity(SettingsActivity.intentFrom(a))      // (7.23) z pulpitu – Live TV zatrzymane, powrót na pulpit
             else -> toast(a, "Nieznana funkcja kafelka")
         }
     }

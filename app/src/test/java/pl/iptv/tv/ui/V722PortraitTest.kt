@@ -190,17 +190,16 @@ class V722PortraitTest {
         assertEquals("Wykonawca – Piosenka pionowa (Official Video)", panel.titleView.text.toString())
         assertTrue(panel.actions.childCount == 1)                          // pasek ikon w strefie kciuka
         val bar = panel.actions.getChildAt(0) as android.view.ViewGroup
-        assertEquals(listOf("music", "lyrics", "quality", "engine", "rotate").map { PortraitPlayerUi.ICON_TAG + it }, (0 until bar.childCount).map { bar.getChildAt(it).tag })
-        all(bar).first { it.tag == PortraitPlayerUi.ICON_TAG + "quality" }.performClick(); idle()
-        assertTrue(all(a.lastSheet!!.root).filterIsInstance<android.widget.TextView>().any { it.text == "Prędkość odtwarzania" }); a.lastSheet!!.dismiss()
+        // (7.23) dokładnie: Muzyka, Tekst, Opcje odtwarzania, Obróć (bez „Silnik”)
+        assertEquals(listOf("music", "lyrics", "options", "rotate").map { PortraitPlayerUi.ICON_TAG + it }, (0 until bar.childCount).map { bar.getChildAt(it).tag })
         assertEquals(panel.childCount - 1, panel.indexOfChild(panel.actions))  // na dole panelu
-        // zakładki: Następne wideo (bieżący + propozycje), Tekst (zsynchronizowany), Tryb muzyczny
+        // zakładki (7.23): Następne wideo, Dodaj do kolejki; tekst (zsynchronizowany) – przycisk „Tekst” na pasku, tryb muzyczny – „Muzyka”
         val tabs = all(panel).filter { (it.getTag(R.id.row_key) as? String)?.startsWith("yt_tab:") == true }
-        assertEquals(YtPortraitPanel.TAB_NAMES, tabs.map { (it as android.widget.TextView).text.toString() })
-        tabs[1].performClick(); waitFor { panel.lyricLines == 3 }
+        assertEquals(listOf("Następne wideo", "Dodaj do kolejki"), tabs.map { (it as android.widget.TextView).text.toString() })
+        all(bar).first { it.tag == PortraitPlayerUi.ICON_TAG + "lyrics" }.performClick(); waitFor { panel.lyricLines == 3 }
         assertEquals(3, panel.lyricLines); assertEquals(YtPortraitPanel.TAB_LYRICS, panel.tab)
         panel.updateLine(force = true); assertTrue(panel.currentLine >= 0)
-        tabs[2].performClick(); idle()
+        all(bar).first { it.tag == PortraitPlayerUi.ICON_TAG + "music" }.performClick(); idle()
         assertTrue(a.stageShown)                                           // tryb muzyczny – pełny odtwarzacz audio
         val player = YtEngine.player; val playable = YtEngine.playable
         // obrót do poziomu: ten sam odtwarzacz i strumień, dawny układ (obraz na cały ekran, panel ukryty), widok muzyczny – układ szeroki

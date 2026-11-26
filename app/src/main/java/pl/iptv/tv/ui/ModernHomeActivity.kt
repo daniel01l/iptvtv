@@ -490,6 +490,18 @@ class ModernHomeActivity : BaseActivity() {
      */
     private fun openSection(i: Int) {
         previewJob?.cancel()
+        // (7.23) dwustopniowo ([DashboardRail]): nieaktywna kategoria – tylko aktywacja na pulpicie (fokus zostaje na ikonie),
+        // ponowne stuknięcie / OK na aktywnej – wejście w jej ekran
+        DashboardRail.click(section, i, activate = { previewSection(i); railTaps++ }, open = { enterSection(i) })
+    }
+
+    /** Liczba stuknięć, które tylko aktywowały kategorię (testy). */
+    var railTaps = 0; private set
+    /** Stuknięcie ikony kategorii [i] paska bocznego (testy – to samo co dotknięcie / OK). */
+    fun railTap(i: Int) = openSection(i)
+
+    /** Wejście w aktywną kategorię: Na żywo, STube, Stremio, Moje playlisty – ich ekrany; Start – kursor na „Ostatnio oglądane”. */
+    private fun enterSection(i: Int) {
         when (i) {
             0 -> {
                 if (section != 0) { section = 0; rowLast.clear() }

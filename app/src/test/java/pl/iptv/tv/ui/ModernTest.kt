@@ -202,6 +202,27 @@ class ModernTest {
         assertTrue(a.isFinishing)
     }
 
+    @Test fun railTapFirstActivatesCategoryThenOpensIt() {
+        // 7.23: pierwsze stuknięcie – tylko aktywacja kategorii na pulpicie, drugie na aktywnej – wejście w jej ekran
+        val a = home()
+        generateSequence { shadowOf(a).nextStartedActivity }.toList()
+        assertEquals(0, a.sectionNow)
+        a.railTap(2); idle()
+        assertEquals(2, a.sectionNow); assertEquals(1, a.railTaps)
+        assertNull(shadowOf(a).nextStartedActivity)
+        a.railTap(2); idle()
+        assertEquals(STubeActivity::class.java.name, shadowOf(a).nextStartedActivity?.component?.className)
+        // inna kategoria – znowu najpierw aktywacja; Start: aktywacja, potem kursor na rzędach
+        a.railTap(3); idle()
+        assertEquals(3, a.sectionNow); assertNull(shadowOf(a).nextStartedActivity)
+        a.railTap(0); idle()
+        assertEquals(0, a.sectionNow); assertEquals(3, a.railTaps)
+        a.railTap(0); waitFor { a.focusedKey?.startsWith("r:") == true }
+        assertTrue(a.focusedKey!!.startsWith("r:") || a.focusedKey!!.startsWith("h:"))
+        assertEquals(DashboardRail.Tap.ACTIVATE, DashboardRail.tap(active = 1, target = 4))
+        assertEquals(DashboardRail.Tap.OPEN, DashboardRail.tap(active = 4, target = 4))
+    }
+
     @Test fun startHeroIsAlwaysLastLiveChannel() {
         // 7.3: Start – zawsze ostatni kanał telewizji, nawet gdy później oglądano film STube / Stremio
         val f = java.io.File(ctx.filesDir, "modern73.m3u").apply { writeText("#EXTM3U\n#EXTINF:-1 group-title=\"G\",Kanał Ostatni\nhttp://127.0.0.1:9/live/1.ts\n") }

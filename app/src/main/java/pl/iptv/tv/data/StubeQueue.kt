@@ -69,13 +69,28 @@ object StubeQueue {
     suspend fun items(): List<QueueItem> = dao()?.let { d -> withContext(Dispatchers.IO) { runCatching { d.all() }.getOrDefault(emptyList()) } }
         ?.also { cached = it } ?: emptyList()
 
-    /** Dodaje na koniec (albo na początek: [next] = „Odtwórz jako następne”). */
+    /**
+     * (7.23) Pozycje dodane przez „Odtwórz następnie”, w kolejności dodania – kolejna trafia ZA nimi (1. dodana = następna,
+     * 2. = po niej…), a nie przed nie. Pamięć sesji; pozycje już zdjęte z kolejki / przestawione są pomijane.
+     */
+    private val playNextKeys = LinkedHashSet<String>()
+    private fun key(q: QueueItem) = q.kind + "\u0000" + q.ref
+
+    /** Dodaje na koniec albo [next] = „Odtwórz następnie”: zaraz za bieżącym, po wcześniej dodanych w ten sposób. */
     suspend fun add(item: QueueItem, next: Boolean = false, now: Long = System.currentTimeMillis()): Boolean {
         val d = dao() ?: return false
         withContext(Dispatchers.IO) {
             d.deleteRef(item.kind, item.ref)
-            val pos = if (next) d.minPosition() - 1 else d.maxPosition() + 1
-            d.insert(item.copy(id = 0, position = pos, addedAt = now))
+            synchronized(playNextKeys) { playNextKeys.remove(key(item)) }
+            if (next) {
+                val l = d.all().toMutableList()
+                // początek kolejki złożony z wcześniejszych „Odtwórz następnie” – nowa pozycja tuż za nim
+                val run = synchronized(playNextKeys) { l.takeWhile { key(it) in playNextKeys }.size.also { n -> playNextKeys.retainAll(l.take(n).map(::key).toSet()) } }
+                val id = d.insert(item.copy(id = 0, position = 0, addedAt = now))
+                l.add(run, item.copy(id = id))
+                l.forEachIndexed { p, q -> d.setPosition(q.id, p) }
+                synchronized(playNextKeys) { playNextKeys += key(item) }
+            } else d.insert(item.copy(id = 0, position = d.maxPosition() + 1, addedAt = now))
             val all = d.all()
             if (all.size > MAX) all.drop(MAX).forEach { d.delete(it.id) }
         }
@@ -86,7 +101,7 @@ object StubeQueue {
     suspend fun replaceAll(items: List<QueueItem>, now: Long = System.currentTimeMillis()) {
         val d = dao() ?: return
         withContext(Dispatchers.IO) {
-            d.clear()
+            d.clear(); synchronized(playNextKeys) { playNextKeys.clear() }
             items.take(MAX).forEachIndexed { i, q -> d.insert(q.copy(id = 0, position = i, addedAt = now)) }
         }
         changed()

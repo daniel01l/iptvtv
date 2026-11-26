@@ -50,6 +50,12 @@ class StremioActivity : BaseActivity() {
         const val HERO_TAG = "portrait_hero"
         const val HERO_PLAY = "Odtwórz"
         const val HERO_WATCHLIST = "+ Do obejrzenia"
+        /** (7.23) Karta banerowa na Odkrywaj – „Kontynuuj oglądanie”: przycisk wznowienia, liczba pozycji w karuzeli. */
+        const val HERO_RESUME = "▶ Wznów"
+        const val HERO_MAX = 8
+        const val HERO_CONTINUE_LABEL = "KONTYNUUJ OGLĄDANIE"
+        const val HERO_SUGGEST_MOVIES = "PROPONOWANE FILMY"
+        const val HERO_SUGGEST_SERIES = "PROPONOWANE SERIALE"
         /** (7.17) Filtry tablicy (pigułki u góry w „Obsidian Stream”). */
         // (7.17) kolejność zakładek: Odkrywaj (domyślna), Filmy, Seriale, Biblioteka
         const val FILTER_ALL = 0; const val FILTER_MOVIES = 1; const val FILTER_SERIES = 2; const val FILTER_LIBRARY = 3
@@ -60,6 +66,10 @@ class StremioActivity : BaseActivity() {
         /** Menu plakatu czeka na metadane (zwiastun) najwyżej tyle. */
         const val TITLE_MENU_META_MS = 4_000L
         const val CONTINUE_ROW = "Kontynuuj oglądanie"
+        /** (7.23) Filmy i seriale z listy M3U ([pl.iptv.tv.data.VodLibrary]) – także bez konta Stremio. */
+        const val M3U_MOVIES_ROW = "Filmy z Twojej listy"; const val M3U_SERIES_ROW = "Seriale z Twojej listy"
+        const val M3U_GENRE_TAG = "m3u_genre:"; const val M3U_GENRES_TAG = "m3u_genres"
+        const val M3U_EMPTY_GENRE = "Brak pozycji w tym gatunku"
         const val WATCHED_ROW = "Obejrzane"
         /** (7.17) Katalog techniczny wtyczki (nazwa, id wtyczki i katalogu, adres) – bez rzędu na tablicy. */
         fun isHiddenCatalog(a: StremioAddon, c: StremioAddon.Catalog): Boolean =
@@ -195,7 +205,11 @@ class StremioActivity : BaseActivity() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() { if (searchQuery != null) { query.setText(""); search("") } else leaveScreen() }
         })
-        if (!StremioAccount.loggedIn && !Prefs.stremioGuest) showLogin() else {
+        // (7.23) filmy i seriale z listy M3U – dostępne bez konta: ekran logowania nie blokuje tablicy, gdy lista ma treści VOD
+        if (!StremioAccount.loggedIn && !Prefs.stremioGuest && !pl.iptv.tv.data.VodLibrary.hasContent) {
+            showLogin()
+            lifecycleScope.launch { if (!pl.iptv.tv.data.VodLibrary.current().isEmpty && loginShown && !StremioAccount.loggedIn) showBoard() }
+        } else {
             intent.getStringExtra(EXTRA_QUERY)?.trim()?.takeIf { it.isNotEmpty() }?.let { q -> searchQuery = q; query.setText(q) }
             showBoard()
         }
@@ -259,17 +273,71 @@ class StremioActivity : BaseActivity() {
         return root
     }
 
+    /**
+     * (7.23) Pozycja karty banerowej: tytuł ([tile] – ten sam kafelek co w rzędach, „Odtwórz” = [open]) i – na Odkrywaj –
+     * postęp „Kontynuuj oglądanie” ([progress]; „▶ Wznów” od razu wznawia odtwarzanie).
+     */
+    data class HeroItem(val tile: StremioTile, val progress: pl.iptv.tv.data.StremioProgress? = null)
+
+    /** Pozycje karty banerowej (karuzela) i bieżąca. */
+    var heroItems: List<HeroItem> = emptyList(); private set
+    var heroIndex = 0; private set
     /** (7.22) Wyróżniony tytuł na karcie u góry (testy). */
-    var heroMeta: StremioMetaPreview? = null; private set
+    val heroMeta: StremioMetaPreview? get() = heroItems.getOrNull(heroIndex)?.tile?.meta
+    private var heroCard: FrameLayout? = null
+    private var heroImg: ImageView? = null
+    private var heroTitle: TextView? = null
+    private var heroLine: TextView? = null
+    private var heroLabel: TextView? = null
+    private var heroCounter: TextView? = null
+    private var heroPlay: TextView? = null
+    private var heroBar: android.widget.ProgressBar? = null
+    private var heroNav: View? = null
+
+    /** Karta banerowa możliwa: telefon pionowo, tablica (nie wyszukiwanie, nie Biblioteka). */
+    private val heroAllowed get() = portrait && searchQuery == null && filter != FILTER_LIBRARY
 
     /**
-     * (7.22) Karta wyróżnionego tytułu w pionie: obraz 16:10 (tło z metadanych, bez niego plakat) z gradientem od dołu w kolorze
-     * tła motywu, tytuł, ocena ★ i rok, przyciski „Odtwórz” (szczegóły ze źródłami / wznowienie) i „+ Do obejrzenia”.
-     * Pierwszy wypełniony rząd tablicy ustawia kartę raz na zbudowanie tablicy.
+     * (7.23) Filmy / Seriale: propozycje tego typu z pierwszego wypełnionego rzędu tablicy (kina, Top 10, katalogi – rzędy są już
+     * filtrowane typem) – do [HERO_MAX] pozycji w karuzeli. Odkrywaj – tylko „Kontynuuj oglądanie” ([showContinueHero]).
      */
-    private fun showPortraitHero(t: StremioTile) {
-        if (!portrait || heroMeta != null || searchQuery != null || filter == FILTER_LIBRARY) return
-        val m = t.meta; heroMeta = m
+    private fun showPortraitHero(t: StremioTile, more: List<StremioTile> = listOf(t)) {
+        if (!heroAllowed || filter == FILTER_ALL || heroItems.isNotEmpty()) return
+        val type = typeFilter
+        val picks = (listOf(t) + more).distinctBy { it.meta.id }.filter { type == null || it.meta.type == type }.take(HERO_MAX)
+        if (picks.isEmpty()) return
+        showHero(picks.map { HeroItem(it.copy(rank = 0, badge = "")) })
+    }
+
+    /** (7.23) Odkrywaj: karta banerowa = „Kontynuuj oglądanie” (najnowsze pierwsze); pusta lista – karty nie ma (bez losowego tytułu). */
+    private suspend fun showContinueHero() {
+        if (!heroAllowed || filter != FILTER_ALL) return
+        val list = StremioStore.progress().filter { !it.finished }.take(HERO_MAX)
+        if (!heroAllowed || filter != FILTER_ALL) return
+        if (list.isEmpty()) { hideHero(); return }
+        val items = list.map { p -> HeroItem(StremioTile(StremioMetaPreview(p.metaId, p.type, p.name, p.poster), p), p) }
+        if (items.map { it.progress } == heroItems.map { it.progress } && heroCard != null) return     // bez zmian – karta zostaje
+        val keep = heroMeta?.id
+        showHero(items, start = items.indexOfFirst { it.tile.meta.id == keep }.coerceAtLeast(0))
+    }
+
+    private fun hideHero() {
+        heroCard?.let { rowsBox.removeView(it) }
+        heroCard = null; heroItems = emptyList(); heroIndex = 0
+    }
+
+    /**
+     * Karta banerowa w pionie (ten sam układ co w 7.22): obraz 16:10 (tło z metadanych, bez niego plakat), gradient od dołu w kolorze
+     * tła motywu, podpis sekcji, tytuł, ocena ★ / rok / typ (przy wznowieniu – odcinek i procent, pasek postępu), przyciski
+     * „Odtwórz” / „▶ Wznów” i „+ Do obejrzenia”; przy kilku pozycjach – ‹ › z licznikiem i przesunięcie palcem w bok.
+     */
+    private fun showHero(items: List<HeroItem>, start: Int = 0) {
+        heroItems = items; heroIndex = start.coerceIn(0, items.size - 1)
+        if (heroCard == null) buildHero()
+        bindHero()
+    }
+
+    private fun buildHero() {
         val pal = CardSheet.palette()
         val w = (resources.displayMetrics.widthPixels - Ui.dp(24)).coerceAtLeast(Ui.dp(200)); val h = w * 10 / 16
         val card = FrameLayout(this).apply { tag = HERO_TAG; clipChildren = true }
@@ -281,24 +349,79 @@ class StremioActivity : BaseActivity() {
         }, FrameLayout.LayoutParams(-1, h * 3 / 4, android.view.Gravity.BOTTOM))
         Ui.roundClip(card, Ui.dp(16).toFloat())
         val info = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(Ui.dp(14), 0, Ui.dp(14), Ui.dp(12)) }
-        info.addView(TextView(this).apply { text = m.name; textSize = 22f; tag = "keepcolor"; setTextColor(pal.text); setTypeface(typeface, android.graphics.Typeface.BOLD); maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END })
-        val line = listOfNotNull(m.imdbRating.takeIf { it.isNotBlank() && it != "0" && it != "0.0" }?.let { "★ $it" }, m.releaseInfo.take(4).ifBlank { null }, StremioUi.typeName(m.type)).joinToString("  ·  ")
-        info.addView(TextView(this).apply { text = line; textSize = 13f; tag = "keepcolor"; setTextColor(pal.text2) }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = Ui.dp(2) })
-        val buttons = LinearLayout(this).apply { clipChildren = false; setPadding(0, Ui.dp(8), 0, 0) }
-        buttons.addView(CardSheet.pill(this, HERO_PLAY, pal) { open(t) }.apply { tag = "keepcolor hero_play"; CardSheet.focusScale(this) })
+        val label = TextView(this).apply { textSize = 11f; tag = "keepcolor hero_label"; setTextColor(pal.accent or 0xFF000000.toInt()); setTypeface(typeface, android.graphics.Typeface.BOLD); letterSpacing = 0.08f }
+        info.addView(label)
+        val title = TextView(this).apply { textSize = 22f; tag = "keepcolor"; setTextColor(pal.text); setTypeface(typeface, android.graphics.Typeface.BOLD); maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }
+        info.addView(title)
+        val line = TextView(this).apply { textSize = 13f; tag = "keepcolor"; setTextColor(pal.text2) }
+        info.addView(line, LinearLayout.LayoutParams(-2, -2).apply { topMargin = Ui.dp(2) })
+        val bar = android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 1000; tag = "hero_progress"; visibility = View.GONE
+            progressTintList = android.content.res.ColorStateList.valueOf(pal.accent or 0xFF000000.toInt())
+            progressBackgroundTintList = android.content.res.ColorStateList.valueOf(CardSheet.withAlpha(pal.text2, 0x55))
+        }
+        info.addView(bar, LinearLayout.LayoutParams(-1, Ui.dp(4)).apply { topMargin = Ui.dp(6) })
+        val buttons = LinearLayout(this).apply { clipChildren = false; gravity = android.view.Gravity.CENTER_VERTICAL; setPadding(0, Ui.dp(8), 0, 0) }
+        val play = CardSheet.pill(this, HERO_PLAY, pal) { heroItems.getOrNull(heroIndex)?.let { open(it.tile) } }.apply { tag = "keepcolor hero_play"; CardSheet.focusScale(this) }
+        buttons.addView(play)
         buttons.addView(CardSheet.pill(this, HERO_WATCHLIST, pal) {
+            val m = heroMeta ?: return@pill
             withResolved(m) { r ->
                 val now = pl.iptv.tv.data.StremioLibrary.toggle(r)
                 I18n.makeToast(this, if (now) "Dodano do listy do obejrzenia: ${r.name}" else "Usunięto z listy do obejrzenia: ${r.name}", Toast.LENGTH_SHORT).show()
             }
         }.apply { tag = "keepcolor hero_watchlist"; CardSheet.focusScale(this) }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(10) })
+        buttons.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+        // przełączanie pozycji: ‹ licznik › (pilot / dotyk) i przesunięcie palcem po karcie
+        val nav = LinearLayout(this).apply { gravity = android.view.Gravity.CENTER_VERTICAL; clipChildren = false }
+        nav.addView(CardSheet.pill(this, "‹", pal) { heroStep(-1) }.apply { tag = "keepcolor hero_prev"; contentDescription = "Poprzedni"; CardSheet.focusScale(this) })
+        val counter = TextView(this).apply { textSize = 12f; tag = "keepcolor hero_counter"; setTextColor(pal.text2); setPadding(Ui.dp(8), 0, Ui.dp(8), 0) }
+        nav.addView(counter)
+        nav.addView(CardSheet.pill(this, "›", pal) { heroStep(1) }.apply { tag = "keepcolor hero_next"; contentDescription = "Następny"; CardSheet.focusScale(this) })
+        buttons.addView(nav)
         info.addView(buttons)
         card.addView(info, FrameLayout.LayoutParams(-1, -2, android.view.Gravity.BOTTOM))
+        val swipe = android.view.GestureDetector(this, object : android.view.GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: android.view.MotionEvent) = true
+            override fun onFling(e1: android.view.MotionEvent?, e2: android.view.MotionEvent, vx: Float, vy: Float): Boolean {
+                if (kotlin.math.abs(vx) < kotlin.math.abs(vy) * 1.5f || kotlin.math.abs(vx) < Ui.dp(300)) return false
+                heroStep(if (vx < 0) 1 else -1); return true
+            }
+            override fun onSingleTapUp(e: android.view.MotionEvent): Boolean { heroItems.getOrNull(heroIndex)?.let { open(it.tile) }; return true }
+        })
+        img.setOnTouchListener { _, e -> swipe.onTouchEvent(e) }
         rowsBox.addView(card, 0, LinearLayout.LayoutParams(-1, h).apply { bottomMargin = Ui.dp(12) })
+        heroCard = card; heroImg = img; heroTitle = title; heroLine = line; heroLabel = label; heroCounter = counter; heroPlay = play; heroBar = bar; heroNav = nav
+    }
+
+    /** Następna / poprzednia pozycja karuzeli (zawija się). */
+    fun heroStep(d: Int) {
+        if (heroItems.size < 2) return
+        heroIndex = Math.floorMod(heroIndex + d, heroItems.size)
+        bindHero()
+    }
+
+    private fun bindHero() {
+        val item = heroItems.getOrNull(heroIndex) ?: return
+        val m = item.tile.meta; val p = item.progress
+        val w = (resources.displayMetrics.widthPixels - Ui.dp(24)).coerceAtLeast(Ui.dp(200)); val h = w * 10 / 16
+        heroLabel?.text = when { p != null -> HERO_CONTINUE_LABEL; typeFilter == "series" -> HERO_SUGGEST_SERIES; else -> HERO_SUGGEST_MOVIES }
+        heroTitle?.text = m.name
+        heroLine?.text = if (p != null) listOfNotNull(p.videoLabel.ifBlank { null }, StremioUi.typeName(m.type), "${(p.fraction * 100).toInt()}%").joinToString("  ·  ")
+            else listOfNotNull(m.imdbRating.takeIf { r -> r.isNotBlank() && r != "0" && r != "0.0" }?.let { r -> "★ $r" }, m.releaseInfo.take(4).ifBlank { null }, StremioUi.typeName(m.type)).joinToString("  ·  ")
+        heroBar?.apply { visibility = if (p != null) View.VISIBLE else View.GONE; progress = ((p?.fraction ?: 0f) * 1000).toInt() }
+        heroPlay?.text = if (p != null) HERO_RESUME else HERO_PLAY
+        heroNav?.visibility = if (heroItems.size > 1) View.VISIBLE else View.GONE
+        heroCounter?.text = "${heroIndex + 1} / ${heroItems.size}"
+        heroCard?.contentDescription = m.name
+        val img = heroImg ?: return
+        coil.util.CoilUtils.dispose(img); img.setImageDrawable(null)
         fun poster() { if (m.poster.isNotBlank()) img.load(m.poster) { crossfade(false); size(w, h); scale(coil.size.Scale.FILL) } }
         // tło 16:10 z metadanych (identyfikator IMDb); pozycje TMDB i brak tła – plakat
-        if (pl.iptv.tv.data.StremioTmdb.isTmdbId(m.id)) poster()
-        else { poster(); lifecycleScope.launch { StremioMetas.get(m.type, m.id)?.background?.takeIf { it.isNotBlank() }?.let { b -> if (heroMeta == m) img.load(b) { crossfade(false); size(w, h); scale(coil.size.Scale.FILL) } } } }
+        poster()
+        if (!pl.iptv.tv.data.StremioTmdb.isTmdbId(m.id)) lifecycleScope.launch {
+            StremioMetas.get(m.type, m.id)?.background?.takeIf { b -> b.isNotBlank() }?.let { b -> if (heroMeta == m) img.load(b) { crossfade(false); size(w, h); scale(coil.size.Scale.FILL) } }
+        }
     }
 
     private fun build(): View {
@@ -642,7 +765,7 @@ class StremioActivity : BaseActivity() {
     private fun build(q: String?) {
         jobs.forEach { it.cancel() }; jobs.clear()
         scrolledTo = null
-        rowsBox.removeAllViews(); rows.clear(); rowTitles.clear(); heroMeta = null
+        rowsBox.removeAllViews(); rows.clear(); rowTitles.clear(); heroItems = emptyList(); heroIndex = 0; heroCard = null
         userMoved = false
         var first = true
         // (7.17) filtr tablicy: Filmy / Seriale – tylko katalogi i rzędy tego typu, Biblioteka – rzędy z urządzenia (bez katalogów)
@@ -658,6 +781,8 @@ class StremioActivity : BaseActivity() {
                     .apply { setPadding(Ui.dp(6), Ui.dp(20), 0, 0) })
                 return@launch
             }
+            // (7.23) filmy / seriale z listy M3U z filtrem gatunków – przed katalogami wtyczek (bez sieci, katalog z pamięci)
+            addM3uRows(q, type)
             val addons = StremioStore.enabledAddons()
             // (7.12) „Obecnie w kinach” – pierwszy rząd katalogów. (7.22) Z kluczem TMDB – polski repertuar kinowy (now_playing +
             // premiery kinowe z 45 dni, pl-PL, odznaka „W KINACH”); bez klucza albo bez wyników – jak dotąd z Cinemety
@@ -669,14 +794,15 @@ class StremioActivity : BaseActivity() {
                     val list = (if (tmdb) runCatching { pl.iptv.tv.data.StremioTmdb.nowInCinemas() }.getOrNull() else null)?.takeIf { it.isNotEmpty() }
                         ?: cinemaAddon?.let { a -> runCatching { StremioApi.inCinemas(a) }.getOrDefault(emptyList()) }.orEmpty()
                     if (list.isEmpty()) { removeRow(r); return@launch }
-                    r.adapter.items += list.map { StremioTile(it, badge = StremioUi.IN_CINEMAS_BADGE) }; r.adapter.notifyItemRangeInserted(0, list.size); r.status.visibility = View.GONE; showPortraitHero(r.adapter.items[0])
+                    r.adapter.items += list.map { StremioTile(it, badge = StremioUi.IN_CINEMAS_BADGE) }; r.adapter.notifyItemRangeInserted(0, list.size); r.status.visibility = View.GONE; showPortraitHero(r.adapter.items[0], r.adapter.items)
                     if (rowsHaveFocus()) anchorFocusedRow()
                     if (first && !userMoved && autoFocusAllowed()) { first = false; focusRow(r) }
                 }
             }
             // (7.20) Top 10 platform (Odkrywaj – 10 rzędów, Filmy / Seriale – po 5): od razu z pamięci podręcznej, sieć tylko w tle
-            // (7.22) telefon pionowo: na Odkrywaj także „Kontynuuj oglądanie” i „Do obejrzenia” (puste rzędy znikają same)
-            if (portrait && q == null && f == FILTER_ALL) { fillContinue(addRow(CONTINUE_ROW)); fillLibrary(addRow(LIBRARY_ROW)) }
+            // (7.22) telefon pionowo: na Odkrywaj także „Do obejrzenia” (pusty rząd znika sam). (7.23) „Kontynuuj oglądanie” – nie jako rząd
+            // (ani pod „Obecnie w kinach”, ani w Filmach / Serialach), tylko w karcie banerowej u góry Odkrywaj
+            if (portrait && q == null && f == FILTER_ALL) { showContinueHero(); fillLibrary(addRow(LIBRARY_ROW)) }
             if (q == null) addTop10Rows(type) { r -> if (first && !userMoved && autoFocusAllowed()) { first = false; focusRow(r) } }
             // (7.12) katalogi usługowych wtyczek (AIOStreams / ElfHosted, Store RD / PM) nie są pokazywane na tablicy
             fun hidden(a: StremioAddon, c: StremioAddon.Catalog) = isHiddenCatalog(a, c)
@@ -685,6 +811,7 @@ class StremioActivity : BaseActivity() {
                 addons.flatMap { a -> a.searchCatalogs.filterNot { hidden(a, it) }.filter(::wanted).map { a to it } }.sortedBy { (_, c) -> when (c.type) { "movie" -> 0; "series" -> 1; else -> 2 } }
             else addons.flatMap { a -> a.boardCatalogs.filterNot { hidden(a, it) }.filter(::wanted).map { a to it } }.take(8)
             if (catalogs.isEmpty()) {
+                if (m3uRowsShown) return@launch                              // (7.23) tablica z samą listą M3U – bez komunikatu o wtyczkach
                 rowsBox.addView(StremioUi.text(this@StremioActivity, if (addons.isEmpty()) "Brak włączonych wtyczek – włącz je w „🧩 Wtyczki”." else "Włączone wtyczki nie mają katalogów.", 16f, "text2")
                     .apply { setPadding(Ui.dp(6), Ui.dp(20), 0, 0) })
                 return@launch
@@ -697,7 +824,7 @@ class StremioActivity : BaseActivity() {
                     res.onSuccess { list ->
                         if (list.isEmpty()) { removeRow(r); return@onSuccess }
                         val start = r.adapter.items.size
-                        r.adapter.items += list.map { StremioTile(it) }; r.adapter.notifyItemRangeInserted(start, list.size); r.status.visibility = View.GONE; showPortraitHero(r.adapter.items[0])
+                        r.adapter.items += list.map { StremioTile(it) }; r.adapter.notifyItemRangeInserted(start, list.size); r.status.visibility = View.GONE; showPortraitHero(r.adapter.items[0], r.adapter.items)
                         if (rowsHaveFocus()) anchorFocusedRow()
                         // fokus na pierwszym rzędzie tylko, dopóki użytkownik niczego nie zaznaczył pilotem – wcześniej każdy
                         // doładowany katalog mógł przenieść kursor (np. gdy fokus był na przycisku u góry albo chwilowo zniknął)
@@ -762,7 +889,7 @@ class StremioActivity : BaseActivity() {
             old == tiles.size -> r.adapter.notifyItemRangeChanged(0, tiles.size)        // te same widoki – fokus zostaje
             else -> r.adapter.notifyDataSetChanged()
         }
-        r.status.visibility = View.GONE; r.adapter.items.firstOrNull()?.let { showPortraitHero(it) }
+        r.status.visibility = View.GONE; r.adapter.items.firstOrNull()?.let { showPortraitHero(it, r.adapter.items) }
         if (rowsHaveFocus()) anchorFocusedRow()
     }
 
@@ -801,6 +928,84 @@ class StremioActivity : BaseActivity() {
 
     /** Wiersz rzędu, na którym zakończyło się ostatnie przewinięcie (przewijanie tylko przy zmianie rzędu, nie przy każdym plakacie). */
     private var scrolledTo: View? = null
+
+    // ---------------- (7.23) filmy i seriale z listy M3U ----------------
+
+    /** Wybrany gatunek filtra rzędów z listy ([pl.iptv.tv.data.M3uVod.ALL] – wszystkie). */
+    var m3uGenre = pl.iptv.tv.data.M3uVod.ALL; private set
+    private var m3uMovies: Row? = null
+    private var m3uSeries: Row? = null
+    private var m3uRowsShown = false
+    /** Pigułki gatunków (testy). */
+    var m3uGenreViews: List<TextView> = emptyList(); private set
+
+    private fun m3uTile(m: pl.iptv.tv.data.M3uVod.Movie) = StremioTile(StremioMetaPreview(m.id, "movie", m.title, m.poster, releaseInfo = m.year, genres = m.genres))
+    private fun m3uTile(s: pl.iptv.tv.data.M3uVod.Show) = StremioTile(StremioMetaPreview(s.id, "series", s.title, s.poster, genres = s.genres),
+        note = "${s.episodes.size} " + StremioUi.plural(s.episodes.size, "odcinek", "odcinki", "odcinków"))
+
+    /**
+     * Rzędy „Filmy z Twojej listy” / „Seriale z Twojej listy” (wg zakładki: Odkrywaj – oba, Filmy / Seriale – jeden) i pigułki
+     * gatunków („Wszystkie”, gatunki, „Pozostałe”) nad nimi; wyszukiwanie – pozycje z tytułem zawierającym zapytanie.
+     * Katalog z [pl.iptv.tv.data.VodLibrary] (budowany w tle); pusta lista / brak VOD – nic się nie dodaje.
+     */
+    private suspend fun addM3uRows(q: String?, type: String?) {
+        m3uMovies = null; m3uSeries = null; m3uRowsShown = false; m3uGenreViews = emptyList()
+        val cat = pl.iptv.tv.data.VodLibrary.current()
+        if (cat.isEmpty) return
+        val genres = cat.genres(type)
+        if (m3uGenre !in genres) m3uGenre = pl.iptv.tv.data.M3uVod.ALL
+        if (q == null && genres.size > 2) addGenreChips(genres)
+        if (type != "series" && (q != null || cat.movies.isNotEmpty())) m3uMovies = addRow(if (q != null) "$M3U_MOVIES_ROW – wyniki" else M3U_MOVIES_ROW)
+        if (type != "movie" && (q != null || cat.series.isNotEmpty())) m3uSeries = addRow(if (q != null) "$M3U_SERIES_ROW – wyniki" else M3U_SERIES_ROW)
+        m3uRowsShown = m3uMovies != null || m3uSeries != null
+        fillM3uRows(cat, q)
+    }
+
+    private fun fillM3uRows(cat: pl.iptv.tv.data.VodCatalog, q: String?) {
+        fun match(t: String) = q == null || t.contains(q, ignoreCase = true)
+        fun fill(r: Row?, tiles: List<StremioTile>) {
+            r ?: return
+            if (r !in rows) return
+            if (tiles.isEmpty() && q != null) { removeRow(r); if (r === m3uMovies) m3uMovies = null else m3uSeries = null; return }
+            r.adapter.items.clear(); r.adapter.items += tiles; r.adapter.notifyDataSetChanged()
+            r.status.text = M3U_EMPTY_GENRE; r.status.visibility = if (tiles.isEmpty()) View.VISIBLE else View.GONE
+            tiles.firstOrNull()?.let { showPortraitHero(it, tiles) }
+        }
+        fill(m3uMovies, cat.movies(m3uGenre).filter { match(it.title) }.map(::m3uTile))
+        fill(m3uSeries, cat.series(m3uGenre).filter { match(it.title) }.map(::m3uTile))
+    }
+
+    private fun addGenreChips(genres: List<String>) {
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; clipChildren = false; clipToPadding = false; setPadding(Ui.dp(4), Ui.dp(6), Ui.dp(24), Ui.dp(4)) }
+        val views = genres.map { g ->
+            MobilePortraitScaffold.chip(this, g, g == m3uGenre) { setM3uGenre(g) }.apply { tag = "keepcolor nozoom"; setTag(pl.iptv.tv.R.id.row_key, M3U_GENRE_TAG + g) }
+                .also { row.addView(it, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = Ui.dp(8) }) }
+        }
+        m3uGenreViews = views
+        rowsBox.addView(android.widget.HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false; clipChildren = false; clipToPadding = false; setTag(pl.iptv.tv.R.id.row_key, M3U_GENRES_TAG); addView(row)
+        }, LinearLayout.LayoutParams(-1, -2))
+    }
+
+    /** Filtr gatunku [g]: rzędy z listy podmieniane w miejscu (bez przebudowy tablicy i bez sieci). */
+    fun setM3uGenre(g: String) {
+        m3uGenre = g
+        m3uGenreViews.forEach { it.isSelected = it.text.toString() == g || it.getTag(pl.iptv.tv.R.id.row_key) == M3U_GENRE_TAG + g }
+        lifecycleScope.launch { fillM3uRows(pl.iptv.tv.data.VodLibrary.current(), searchQuery) }
+    }
+
+    /** Pozycja z listy: film – od razu odtwarzacz; serial – wybór odcinka (sezon, odcinek), potem odtwarzacz. */
+    private fun openM3u(t: StremioTile) = lifecycleScope.launch {
+        val cat = pl.iptv.tv.data.VodLibrary.current()
+        val id = t.meta.id
+        cat.movie(id)?.let { m -> startActivity(M3uVodUi.playIntent(this@StremioActivity, m)); return@launch }
+        val show = cat.show(id) ?: cat.showOf(id)
+        if (show == null) { I18n.makeToast(this@StremioActivity, "Tej pozycji nie ma już na liście", Toast.LENGTH_SHORT).show(); return@launch }
+        if (isFinishing || isDestroyed) return@launch
+        Dialogs.menu(this@StremioActivity, show.title, show.episodes.map { e ->
+            pl.iptv.tv.data.M3uVod.episodeLabel(e) to { startActivity(M3uVodUi.playIntent(this@StremioActivity, show, e)) }
+        })
+    }
 
     private fun addRow(title: String): Row {
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, Ui.dp(6), 0, 0) }
@@ -900,6 +1105,8 @@ class StremioActivity : BaseActivity() {
     }
 
     private fun refreshContinue() {
+        // (7.23) Odkrywaj w pionie: karta „Kontynuuj oglądanie” po powrocie z odtwarzacza (nowy postęp / koniec) – bez przebudowy tablicy
+        if (filter == FILTER_ALL && searchQuery == null && portrait) { lifecycleScope.launch { showContinueHero() }; return }
         // (7.17) rzędy historii są tylko w Bibliotece – inne zakładki bez przebudowy po powrocie z odtwarzacza
         if (filter != FILTER_LIBRARY || searchQuery != null) return
         val r = rows.firstOrNull { it.title == CONTINUE_ROW }
@@ -970,6 +1177,7 @@ class StremioActivity : BaseActivity() {
     /** (7.8) „Kontynuuj oglądanie” – od razu odtwarzanie ([StremioPlayerActivity.resumeIntent]); katalog – ekran szczegółów. */
     private fun open(t: StremioTile) {
         t.progress?.let { startActivity(StremioPlayerActivity.resumeIntent(this, it)); return }
+        if (pl.iptv.tv.data.M3uVod.isM3uId(t.meta.id)) { openM3u(t); return }     // (7.23) pozycja z listy M3U
         // (7.22) pozycja TMDB (Top 10, „Obecnie w kinach”): external_ids → IMDb (tt…), potem pełny ekran ze źródłami wtyczek
         if (pl.iptv.tv.data.StremioTmdb.isTmdbId(t.meta.id)) { withResolved(t.meta) { m -> startActivity(StremioDetailActivity.intent(this, m, null)) }; return }
         startActivity(StremioDetailActivity.intent(this, t.meta, null))

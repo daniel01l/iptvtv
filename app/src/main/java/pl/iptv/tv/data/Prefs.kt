@@ -220,6 +220,15 @@ object Prefs {
     var stremioSubColor: Int get() = int("stremio_sub_color", 0); set(v) = putInt("stremio_sub_color", v)
     var stremioSubDelay: Int get() = int("stremio_sub_delay", 0); set(v) = putInt("stremio_sub_delay", v)
     var stremioAspect: Int get() = int("stremio_aspect", 0); set(v) = putInt("stremio_aspect", v)
+    /** (7.23) Wymuszone proporcje obrazu Stremio: 0 – z materiału, 1 – 16:9, 2 – 4:3. */
+    var stremioAspectRatio: Int get() = int("stremio_ratio", 0); set(v) = putInt("stremio_ratio", v)
+    /** (7.23) Korekta obrazu Stremio ([pl.iptv.tv.ui.PictureAdjust]): profil, jasność −50…50, kontrast i nasycenie w %. */
+    var stremioPicProfile: Int get() = int("stremio_pic_profile", 0); set(v) = putInt("stremio_pic_profile", v)
+    var stremioBrightness: Int get() = int("stremio_brightness", 0); set(v) = putInt("stremio_brightness", v)
+    var stremioContrast: Int get() = int("stremio_contrast", 100); set(v) = putInt("stremio_contrast", v)
+    var stremioSaturation: Int get() = int("stremio_saturation", 100); set(v) = putInt("stremio_saturation", v)
+    /** (7.23) Położenie napisów Stremio (indeks [pl.iptv.tv.ui.StremioPlayerActivity.SUB_POSITIONS]). */
+    var stremioSubPos: Int get() = int("stremio_sub_pos", 1); set(v) = putInt("stremio_sub_pos", v)
     var stremioSubLang: String get() = str("stremio_sub_lang", "pol"); set(v) = put("stremio_sub_lang", v)
     /** Źródła Stremio bez polskiej ścieżki mimo oznaczenia lektora (skróty kluczy, po jednym w linii). */
     var stremioNotPolish: String get() = str("stremio_not_pl"); set(v) = put("stremio_not_pl", v)
@@ -396,7 +405,8 @@ object Prefs {
     var tutorialShown: Boolean get() = bool("tutorial_shown", false); set(v) = putBool("tutorial_shown", v)
     var miniMenuEnabled: Boolean get() = bool("mini_on", true); set(v) = putBool("mini_on", v)
     /** 0 poziomo, 1 automatycznie (obrót), 2 pionowo (menu), odtwarzacz zawsze z obrotem. */
-    var orientation: Int get() = int("orientation", 0); set(v) = putInt("orientation", v)
+    /** Orientacja na telefonie: 0 – poziomo, 1 – automatycznie (domyślnie od 7.23: obrót od pierwszego uruchomienia), 2 – pionowo. TV – zawsze poziomo ([pl.iptv.tv.ui.OrientationPolicy]). */
+    var orientation: Int get() = int("orientation", 1); set(v) = putInt("orientation", v)
     /** (7.8) Język interfejsu: „pl” (domyślny) albo „en” ([pl.iptv.tv.ui.I18n]). */
     var language: String get() = str("language", "pl"); set(v) = put("language", v)
     /** Kategorie w menu: kolejność i ukryte (kanały zostają w „Wszystkie”). */
