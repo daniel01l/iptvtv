@@ -59,9 +59,9 @@ import pl.iptv.tv.data.Prefs
 import pl.iptv.tv.data.X25Action
 
 /**
- * Biblioteka aplikacji (tryb launchera i pulpity X25 / PS5): wszystkie aplikacje zainstalowane na urządzeniu w siatce z ikonami
- * – jak „Biblioteka gier” na konsoli. Pierwszy kafelek – Ustawienia systemu. OK – uruchom; MENU lub przytrzymanie OK – opcje:
- * dodaj / usuń z ekranu głównego PS5, informacje o aplikacji (stamtąd odinstalowanie). Lista odświeżana przy każdym powrocie
+ * Biblioteka aplikacji (tryb launchera, ekran główny Nowoczesny): wszystkie aplikacje zainstalowane na urządzeniu w siatce z ikonami
+ * Pierwszy kafelek – Ustawienia systemu. OK – uruchom; MENU lub przytrzymanie OK – opcje:
+ * informacje o aplikacji (stamtąd odinstalowanie); (7.27) bez „ekranu głównego PS5” – motyw usunięty. Lista odświeżana przy każdym powrocie
  * (zainstalowane / usunięte aplikacje). Kolory z motywu ([PS5ThemeProvider] – wartości z [Ui]).
  */
 class AppLibraryActivity : BaseActivity() {
@@ -105,22 +105,17 @@ class AppLibraryActivity : BaseActivity() {
     }
 
     fun launch(e: Entry) {
-        X25Theme.selectSound(this)
         if (runCatching { startActivity(e.intent) }.isFailure) X25Actions.toast(this, "Nie można uruchomić: ${e.label}")
     }
 
     /** Testy: uruchomienie po nazwie. */
     fun launch(label: String) { apps.firstOrNull { it.label == label }?.let { launch(it) } }
 
-    /** Opcje aplikacji: otwórz, ekran główny PS5 (dodaj / usuń), informacje o aplikacji. */
+    /** Opcje aplikacji: otwórz, informacje o aplikacji. */
     fun options(e: Entry) {
         if (e.id == SETTINGS_ID) { launch(e); return }
-        val onHome = e.id in Prefs.ps5Apps
         val items = buildList<Pair<String, () -> Unit>> {
             add("▶ Otwórz" to { launch(e) })
-            // ekran główny PS5 (także pulpit trybu launchera przy motywach bez własnego pulpitu)
-            if (!X25Theme.active) add(if (onHome) "✖ Usuń z ekranu głównego" to { Prefs.ps5Apps = Prefs.ps5Apps - e.id; X25Actions.toast(this@AppLibraryActivity, "Usunięto z ekranu głównego") }
-                else "＋ Dodaj do ekranu głównego" to { Prefs.ps5Apps = Prefs.ps5Apps + e.id; X25Actions.toast(this@AppLibraryActivity, "Dodano: ${e.label}") })
             add("ℹ Informacje o aplikacji" to {
                 val pkg = e.id.substringBefore('/')
                 runCatching { startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:$pkg"))) }
@@ -153,7 +148,6 @@ class AppLibraryActivity : BaseActivity() {
                     itemsIndexed(apps, key = { _, e -> e.id }, contentType = { _, _ -> "app" }) { i, e -> AppItem(e, if (i == 0) first else null, compact) }
                 }
             }
-            AndroidView({ Ps5Hints(it, LIBRARY_HINTS) }, Modifier.align(Alignment.BottomEnd).padding(end = side, bottom = 8.dp))
         }
         LaunchedEffect(loaded) { if (loaded) { delay(50); runCatching { first.requestFocus() } } }
     }
@@ -167,7 +161,7 @@ class AppLibraryActivity : BaseActivity() {
         Column(Modifier.zIndex(if (on) 1f else 0f), horizontalAlignment = Alignment.CenterHorizontally) {
             Box(Modifier.size(box)
                 .then(if (req != null) Modifier.focusRequester(req) else Modifier)
-                .onFocusChanged { if (it.isFocused != on) { on = it.isFocused; if (it.isFocused) { focused = e; X25Theme.navSound(this@AppLibraryActivity) } } }
+                .onFocusChanged { if (it.isFocused != on) { on = it.isFocused; if (it.isFocused) focused = e } }
                 .x25Clickable(onClick = { launch(e) }, onLong = { options(e) })
                 .focusable()
                 .graphicsLayer { scaleX = scale; scaleY = scale }
@@ -185,6 +179,5 @@ class AppLibraryActivity : BaseActivity() {
 
     companion object {
         const val SETTINGS_ID = "system:settings"
-        val LIBRARY_HINTS = listOf(Ps5Hints.X to "Uruchom", Ps5Hints.O to "Wstecz", Ps5Hints.MENU to "Opcje")
     }
 }

@@ -73,7 +73,7 @@ class V717ObsidianNavTest {
         assertTrue(ObsidianViews.active)
         assertEquals(ObsidianViews.BG, Ui.bg); assertEquals(ObsidianViews.ACCENT, Ui.accent)
         assertEquals(16, Ui.preset.radius)
-        Ui.applyPreset("classic"); Ui.changed()
+        applyClassic(); Ui.changed()
         assertFalse("inne motywy bez zmian", ObsidianViews.active)
         Ui.applyPreset(ModernTheme.ID); Ui.changed()
     }

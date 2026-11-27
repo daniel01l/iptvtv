@@ -70,6 +70,10 @@ class StremioPlayerActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_TYPE = "type"; const val EXTRA_META = "meta"; const val EXTRA_NAME = "name"; const val EXTRA_POSTER = "poster"
         const val EXTRA_VIDEO = "video"; const val EXTRA_LABEL = "label"; const val EXTRA_STREAM = "stream"
+        /** (v2) Odstęp pływających pigułek i panelu od krawędzi; tag pigułki jakości (testy). */
+        const val V2_MARGIN_DP = 20; const val V2_QUALITY_TAG = "stremio_v2_quality"
+        /** (v2) Szkło pigułek tytułu i jakości: `#0C1426` 55 %. */
+        const val TITLE_FILL = 0x8C0C1426.toInt()
         val SUB_SIZES = listOf(0.75f to "Mały", 1f to "Normalny", 1.25f to "Duży", 1.5f to "Bardzo duży", 2f to "Ogromny")
         val SUB_COLORS = listOf(Color.WHITE to "Biały", Color.parseColor("#FFEB3B") to "Żółty", Color.parseColor("#69F0AE") to "Zielony",
             Color.parseColor("#80DEEA") to "Błękitny", Color.parseColor("#FFAB91") to "Brzoskwiniowy")
@@ -238,7 +242,8 @@ class StremioPlayerActivity : AppCompatActivity() {
         }
         titleView.gravity = Gravity.START; titleView.tag = TITLE_TAG
         root.addView(titleView, FrameLayout.LayoutParams(-1, -2, Gravity.TOP or Gravity.START))
-        root.addView(buildControls(), FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
+        root.addView(buildControls(), FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply { if (ModernV2.active) setMargins(Ui.dp(V2_MARGIN_DP), 0, Ui.dp(V2_MARGIN_DP), Ui.dp(V2_MARGIN_DP)) })
+        if (ModernV2.active) setupV2Top(root)
         // (7.23) pion: ⏪ ⏯ ⏩ wyśrodkowane na ekranie (przenoszone z dolnego paska w [placeTransport])
         centerRow = LinearLayout(this).apply { gravity = Gravity.CENTER; clipChildren = false; clipToPadding = false; visibility = View.GONE; tag = CENTER_TAG }
         root.addView(centerRow, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
@@ -311,10 +316,18 @@ class StremioPlayerActivity : AppCompatActivity() {
                 override fun onScrubStop(t: androidx.media3.ui.TimeBar, position: Long, canceled: Boolean) { if (!canceled) player?.seekTo(position); scheduleHide() }
             })
         }
+        if (ModernV2.active) {
+            // (v2) czas „00:24:15 / 01:52:40”, bezpośrednio pod nim interaktywny pasek postępu (fokus D-pad, dotyk)
+            val timeRow = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+            timeRow.addView(posText); timeRow.addView(TextView(this).apply { text = " / "; textSize = 14f; setTextColor(pl.iptv.tv.ui.theme.ObsidianGlass.TEXT2) }); timeRow.addView(durText)
+            controls.addView(timeRow, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(4) })
+            controls.addView(timeBar, LinearLayout.LayoutParams(-1, Ui.dp(28)))
+        } else {
         progressRow.addView(posText)
         progressRow.addView(timeBar, LinearLayout.LayoutParams(0, Ui.dp(26), 1f).apply { marginStart = Ui.dp(12); marginEnd = Ui.dp(12) })
         progressRow.addView(durText)
         controls.addView(progressRow, LinearLayout.LayoutParams(-1, -2))
+        }
         // przyciski: w lewym dolnym rogu ⏪ ⏯ ⏩ (i „Następny odcinek” pod koniec), z prawej – ikony funkcji
         buttonsRow = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; clipChildren = false; clipToPadding = false }
         fun left(icon: String, t: String, a: () -> Unit) = iconButton(icon, t) { a(); scheduleHide() }
@@ -345,6 +358,7 @@ class StremioPlayerActivity : AppCompatActivity() {
         // (7.7) bez zmiany szerokości ikon (podpis nad ikoną) – rząd nie wypycha ikon poza ekran
         controls.addView(captionBox, LinearLayout.LayoutParams(-1, Ui.dp(30)).apply { topMargin = Ui.dp(6) })
         controls.addView(buttonsRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(2) })
+        if (ModernV2.active) styleV2Controls()
         return controls
     }
 
@@ -370,7 +384,89 @@ class StremioPlayerActivity : AppCompatActivity() {
 
     /** Okrągła ikona (stała szerokość); zaznaczenie pokazuje nad nią podpis [label]. */
     private val ICON_TAG = "icon"
-    private fun iconButton(icon: String, label: String, onClick: () -> Unit) = PlayerChrome.button(this, icon, "", onClick).apply {
+    // ---------------- (v2) Nowoczesny v2: HUD „Obsidian Glass” ----------------
+
+    /** Ozdobna ramka postępu dolnego panelu (tło – bez fokusu) i pigułka jakości obrazu (null – inne motywy). */
+    private var v2Border: StubeV2Controls.ProgressBorder? = null
+    private var v2Quality: TextView? = null
+    private val v2DialogHook: (androidx.appcompat.app.AlertDialog) -> Unit = { StremioV2Hud.decorate(it) }
+
+    /**
+     * Dolny pływający panel (szkło 24 dp, obramowanie wypełniane postępem), przyciski w tej samej kolejności co dotąd: ⏪ ⏯ ⏩,
+     * „Następny odcinek”, Inne odcinki / części, Audio, Napisy, Opóźnienie, Styl, Obraz, Przesyłaj, PiP. ⏯ – niebieskie kółko,
+     * pozostałe – kapsuły V2PillTab (fokus: ramka 2 dp `#38BDF8` + poświata). Telefon w pionie: rząd przycisków przewijany w poziomie.
+     */
+    private fun styleV2Controls() {
+        val G = pl.iptv.tv.ui.theme.ObsidianGlass; val low = Prefs.lowPerf
+        controls.background = StubeV2Controls.ProgressBorder().also { v2Border = it }
+        controls.setPadding(Ui.dp(18), Ui.dp(8), Ui.dp(18), Ui.dp(8))      // smukły panel
+        (timeBar.layoutParams as? LinearLayout.LayoutParams)?.let { it.height = Ui.dp(20); timeBar.layoutParams = it }
+        (captionBox.layoutParams as? LinearLayout.LayoutParams)?.let { it.height = Ui.dp(24); it.topMargin = Ui.dp(2); captionBox.layoutParams = it }
+        caption.textSize = 13f; caption.setPadding(Ui.dp(10), Ui.dp(2), Ui.dp(10), Ui.dp(2))
+        for (b in listOf(rewBtn, playBtn, fwdBtn) + (0 until topBar.childCount).map { topBar.getChildAt(it) }) (b as? TextView)?.let { t -> val pd = Ui.dp(if (t === playBtn) 10 else 8); t.setPadding(pd, pd, pd, pd); t.minWidth = 0; t.minHeight = 0 }
+        (buttonsRow.layoutParams as? LinearLayout.LayoutParams)?.let { it.topMargin = 0; buttonsRow.layoutParams = it }
+        timeBar.setPlayedColor(G.FOCUS_RING); timeBar.setScrubberColor(G.FOCUS_RING)
+        timeBar.background = android.graphics.drawable.StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_focused), G.focus(12, low)); addState(intArrayOf(), android.graphics.drawable.ColorDrawable(0)) }
+        for (b in listOf(rewBtn, fwdBtn) + (0 until topBar.childCount).map { topBar.getChildAt(it) }) b.background = G.pillTab(60, low)
+        playBtn.background = G.button(true, 60, low)
+        nextBtn.background = G.pillTab(40, low)
+        val pill = G.glassDialog(16, G.OVERLAY_FILL)
+        seekBadge.background = pill; caption.background = G.glassDialog(12, G.OVERLAY_FILL)
+        // pion telefonu: cały rząd przycisków przewijany w poziomie (kolejność bez zmian)
+        if (resources.configuration.screenWidthDp < 600) {
+            val idx = controls.indexOfChild(buttonsRow)
+            controls.removeView(buttonsRow)
+            rowSpacer.visibility = View.GONE
+            controls.addView(android.widget.HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; isFocusable = false; clipChildren = false; addView(buttonsRow) },
+                idx, LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(2) })
+        }
+        // bezpieczne odstępy: pasek nawigacji systemu pod panelem
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(controls) { v, ins ->
+            val b = ins.getInsets(androidx.core.view.WindowInsetsCompat.Type.navigationBars()).bottom
+            (v.layoutParams as? FrameLayout.LayoutParams)?.let { lp -> val m = Ui.dp(V2_MARGIN_DP) + b; if (lp.bottomMargin != m) { lp.bottomMargin = m; v.layoutParams = lp } }
+            ins
+        }
+    }
+
+    /** Górne pigułki: z lewej tytuł (z „S01E02”) w szkle, z prawej sama jakość obrazu; pod paskiem stanu (telefon). */
+    private fun setupV2Top(root: FrameLayout) {
+        val G = pl.iptv.tv.ui.theme.ObsidianGlass
+        titleView.apply {
+            background = G.glassDialog(16, TITLE_FILL); setShadowLayer(0f, 0f, 0f, 0); textSize = 15f      // mniejsza, bardziej przezroczysta pigułka dopasowana do tytułu
+            setPadding(Ui.dp(14), Ui.dp(6), Ui.dp(14), Ui.dp(6)); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; gravity = Gravity.CENTER_VERTICAL
+            maxWidth = (resources.displayMetrics.widthPixels * 0.5f).toInt()
+            layoutParams = FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { setMargins(Ui.dp(V2_MARGIN_DP), Ui.dp(V2_MARGIN_DP), 0, 0) }
+            // telefon: przycisk powrotu w pigułce tytułu (dotyk; pilot – WSTECZ jak dotąd)
+            if (!Tutorial.isTv(this@StremioPlayerActivity)) {
+                setCompoundDrawables(PlayerIcon(PlayerIcon.BACK, android.content.res.ColorStateList.valueOf(Color.WHITE)).apply { setBounds(0, 0, Ui.dp(18), Ui.dp(18)) }, null, null, null)
+                compoundDrawablePadding = Ui.dp(10); isClickable = true; setOnClickListener { onBackPressedDispatcher.onBackPressed() }
+            }
+        }
+        v2Quality = TextView(this).apply {
+            textSize = 14f; setTextColor(Color.WHITE); setTypeface(typeface, android.graphics.Typeface.BOLD); visibility = View.GONE; isFocusable = false
+            setPadding(Ui.dp(14), Ui.dp(7), Ui.dp(14), Ui.dp(7)); background = G.glassDialog(18, G.OVERLAY_FILL); tag = V2_QUALITY_TAG
+        }
+        root.addView(v2Quality, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { setMargins(0, Ui.dp(V2_MARGIN_DP), Ui.dp(V2_MARGIN_DP), 0) })
+        v2Quality?.apply { textSize = 13f; setPadding(Ui.dp(12), Ui.dp(5), Ui.dp(12), Ui.dp(5)); background = G.glassDialog(16, TITLE_FILL) }
+        // wskaźnik przewijania nad panelem (nie powiększa panelu): szklana pigułka z ikoną ⏪ / ⏩ v2
+        (seekBadge.parent as? android.view.ViewGroup)?.removeView(seekBadge)
+        seekBadge.textSize = 15f; seekBadge.setPadding(Ui.dp(14), Ui.dp(5), Ui.dp(16), Ui.dp(5)); seekBadge.compoundDrawablePadding = Ui.dp(8)
+        root.addView(seekBadge, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = Ui.dp(V2_MARGIN_DP + 72) })
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(titleView) { v, ins ->
+            val t = ins.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars() or androidx.core.view.WindowInsetsCompat.Type.displayCutout()).top
+            for (x in listOfNotNull(v, v2Quality)) (x.layoutParams as? FrameLayout.LayoutParams)?.let { lp -> val m = Ui.dp(V2_MARGIN_DP) + t; if (lp.topMargin != m) { lp.topMargin = m; x.layoutParams = lp } }
+            ins
+        }
+    }
+
+    /** Pigułka jakości razem z tytułem (pełny pasek); ukryta przy karcie „Następny odcinek” (ten sam róg). */
+    private fun syncV2Top() {
+        val q = v2Quality ?: return
+        q.visibility = if (titleView.visibility == View.VISIBLE && q.text.isNotEmpty() && !(::nextCard.isInitialized && nextCard.visibility == View.VISIBLE)) View.VISIBLE else View.GONE
+    }
+
+    private fun iconButton(icon: String, label: String, onClick: () -> Unit) =PlayerChrome.button(this, icon, "", onClick).apply {
         setTag(R.id.row_key, ICON_TAG)
         contentDescription = label
         val base = onFocusChangeListener
@@ -406,10 +502,12 @@ class StremioPlayerActivity : AppCompatActivity() {
         val was = bar; bar = m
         if (m == Bar.HIDDEN) {
             seekAccum = 0
+            // (v2) pigułka przewijania leży poza panelem (w root) – chowana osobno (dawniej zostawała na obrazie)
+            seekBadge.visibility = View.GONE
             // płynne zniknięcie; fokus wraca na tło (OK znowu otwiera menu z fokusem na ⏯)
             if (controls.findFocus() != null) rootView.requestFocus()
             controls.animate().alpha(0f).setDuration(220).withEndAction { if (bar == Bar.HIDDEN) controls.visibility = View.GONE }.start()
-            titleView.visibility = View.GONE
+            titleView.visibility = View.GONE; syncV2Top()
             if (::centerRow.isInitialized) centerRow.visibility = View.GONE
             return
         }
@@ -417,7 +515,7 @@ class StremioPlayerActivity : AppCompatActivity() {
         buttonsRow.visibility = if (m == Bar.FULL) View.VISIBLE else View.GONE
         captionBox.visibility = buttonsRow.visibility                // (7.7) bez pustego pasa nad paskiem postępu przy przewijaniu
         seekBadge.visibility = if (m == Bar.SEEK) View.VISIBLE else View.GONE
-        titleView.visibility = if (m == Bar.FULL) View.VISIBLE else View.GONE
+        titleView.visibility = if (m == Bar.FULL) View.VISIBLE else View.GONE; syncV2Top()
         if (::centerRow.isInitialized) centerRow.visibility = if (m == Bar.FULL && transportCentered) View.VISIBLE else View.GONE
         if (m == Bar.SEEK && controls.findFocus() != null) rootView.requestFocus()
         if (m == Bar.FULL && was != Bar.FULL) placeTitle(transportCentered)     // (7.23) odstęp paska stanu znany dopiero po wstawkach okna
@@ -445,7 +543,10 @@ class StremioPlayerActivity : AppCompatActivity() {
         p.seekTo(to)
         if (badge) {
             seekAccum += delta
-            seekBadge.text = (if (seekAccum < 0) "⏪  −" else "⏩  +") + seekLabel(kotlin.math.abs(seekAccum))
+            if (v2Border != null) {      // (v2) ikona ⏪ / ⏩ rysowana (bez emoji)
+                seekBadge.text = (if (seekAccum < 0) "−" else "+") + seekLabel(kotlin.math.abs(seekAccum))
+                seekBadge.setCompoundDrawables(PlayerIcon(if (seekAccum < 0) PlayerIcon.REW else PlayerIcon.FWD, android.content.res.ColorStateList.valueOf(pl.iptv.tv.ui.theme.ObsidianGlass.FOCUS_RING)).apply { setBounds(0, 0, Ui.dp(18), Ui.dp(18)) }, null, null, null)
+            } else seekBadge.text = (if (seekAccum < 0) "⏪  −" else "⏩  +") + seekLabel(kotlin.math.abs(seekAccum))
             if (bar != Bar.FULL) setBar(Bar.SEEK) else scheduleHide()
         }
         updateControls(to)
@@ -467,6 +568,8 @@ class StremioPlayerActivity : AppCompatActivity() {
         val pos = if (position >= 0) position else p.currentPosition
         timeBar.setDuration(dur); timeBar.setPosition(pos); timeBar.setBufferedPosition(p.bufferedPosition)
         posText.text = StremioUi.fmt(pos); durText.text = if (dur > 0) StremioUi.fmt(dur) else "--:--"
+        v2Border?.progress = if (dur > 0) (pos.toFloat() / dur).coerceIn(0f, 1f) else 0f      // (v2) ozdobna ramka postępu
+        v2Quality?.let { q -> val t = StremioV2Hud.quality(p.videoFormat); if (q.text.toString() != t) { q.text = t; syncV2Top() } }
         val playing = p.playWhenReady && p.playbackState != Player.STATE_ENDED
         val icon = if (playing) PlayerIcon.PAUSE else PlayerIcon.PLAY
         if (playBtn.tag != icon) {
@@ -575,7 +678,7 @@ class StremioPlayerActivity : AppCompatActivity() {
     private fun start(resume: Boolean, atMs: Long = -1) {
         releasePlayer()
         titleView.text = intent.getStringExtra(EXTRA_NAME).orEmpty() + (if (label.isNotBlank()) "  ·  $label" else "")
-        externalSub = null; lines = emptyList(); addonSubs = stream.subtitles; subView.setCues(emptyList())
+        externalSub = null; lines = emptyList(); addonSubs = stream.subtitles.filter(::usableSub); subView.setCues(emptyList())
         audioWarned = false; langApplied = false; langManual = false; polishAudio = null; subsOff = false
         langPlan = null; addonSubsLoaded = false; englishDone = false
         val http = OkHttpDataSource.Factory(Repository.http).setDefaultRequestProperties(stream.headers)
@@ -723,9 +826,10 @@ class StremioPlayerActivity : AppCompatActivity() {
     }
 
     // (7.5) w oknie PiP onPause nie zatrzymuje filmu (gra dalej w pływającym oknie)
-    override fun onPause() { super.onPause(); saveProgress(push = true); if (!isInPip) player?.pause(); CastHub.detach(this) }
+    override fun onPause() { super.onPause(); if (Ui.dialogHook === v2DialogHook) Ui.dialogHook = null; saveProgress(push = true); if (!isInPip) player?.pause(); CastHub.detach(this) }
     override fun onResume() {
         super.onResume()
+        if (ModernV2.active) Ui.dialogHook = v2DialogHook      // (v2) okna wyboru odtwarzacza: karty, ✓ przy aktywnej pozycji
         CastHub.attach(this, CastHub.Kind.STREMIO, castLocal)          // (7.25) urządzenia w pobliżu; trwa przesyłanie – lokalnie cisza
         player?.let { if (it.playbackState != Player.STATE_ENDED && !CastHub.isCasting(CastHub.Kind.STREMIO)) it.play() }
     }
@@ -845,7 +949,7 @@ class StremioPlayerActivity : AppCompatActivity() {
                 catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { emptyList() }
             } }.map { it.await() }.flatten()
         }
-        addonSubs = (stream.subtitles + got).distinctBy { it.url }
+        addonSubs = (stream.subtitles + got).distinctBy { it.url }.filter(::usableSub)
         // (7.4) zawsze polskie (wytyczne): od razu, gdy plik nie ma własnych polskich napisów ani polskiego dźwięku. Dawniej prefiks
         // „po” z zapamiętanego języka trafiał też w portugalskie („por”), a wbudowane „pl” nie były rozpoznawane
         if (externalSub == null && !subsOff && polishAudio != true && !langManual) addonSubs.firstOrNull { StremioDecoders.isPolishSubtitle(it.lang) }?.let { s ->
@@ -888,6 +992,13 @@ class StremioPlayerActivity : AppCompatActivity() {
         if (addonSubs.isEmpty() && embedded.isEmpty()) items += "Brak napisów (włącz wtyczkę napisów, np. OpenSubtitles)" to {}
         Dialogs.menu(this, "Napisy", items)
     }
+
+    /** (v2) Napisy z wtyczki nadające się do wyboru – bez komunikatów błędów wtyczek udających język („[❌] … Failed to …”). */
+    fun usableSub(s: pl.iptv.tv.data.StremioSubtitle): Boolean {
+        val l = s.lang.trim()
+        return s.url.isNotBlank() && l.length <= SUB_LANG_MAX && "❌" !in l && !l.contains("fail", true) && !l.contains("error", true)
+    }
+    val SUB_LANG_MAX = 32
 
     /** Przesuwa napisy o [deltaMs] (dodatnie – później). */
     fun changeDelay(deltaMs: Int) {
@@ -1278,6 +1389,7 @@ class StremioPlayerActivity : AppCompatActivity() {
     /** Tytuł w lewym górnym rogu: w pionie pod paskiem stanu, z odstępem od karty „Następny odcinek”. */
     private fun placeTitle(portraitNow: Boolean) {
         val top = if (portraitNow) (androidx.core.view.ViewCompat.getRootWindowInsets(rootView)?.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars())?.top ?: 0) else 0
+        if (v2Border != null) return      // (v2) pigułka tytułu – rozmiar i odstępy z [setupV2Top]
         titleView.textSize = if (portraitNow) 18f else 22f
         titleView.setPadding(Ui.dp(if (portraitNow) 16 else 40), top + Ui.dp(if (portraitNow) 12 else 22), Ui.dp(if (resources.configuration.screenWidthDp < 600) 40 else 420), 0)
     }
@@ -1342,7 +1454,7 @@ class StremioPlayerActivity : AppCompatActivity() {
         val formats = video.flatMap { g -> (0 until g.length).map { i -> g to i } }
         s.section("Jakość obrazu")
         if (formats.size <= 1) s.info(PortraitPlayerUi.diagnostics(p).lineSequence().drop(1).firstOrNull()?.let { "Strumień ma jedną jakość ($it)" } ?: "Strumień ma jedną jakość obrazu")
-        else s.choices(formats.map { (g, i) -> g.getTrackFormat(i).let { f -> if (f.height > 0) "${f.height}p" + (if (f.bitrate > 0) " · ${f.bitrate / 1000} kb/s" else "") else "Jakość ${i + 1}" } },
+        else s.choices(formats.map { (g, i) -> g.getTrackFormat(i).let { f -> if (f.height > 0) VideoQuality.label(f.width, f.height) + (if (f.bitrate > 0) " · ${f.bitrate / 1000} kb/s" else "") else "Jakość ${i + 1}" } },
             formats.indexOfFirst { (g, i) -> g.isTrackSelected(i) }) { k ->
             val (g, i) = formats[k]
             p?.let { it.trackSelectionParameters = it.trackSelectionParameters.buildUpon().setOverrideForType(TrackSelectionOverride(g.mediaTrackGroup, i)).build() }

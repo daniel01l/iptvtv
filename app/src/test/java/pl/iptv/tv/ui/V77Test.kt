@@ -17,12 +17,12 @@ class V77Test {
 
     @Test fun customThemeSavedAndRestored() {
         Prefs.customThemes = "[]"
-        Ui.applyPreset("classic")
+        Ui.applyPreset(ModernV2.ID)   // (v2) motyw bazowy własnego motywu – Nowoczesny v2 (dawniej Klasyczny, usunięty)
         assertFalse(CustomThemes.hasOverrides())
         Ui.setColor("accent", 0xFF112233.toInt()); Prefs.restore(mapOf("font" to 2, "grad_dir" to 1))
         assertTrue(CustomThemes.hasOverrides())
         val s = CustomThemes.save("Mój niebieski")
-        assertEquals("classic", s.base)
+        assertEquals(ModernV2.ID, s.base)
         // przełączenie motywu zeruje zmiany, ale zapisuje je jako „Własny – <motyw>”
         Ui.applyPreset(ModernTheme.ID)
         assertFalse(CustomThemes.hasOverrides())
@@ -31,7 +31,7 @@ class V77Test {
         assertTrue(names.toString(), names.any { it.startsWith(CustomThemes.AUTO_PREFIX) })
         // przywrócenie: motyw bazowy i kolory / czcionka
         CustomThemes.apply(CustomThemes.list().first { it.name == "Mój niebieski" })
-        assertEquals("classic", Ui.preset.id)
+        assertEquals(ModernV2.ID, Ui.preset.id)
         assertEquals(0xFF112233.toInt(), Ui.color("accent"))
         assertEquals(2, Prefs.snapshot(listOf("font"))["font"])
         CustomThemes.delete("Mój niebieski")

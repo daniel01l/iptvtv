@@ -70,6 +70,8 @@ class StremioDetailActivity : BaseActivity() {
         const val LOADING_TEXT = "Ładowanie źródeł"
         /** (7.22) Szerokość miniatury odcinka w pionie telefonu (dp, 16:9). */
         const val EPISODE_THUMB_W = 112
+        /** (v2) Tag przycisku „Udostępnij” (link IMDb / Stremio). */
+        const val SHARE_TAG = "share_title"
     }
 
     private val type get() = intent.getStringExtra(EXTRA_TYPE).orEmpty()
@@ -155,7 +157,7 @@ class StremioDetailActivity : BaseActivity() {
     private fun ctaPill(text: String, icon: String, primary: Boolean, onClick: () -> Unit): TextView {
         val O = pl.iptv.tv.ui.theme.ObsidianViews
         val foc = intArrayOf(android.R.attr.state_focused)
-        val colors = android.content.res.ColorStateList(arrayOf(foc, intArrayOf()), intArrayOf(O.BG, O.TEXT))
+        val colors = android.content.res.ColorStateList(arrayOf(foc, intArrayOf()), intArrayOf(if (ModernV2.active) O.TEXT else O.BG, O.TEXT))   // (v2) biały tekst także przy fokusie
         return TextView(this).apply {
             this.text = text.uppercase(); tag = "keepcolor nozoom"; isFocusable = true; isClickable = true; textSize = 15f
             setTypeface(typeface, android.graphics.Typeface.BOLD); gravity = android.view.Gravity.CENTER_VERTICAL; letterSpacing = 0.04f
@@ -163,11 +165,15 @@ class StremioDetailActivity : BaseActivity() {
             setCompoundDrawables(PlayerIcon(icon, colors).apply { setBounds(0, 0, Ui.dp(18), Ui.dp(18)) }, null, null, null); compoundDrawablePadding = Ui.dp(10)
             fun pill(c: Int, stroke: Int = 0) = android.graphics.drawable.GradientDrawable().apply { cornerRadius = Ui.dp(26).toFloat(); setColor(c); if (stroke != 0) setStroke(Ui.dp(1), stroke) }
             background = android.graphics.drawable.StateListDrawable().apply {
+                // (v2) CTA: główny – gradient z ramką i poświatą przy fokusie, pozostałe – tint z ramką; spoczynek – gradient / szkło
+                if (ModernV2.active) { val G = pl.iptv.tv.ui.theme.ObsidianGlass
+                    addState(foc, if (primary) G.primary(26, ring = true, lowPerf = pl.iptv.tv.data.Prefs.lowPerf) else G.focus(26, pl.iptv.tv.data.Prefs.lowPerf))
+                    addState(intArrayOf(), if (primary) G.primary(26) else G.glass(26)) } else {
                 addState(foc, pill(0xFFFFFFFF.toInt()))
-                addState(intArrayOf(), if (primary) pill(O.ACCENT) else pill(O.SURFACE_GLASS, O.SPECULAR))
+                addState(intArrayOf(), if (primary) pill(O.ACCENT) else pill(O.SURFACE_GLASS, O.SPECULAR)) }
             }
             setOnClickListener { onClick() }
-            setOnFocusChangeListener { v, f -> Ui.focusZoom(v, f, 1.06f) }
+            setOnFocusChangeListener { v, f -> if (!ModernV2.active) Ui.focusZoom(v, f, 1.06f) }   // (v2) bez powiększenia – ramka fokusu nie wystaje na sąsiednie przyciski
         }
     }
 
@@ -184,6 +190,12 @@ class StremioDetailActivity : BaseActivity() {
         ?: StremioMetaPreview(metaId, type, intent.getStringExtra(EXTRA_NAME).orEmpty(), intent.getStringExtra(EXTRA_POSTER).orEmpty())
 
     /** (7.20) „Do obejrzenia” (lista na urządzeniu – [pl.iptv.tv.data.StremioLibrary]; rząd „Do obejrzenia” w Bibliotece). */
+    /** (v2) Systemowe udostępnianie tytułu: nazwa + link IMDb i strona Stremio (pozycje z listy M3U – sam tytuł, bez adresu). */
+    private fun shareTitle() {
+        val name = meta?.name ?: intent.getStringExtra(EXTRA_NAME).orEmpty()
+        ShareLinks.share(this, name, ShareLinks.stremio(name, type, metaId))
+    }
+
     private fun toggleLibrary() {
         val now = pl.iptv.tv.data.StremioLibrary.toggle(preview())
         updateLibraryButton()
@@ -213,8 +225,8 @@ class StremioDetailActivity : BaseActivity() {
         frame.addView(bg, FrameLayout.LayoutParams(-1, -1))
         frame.addView(View(this).apply {
             background = android.graphics.drawable.LayerDrawable(arrayOf(
-                android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(0xF2080A0F.toInt(), 0xB3080A0F.toInt(), 0x1A080A0F)),
-                android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.BOTTOM_TOP, intArrayOf(0xFF080A0F.toInt(), 0xCC080A0F.toInt(), 0x00080A0F))))
+                android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(CardSheet.withAlpha(O.BG, 0xF2), CardSheet.withAlpha(O.BG, 0xB3), CardSheet.withAlpha(O.BG, 0x1A))),
+                android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.BOTTOM_TOP, intArrayOf(CardSheet.withAlpha(O.BG, 0xFF), CardSheet.withAlpha(O.BG, 0xCC), CardSheet.withAlpha(O.BG, 0)))))
         }, FrameLayout.LayoutParams(-1, -1))
         poster = ImageView(this).apply { visibility = View.GONE }          // plakat jako zapasowe tło (bez osobnej kolumny)
         frame.addView(poster, FrameLayout.LayoutParams(1, 1))
@@ -232,18 +244,27 @@ class StremioDetailActivity : BaseActivity() {
         trailerBtn = ctaPill("Zwiastun", PlayerIcon.FILM, primary = false) { trailer() }.apply { visibility = if (pl.iptv.tv.BuildConfig.FULL_EDITION) View.VISIBLE else View.GONE }
         libraryBtn = ctaPill(WATCHLIST_ADD, PlayerIcon.BOOKMARK_ADD, primary = false) { toggleLibrary() }
         listOf(watchBtn!!, trailerBtn!!, libraryBtn!!).forEach { cta.addView(it, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = Ui.dp(12) }) }
+        // „Udostępnij”: link IMDb / Stremio – telefon: systemowe udostępnianie, TV: kod QR do zeskanowania ([ShareLinks.share]);
+        // (v2) okrągła ikona 46 dp (dawniej podpis łamał się w „SHAR E”), bez linku (pozycje z listy M3U) – ukryta
+        val share = ctaPill(ShareLinks.TITLE, PlayerIcon.SHARE, primary = false) { shareTitle() }.apply { tag = "keepcolor nozoom $SHARE_TAG"
+            if (ModernV2.active) { text = ""; contentDescription = ShareLinks.TITLE; compoundDrawablePadding = 0; val p = Ui.dp(14); setPadding(p, p, p, p) }
+            if (!metaId.substringBefore(':').startsWith("tt")) visibility = View.GONE }
+        cta.addView(share, if (ModernV2.active) LinearLayout.LayoutParams(Ui.dp(46), Ui.dp(46)) else LinearLayout.LayoutParams(-2, -2))
         hero.addView(cta); hero.addView(resume)
-        root.addView(hero, LinearLayout.LayoutParams((resources.displayMetrics.widthPixels * 0.62f).toInt(), -2))
+        if (ModernV2.active) root.addView(v2HeroRow(hero, frame), LinearLayout.LayoutParams(-1, -2))      // (v2) plakat w szklanej ramce obok opisu
+        else root.addView(hero, LinearLayout.LayoutParams((resources.displayMetrics.widthPixels * 0.62f).toInt(), -2))
         // pod spodem: odcinki (seriale) i źródła – szklane panele
         val lists = LinearLayout(this).apply { setPadding(0, Ui.dp(14), 0, 0) }
-        episodesCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE; background = O.glass(); setPadding(Ui.dp(10), Ui.dp(10), Ui.dp(10), Ui.dp(10)) }
+        episodesCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE; background = v2Panel() ?: O.glass(); setPadding(Ui.dp(10), Ui.dp(10), Ui.dp(10), Ui.dp(10)) }
         seasonsBar = LinearLayout(this)
         episodesCol.addView(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(seasonsBar) })
         episodes = RecyclerView(this).apply { layoutManager = LinearLayoutManager(this@StremioDetailActivity); adapter = episodeAdapter; itemAnimator = null }
         episodesCol.addView(episodes, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = Ui.dp(6) })
         lists.addView(episodesCol, LinearLayout.LayoutParams(Ui.dp(320), -1).apply { marginEnd = Ui.dp(16) })
-        val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; background = O.glass(); setPadding(Ui.dp(12), Ui.dp(10), Ui.dp(12), Ui.dp(10)) }
+        val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; background = v2Panel() ?: O.glass(); setPadding(Ui.dp(if (ModernV2.active) 16 else 12), Ui.dp(if (ModernV2.active) 14 else 10), Ui.dp(if (ModernV2.active) 16 else 12), Ui.dp(10)) }
         sourcesTitle = TextView(this).apply { text = "Źródła"; textSize = 17f; setTypeface(typeface, android.graphics.Typeface.BOLD); setTextColor(O.TEXT); tag = "keepcolor"; setPadding(Ui.dp(6), 0, 0, Ui.dp(6)) }
+        if (ModernV2.active) sourcesTitle.apply { text = "ŹRÓDŁA"; textSize = 14f; letterSpacing = 0.06f
+            setCompoundDrawables(android.graphics.drawable.GradientDrawable().apply { shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(pl.iptv.tv.ui.theme.ObsidianGlass.FOCUS_RING); setBounds(0, 0, Ui.dp(8), Ui.dp(8)) }, null, null, null); compoundDrawablePadding = Ui.dp(10) }
         right.addView(sourcesTitle)
         sources = RecyclerView(this).apply { layoutManager = LinearLayoutManager(this@StremioDetailActivity); adapter = sourceAdapter; itemAnimator = null }
         right.addView(sources, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -252,6 +273,31 @@ class StremioDetailActivity : BaseActivity() {
         frame.addView(root, FrameLayout.LayoutParams(-1, -1))
         updateLibraryButton()
         return frame
+    }
+
+    /** (v2) Szkło paneli odcinków i źródeł (`V2PanelDrawable`); inne motywy – null (dotychczasowe szkło). */
+    private fun v2Panel(): android.graphics.drawable.Drawable? =
+        if (ModernV2.active) pl.iptv.tv.ui.theme.ObsidianGlass.glassDialog(22, pl.iptv.tv.ui.theme.ObsidianGlass.OVERLAY_FILL) else null
+
+    /**
+     * (v2) Górna część szczegółów: plakat 2:3 w świetlistej szklanej ramce z lewej (dotychczas ukryty – tylko zapasowe tło),
+     * obok tytuł, metadane, gatunki, opis i przyciski – w szklanej karcie na tle kadru.
+     */
+    private fun v2HeroRow(hero: LinearLayout, frame: FrameLayout): View {
+        val G = pl.iptv.tv.ui.theme.ObsidianGlass
+        (poster.parent as? android.view.ViewGroup)?.removeView(poster)
+        poster.visibility = View.VISIBLE; poster.scaleType = ImageView.ScaleType.CENTER_CROP
+        Ui.roundClip(poster, Ui.dp(14).toFloat())
+        val card = FrameLayout(this).apply { background = G.glassDialog(18, G.OVERLAY_FILL); val p = Ui.dp(5); setPadding(p, p, p, p) }
+        card.addView(poster, FrameLayout.LayoutParams(-1, -1))
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL; clipChildren = false; clipToPadding = false }
+        row.addView(card, LinearLayout.LayoutParams(Ui.dp(170), Ui.dp(252)))
+        val glass = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; background = G.glassDialog(24, 0x990C1426.toInt())
+            setPadding(Ui.dp(24), Ui.dp(16), Ui.dp(24), Ui.dp(14)); clipChildren = false; clipToPadding = false }
+        glass.addView(hero, LinearLayout.LayoutParams(-1, -2))
+        row.addView(glass, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = Ui.dp(22) })
+        hero.removeView(resume)      // „Wznów” jest już w napisie przycisku OGLĄDAJ (bez powtórzenia pod przyciskami)
+        return row
     }
 
     /** Metadane i gatunki w układzie „Obsidian Stream”: rok · czas trwania · ocena, gatunki jako pigułki. */
@@ -306,6 +352,7 @@ class StremioDetailActivity : BaseActivity() {
         libraryBtn = StremioUi.button(this, WATCHLIST_ADD, PlayerIcon.BOOKMARK_ADD) { toggleLibrary() }
         actions.addView(resume, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = Ui.dp(8) })
         actions.addView(libraryBtn, LinearLayout.LayoutParams(0, -2, 1f))
+        actions.addView(StremioUi.button(this, ShareLinks.TITLE, PlayerIcon.SHARE) { shareTitle() }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = Ui.dp(8) })   // (v2) udostępnij
         body.addView(actions)
         body.addView(desc)
         // sezony (pigułki przewijane w poziomie) i odcinki z miniaturami – lista bez własnego przewijania (cała kolumna się przewija)
@@ -319,6 +366,8 @@ class StremioDetailActivity : BaseActivity() {
         // karta źródeł (panel motywu)
         val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; tag = "panel"; setPadding(Ui.dp(10), Ui.dp(10), Ui.dp(10), Ui.dp(10)) }
         sourcesTitle = StremioUi.text(this, "Źródła", 18f, "accent", bold = true, lines = 1).apply { setPadding(Ui.dp(6), 0, 0, Ui.dp(6)) }
+        if (ModernV2.active) sourcesTitle.apply { text = "ŹRÓDŁA"; textSize = 14f; letterSpacing = 0.06f
+            setCompoundDrawables(android.graphics.drawable.GradientDrawable().apply { shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(pl.iptv.tv.ui.theme.ObsidianGlass.FOCUS_RING); setBounds(0, 0, Ui.dp(8), Ui.dp(8)) }, null, null, null); compoundDrawablePadding = Ui.dp(10) }
         right.addView(sourcesTitle)
         sources = RecyclerView(this).apply { layoutManager = LinearLayoutManager(this@StremioDetailActivity); adapter = sourceAdapter; itemAnimator = null; isNestedScrollingEnabled = false }
         right.addView(sources, LinearLayout.LayoutParams(-1, -2))
@@ -350,6 +399,7 @@ class StremioDetailActivity : BaseActivity() {
         // (7.20) „Do obejrzenia” we wszystkich motywach (w „Obsidian Stream” – pigułka obok OGLĄDAJ / Zwiastun)
         libraryBtn = StremioUi.button(this, WATCHLIST_ADD, PlayerIcon.BOOKMARK_ADD) { toggleLibrary() }
         left.addView(libraryBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(8) })
+        left.addView(StremioUi.button(this, ShareLinks.TITLE, PlayerIcon.SHARE) { shareTitle() }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(8) })   // (v2) udostępnij
         left.addView(descScroll, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = Ui.dp(8) })
         root.addView(left, LinearLayout.LayoutParams(Ui.dp(290), -1))
         // środek: sezony i odcinki (tylko seriale)
@@ -362,6 +412,8 @@ class StremioDetailActivity : BaseActivity() {
         // prawa kolumna: źródła
         val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; tag = "panel"; setPadding(Ui.dp(10), Ui.dp(10), Ui.dp(10), Ui.dp(10)) }
         sourcesTitle = StremioUi.text(this, "Źródła", 18f, "accent", bold = true, lines = 1).apply { setPadding(Ui.dp(6), 0, 0, Ui.dp(6)) }
+        if (ModernV2.active) sourcesTitle.apply { text = "ŹRÓDŁA"; textSize = 14f; letterSpacing = 0.06f
+            setCompoundDrawables(android.graphics.drawable.GradientDrawable().apply { shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(pl.iptv.tv.ui.theme.ObsidianGlass.FOCUS_RING); setBounds(0, 0, Ui.dp(8), Ui.dp(8)) }, null, null, null); compoundDrawablePadding = Ui.dp(10) }
         right.addView(sourcesTitle)
         sources = RecyclerView(this).apply { layoutManager = LinearLayoutManager(this@StremioDetailActivity); adapter = sourceAdapter; itemAnimator = null }
         right.addView(sources, LinearLayout.LayoutParams(-1, 0, 1f))

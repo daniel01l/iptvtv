@@ -35,7 +35,15 @@ object RemoteServer {
     private const val MAX_BODY = 60 * 1024 * 1024
 
     private var server: ServerSocket? = null
-    private val pool = Executors.newFixedThreadPool(3)
+    /**
+     * (7.27) Wątki obsługi żądań: dawniej stała pula 3 wątków – przeglądarka (zwłaszcza po zeskanowaniu kodu QR) otwiera kilka połączeń
+     * „na zapas” bez żądania, każde trzymało wątek do 30 s i strona nie ładowała się nawet po ręcznym wpisaniu adresu.
+     * Teraz pula rosnąca do [MAX_THREADS], bez kolejki; nadmiar połączeń jest od razu zamykany.
+     */
+    private val pool = java.util.concurrent.ThreadPoolExecutor(0, MAX_THREADS, 30L, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.SynchronousQueue())
+    const val MAX_THREADS = 24
+    /** (7.27) Najdłuższe oczekiwanie na nagłówki żądania (puste połączenie przeglądarki zwalnia wątek po tym czasie). */
+    const val HEADER_TIMEOUT_MS = 8_000
     private var nsd: NsdManager.RegistrationListener? = null
     private lateinit var app: Context
     private val main = Handler(Looper.getMainLooper())
@@ -100,7 +108,7 @@ object RemoteServer {
         Thread({
             while (!s.isClosed) {
                 val sock = runCatching { s.accept() }.getOrNull() ?: break
-                pool.execute { runCatching { handle(sock) }; runCatching { sock.close() } }
+                if (runCatching { pool.execute { runCatching { handle(sock) }; runCatching { sock.close() } } }.isFailure) runCatching { sock.close() }
             }
         }, "RemoteServer").start()
         register()
@@ -141,7 +149,7 @@ object RemoteServer {
     private class Req(val method: String, val path: String, val headers: Map<String, String>, val body: ByteArray)
 
     private fun read(sock: Socket): Req? {
-        sock.soTimeout = 30_000
+        sock.soTimeout = HEADER_TIMEOUT_MS      // (7.27) puste połączenie „na zapas” nie trzyma wątku długo
         val inp = BufferedInputStream(sock.getInputStream())
         val head = ByteArrayOutputStream()
         var last4 = 0
@@ -156,6 +164,7 @@ object RemoteServer {
         val headers = lines.drop(1).filter { ':' in it }.associate { it.substringBefore(':').trim().lowercase() to it.substringAfter(':').trim() }
         val len = headers["content-length"]?.toIntOrNull() ?: 0
         if (len > MAX_BODY) return null
+        sock.soTimeout = 30_000                 // treść (plik listy, APK) – dłuższy limit
         val body = ByteArray(len); var off = 0
         while (off < len) { val r = inp.read(body, off, len - off); if (r < 0) break; off += r }
         return Req(method, path, headers, body)

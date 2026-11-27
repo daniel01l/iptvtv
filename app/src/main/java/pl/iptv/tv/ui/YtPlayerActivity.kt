@@ -28,6 +28,7 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.launch
+import androidx.lifecycle.repeatOnLifecycle
 import pl.iptv.tv.data.Prefs
 import pl.iptv.tv.data.QueueItem
 import pl.iptv.tv.data.SbSegment
@@ -56,6 +57,11 @@ class YtPlayerActivity : AppCompatActivity() {
     override fun applyOverrideConfiguration(o: android.content.res.Configuration?) { super.applyOverrideConfiguration(pl.iptv.tv.ui.TvResolution.adjust(this, o)) }
 
     companion object {
+        /** (v2) Pigułki panelu odtwarzacza w Nowoczesnym v2. */
+        const val V2_OPTIONS = "Opcje wideo"; const val V2_QUEUE = "Kolejka odtwarzania"; const val V2_MUSIC = "Tryb muzyczny"
+        const val V2_QUEUE_SHORT = "Kolejka"
+        /** (v2, pion) Rozmiar ikon funkcji pod tytułem (dp). */
+        const val PORTRAIT_ACTION_DP = 42
         const val EXTRA_ID = "id"; const val EXTRA_TITLE = "title"
         const val EXTRA_CHANNEL = "channel"; const val EXTRA_THUMB = "thumb"; const val EXTRA_FROM_START = "from_start"
         /** Otwarcie bieżącego filmu silnika (mini-player, powiadomienie) – bez wczytywania od nowa. */
@@ -310,6 +316,7 @@ class YtPlayerActivity : AppCompatActivity() {
         seekBox.addView(seekProgress, LinearLayout.LayoutParams(-1, Ui.dp(6)))
         root.addView(seekBox, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
         playerView.setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { v -> onControllerVisibility(v) })
+        if (ModernV2.active) setupV2Controls()      // (v2) dolny pływający panel, pigułka jakości, ikony na obrazie (pion)
         // (7.22) telefon pionowo: panel pod przypiętym obrazem 16:9 (Następne wideo / Tekst / Tryb muzyczny)
         rootView = root
         portraitPanel = YtPortraitPanel(this, portraitHost).apply { visibility = View.GONE }
@@ -396,6 +403,7 @@ class YtPlayerActivity : AppCompatActivity() {
         (connecting as? java.util.concurrent.Future<*>)?.cancel(true); connecting = null
         val c = client ?: return
         if (YtEngine.active) c.setBackground(true)
+        if (::stage.isInitialized) stage.attachVideo(false)      // (v2) teledysk w karcie trybu muzycznego – odpięty razem z kontrolerem
         c.player.removeListener(playerListener)
         playerView.player = null          // clearVideoSurface – obraz odpięty od odtwarzacza
         c.release()                       // tylko kontroler; odtwarzacz w usłudze gra dalej
@@ -450,7 +458,7 @@ class YtPlayerActivity : AppCompatActivity() {
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(state: Int) { if (state == Player.STATE_READY) status.visibility = View.GONE }
         override fun onIsPlayingChanged(isPlaying: Boolean) { keepScreen(); updateAutoPip(); if (isPlaying) hideAmbient(); if (::stage.isInitialized) stage.updatePlay() }
-        override fun onTracksChanged(tracks: Tracks) = updateButtons()
+        override fun onTracksChanged(tracks: Tracks) { applySavedQuality(); updateButtons() }
     }
 
     /** Tytuł, kanał, rozdziały, przyciski i „Co następuje” wg bieżącego filmu. */
@@ -538,27 +546,52 @@ class YtPlayerActivity : AppCompatActivity() {
     private fun groups(type: Int): List<Tracks.Group> = player?.currentTracks?.groups.orEmpty().filter { it.type == type && it.length > 0 }
 
     /** Dostępne wysokości obrazu (od najwyższej) – menu jakości. */
-    fun qualities(): List<Int> = groups(C.TRACK_TYPE_VIDEO).flatMap { g -> (0 until g.length).map { g.getTrackFormat(it).height } }
+    fun qualities(): List<Int> = groups(C.TRACK_TYPE_VIDEO).flatMap { g -> (0 until g.length).map { g.getTrackFormat(it).let { f -> VideoQuality.classOf(f.width, f.height) } } }
         .filter { it > 0 }.distinct().sortedDescending()
 
-    /** Bieżąca wysokość obrazu (wybrana ścieżka). */
-    private fun playingHeight(): Int = groups(C.TRACK_TYPE_VIDEO).firstNotNullOfOrNull { g -> (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { g.getTrackFormat(it).height } } ?: 0
+    /** Klasa bieżącego obrazu (wybrana ścieżka) – 1080, 720…; 0 – nieznana. */
+    private fun playingHeight(): Int = groups(C.TRACK_TYPE_VIDEO).firstNotNullOfOrNull { g -> (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { g.getTrackFormat(it).let { f -> VideoQuality.classOf(f.width, f.height) } } }
+        ?: (YtEngine.player as? androidx.media3.exoplayer.ExoPlayer)?.videoFormat?.let { VideoQuality.classOf(it.width, it.height) } ?: 0
 
-    /** Jakość: 0 = automatycznie (do limitu z Ustawień), inaczej maks. wysokość – odtwarzacz wybiera najlepszą ścieżkę ≤ [h]. */
+    /**
+     * Jakość: 0 = automatycznie (do limitu z Ustawień), inaczej klasa [h] (1080, 720…) – **wymuszona**: ścieżki tej klasy jako
+     * nadpisanie wyboru (dawniej sam limit wysokości – odtwarzacz schodził niżej, a pigułka pokazywała inną jakość niż wybrana).
+     */
     fun setQuality(h: Int) {
         Prefs.ytQuality = h
         val p = player ?: return
-        p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
-            .setMaxVideoSize(Int.MAX_VALUE, if (h > 0) h else YtStreams.maxHeight).build()
+        val b = p.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+            .setMaxVideoSize(if (h > 0) VideoQuality.widthOf(h) else Int.MAX_VALUE, if (h > 0) h else YtStreams.maxHeight)
+        if (h > 0) groups(C.TRACK_TYPE_VIDEO).firstOrNull()?.let { g ->
+            val idx = (0 until g.length).filter { g.getTrackFormat(it).let { f -> VideoQuality.classOf(f.width, f.height) } == h }
+            if (idx.isNotEmpty()) b.setOverrideForType(TrackSelectionOverride(g.mediaTrackGroup, idx))
+        }
+        p.trackSelectionParameters = b.build()
+        qualityForced = videoId
         updateButtons()
+    }
+    /** Film, dla którego wymuszono już zapisaną jakość ([applySavedQuality]). */
+    private var qualityForced: String? = null
+
+    /** Nowy film z zapisaną stałą jakością: po poznaniu ścieżek – wymuszenie tej klasy (silnik ustawia tylko limit). */
+    private fun applySavedQuality() {
+        if (Prefs.ytQuality <= 0 || qualityForced == videoId || groups(C.TRACK_TYPE_VIDEO).isEmpty()) return
+        if (Prefs.ytQuality in qualities()) setQuality(Prefs.ytQuality) else qualityForced = videoId
+    }
+
+    /** Etykieta pigułki jakości – ta sama co zaznaczenie w oknie „Jakość obrazu”: stała – wybrana klasa, auto – „Auto 1080p”. */
+    fun qualityPillText(fps: Float = 0f): String {
+        val playing = playingHeight()
+        val fixed = Prefs.ytQuality.takeIf { it > 0 && it in qualities() }
+        return if (fixed != null) VideoQuality.label(fixed, fps) else if (playing > 0) "Auto " + VideoQuality.label(playing, fps) else ""
     }
 
     private fun qualityMenu() {
         val qs = qualities()
         if (qs.isEmpty()) { toast("Jakość niedostępna dla tego filmu"); return }
-        val cur = Prefs.ytQuality
-        playerMenu("Jakość obrazu", listOf((if (cur == 0) "✔  " else "     ") + "Automatycznie" + (playingHeight().takeIf { it > 0 }?.let { " (teraz ${it}p)" } ?: "") to { setQuality(0) }) +
-            qs.map { h -> ((if (cur == h) "✔  " else "     ") + "${h}p" + if (h >= 2160) " 4K" else if (h >= 1080) " HD" else "") to { setQuality(h) } })
+        val cur = Prefs.ytQuality.takeIf { it in qs } ?: 0
+        playerMenu(icon = PlayerIcon.QUALITY, title = "Jakość obrazu", items = listOf((if (cur == 0) "✔  " else "     ") + "Automatycznie" + (playingHeight().takeIf { it > 0 }?.let { " (teraz ${VideoQuality.label(it)})" } ?: "") to { setQuality(0) }) +
+            qs.map { h -> ((if (cur == h) "✔  " else "     ") + VideoQuality.label(h) + if (h in 1080..1440) " HD" else "") to { setQuality(h) } })
     }
 
     /** Opis ścieżki: nazwa z manifestu, język albo numer. */
@@ -595,7 +628,7 @@ class YtPlayerActivity : AppCompatActivity() {
     private fun updateButtons() {
         speedBtn.text = speedLabel(if (live) 100 else Prefs.ytSpeedPct.takeIf { it in SPEEDS } ?: 100)
         val h = playingHeight()
-        qualityBtn.text = if (Prefs.ytQuality > 0) "${Prefs.ytQuality}p" else "Auto" + (h.takeIf { it > 0 }?.let { " ${it}p" } ?: "")
+        qualityBtn.text = qualityPillText().ifBlank { "Auto" }
         audioBtn.visibility = if (groups(C.TRACK_TYPE_AUDIO).size > 1) View.VISIBLE else View.GONE
         val subs = groups(C.TRACK_TYPE_TEXT)
         subsBtn.visibility = if (subs.isEmpty()) View.GONE else View.VISIBLE
@@ -605,6 +638,7 @@ class YtPlayerActivity : AppCompatActivity() {
         autoplayBtn.text = autoplayLabel()
         pipBtn.visibility = if (pipSupported && !YtEngine.audioOnly) View.VISIBLE else View.GONE
         audioOnlyBtn.text = if (YtEngine.audioOnly) "Obraz" else "Tylko dźwięk"
+        if (v2c != null) { v2Buttons(); refreshPortraitActions() }
         updateUpNext()
         updateShelf()
         updateStage()
@@ -618,7 +652,7 @@ class YtPlayerActivity : AppCompatActivity() {
     fun toggleAutoplay() {
         Prefs.ytAutoplay = !Prefs.ytAutoplay
         if (!Prefs.ytAutoplay) cancelAutoplay()
-        autoplayBtn.text = autoplayLabel(); shelfAutoplay.text = autoplayLabel()
+        autoplayBtn.text = autoplayLabel(); shelfAutoplay.text = autoplayLabel(); if (v2c != null) v2Buttons()
         playerView.showController()
     }
 
@@ -645,7 +679,7 @@ class YtPlayerActivity : AppCompatActivity() {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; isFocusable = true; isClickable = true; setPadding(Ui.dp(4), Ui.dp(4), Ui.dp(4), Ui.dp(6))
             background = android.graphics.drawable.StateListDrawable().apply {
-                addState(intArrayOf(android.R.attr.state_focused), GradientDrawable().apply { cornerRadius = Ui.dp(12).toFloat(); setColor(0x26FFFFFF); setStroke(Ui.dp(3), Color.WHITE) })
+                addState(intArrayOf(android.R.attr.state_focused), GradientDrawable().apply { cornerRadius = Ui.dp(12).toFloat(); setColor(0x26FFFFFF); setStroke(Ui.dp(3), if (ModernV2.active) pl.iptv.tv.ui.theme.ObsidianGlass.FOCUS_RING else Color.WHITE) })   // (v2) ramka fokusu karuzeli
                 addState(intArrayOf(), GradientDrawable().apply { cornerRadius = Ui.dp(12).toFloat(); setColor(Color.TRANSPARENT) })
             }
             setOnClickListener { cancelAutoplay(); playNow(v) }
@@ -683,6 +717,8 @@ class YtPlayerActivity : AppCompatActivity() {
             shelf.animate().translationY(0f).alpha(1f).setDuration(220).start()
         } else if (!show) { shelf.animate().cancel(); shelf.translationY = 0f; shelf.alpha = 1f; shelf.visibility = View.GONE }
         shelfHandle.visibility = if (avail && !shelfOpen) View.VISIBLE else View.GONE
+        // (v2) uchwyt nad pływającym panelem sterowania (nie nachodzi na pigułki)
+        if (v2c != null && !portraitActive) (shelfHandle.layoutParams as? FrameLayout.LayoutParams)?.let { lp -> val m = (v2c?.panel?.height ?: 0) + Ui.dp(28); if (lp.bottomMargin != m) { lp.bottomMargin = m; shelfHandle.layoutParams = lp } }
         if (show) upNextLabel.hide()
     }
 
@@ -756,7 +792,9 @@ class YtPlayerActivity : AppCompatActivity() {
         if (live || isInPip || upNextShownFor == videoId) return
         val dur = (durMs ?: p?.duration)?.takeIf { it != C.TIME_UNSET && it > 0 } ?: return
         val pos = posMs ?: p?.currentPosition ?: return
-        if (pos < dur * UP_NEXT_FRACTION) return
+        // 10 s przed końcem (krótkie utwory: od [UP_NEXT_FRACTION]) – na [UP_NEXT_MS]
+        if (dur - pos > UP_NEXT_MS && pos < dur * UP_NEXT_FRACTION) return
+        if (dur - pos > UP_NEXT_MS && dur > UP_NEXT_MS * 4) return
         updateUpNext()
         if (upNextText.isEmpty() || shelfShown) return
         upNextShownFor = videoId
@@ -772,8 +810,24 @@ class YtPlayerActivity : AppCompatActivity() {
             upNextLabel.measure(View.MeasureSpec.makeMeasureSpec(Ui.dp(420), View.MeasureSpec.AT_MOST), View.MeasureSpec.UNSPECIFIED)
             lp.gravity = Gravity.END or Gravity.TOP
             lp.setMargins(0, (pv.topMargin + pv.height - upNextLabel.measuredHeight - Ui.dp(12)).coerceAtLeast(0), Ui.dp(12), 0)
-        } else { lp.gravity = Gravity.END or Gravity.BOTTOM; lp.setMargins(0, 0, Ui.dp(24), Ui.dp(64)) }
+        } else { lp.gravity = Gravity.END or Gravity.BOTTOM; lp.setMargins(0, 0, Ui.dp(24), if (v2c != null) (v2c?.panel?.height ?: 0) + Ui.dp(32) else Ui.dp(64)) }   // (v2) nad panelem sterowania
         upNextLabel.layoutParams = lp
+    }
+
+    /**
+     * Pigułka „Następne” na ekranie: OK – następna pozycja od razu, WSTECZ – pigułka znika i otwiera się kolejka odtwarzania
+     * (panel „Następne”); zwolnienie klawisza też pochłonięte. Inne klawisze – jak dotąd.
+     */
+    private var upNextKeyDown = false
+    private fun upNextKey(e: KeyEvent): Boolean {
+        val ok = e.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || e.keyCode == KeyEvent.KEYCODE_ENTER || e.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+        val back = e.keyCode == KeyEvent.KEYCODE_BACK
+        if (e.action == KeyEvent.ACTION_UP && upNextKeyDown && (ok || back)) { upNextKeyDown = false; return true }
+        if (!upNextLabel.shown || (!ok && !back) || e.action != KeyEvent.ACTION_DOWN || panel?.isOpen == true) return false
+        if (::stage.isInitialized && stage.optionsOpen) return false
+        upNextKeyDown = true
+        if (ok) playUpNext() else { upNextLabel.hide(); openPanel(TAB_RELATED) }
+        return true
     }
 
     /** Dotknięcie pigułki: następna pozycja kolejki albo pierwsza propozycja – od razu. */
@@ -816,8 +870,15 @@ class YtPlayerActivity : AppCompatActivity() {
                 if (panel?.isOpen != true) stage.focusDefault()
             }
         }
+        // (v2) Nowoczesny v2: teledysk w szklanej karcie trybu muzycznego – ten sam odtwarzacz (bez nowego strumienia); powrót do
+        // zwykłego widoku – obraz wraca na główny PlayerView. Tylko dźwięk / PiP – okładka
+        val stageVideo = want && stage.v2Layout && !YtEngine.audioOnly && !isInPip && client != null && !Prefs.ytStagePoster      // „Włącz plakat” – okładka
+        val hadVideo = stage.showsVideo
+        stage.attachVideo(stageVideo)
+        if (hadVideo && !stageVideo) client?.let { playerView.player = null; playerView.player = it.player }
         // widok muzyczny zasłania obraz – dekoder obrazu niepotrzebny (oszczędność); teledysk / zwykły widok włącza go z powrotem
-        client?.let { if (stageBackground != want) { stageBackground = want; it.setBackground(want || YtEngine.audioOnly) } }
+        val bg = want && !stageVideo
+        client?.let { if (stageBackground != bg) { stageBackground = bg; it.setBackground(bg || YtEngine.audioOnly) } }
         // przełącznik widoku muzycznego zawsze pod ręką (nie tylko przy tytułach z oznaczeniami muzyki)
         musicBtn.visibility = if (!want && !live && !isInPip) View.VISIBLE else View.GONE
         if (want && was && stage.findFocus() == null && panel?.isOpen != true && fallbackDialog?.isShowing != true) stage.focusDefault()
@@ -833,6 +894,8 @@ class YtPlayerActivity : AppCompatActivity() {
         if (on) playerView.hideController() else playerView.showController()
     }
 
+    /** (v2) Głośność sprzed wyciszenia (przycisk „Wyciszenie” w trybie muzycznym w pionie). */
+    private var mutedVolume = 1f
     private val stageHost = object : YtMusicStage.Host {
         override val player: Player? get() = this@YtPlayerActivity.player
         override fun playPause() { player?.let { if (it.isPlaying) it.pause() else it.play() }; stage.updatePlay() }
@@ -851,6 +914,19 @@ class YtPlayerActivity : AppCompatActivity() {
         }
         override fun toVideo() = setMusicView(false)
         override fun options() = optionsMenu()
+        // (v2) tryb muzyczny w pionie: wstecz, Cast, wyciszenie, ♡ (Do obejrzenia później), udostępnij
+        override fun back() = onBackPressedDispatcher.onBackPressed()
+        override fun cast() = castClick()
+        override fun toggleMute(): Boolean { val p = player ?: return false; if (p.volume > 0f) { mutedVolume = p.volume; p.volume = 0f } else p.volume = mutedVolume.takeIf { it > 0f } ?: 1f; return p.volume == 0f }
+        override fun like(): Boolean { lifecycleScope.launch { if (pl.iptv.tv.data.StubeHistory.addWatchLater(video)) toast("Dodano do „Do obejrzenia później”") }; return true }
+        override fun share() { ShareLinks.share(this@YtPlayerActivity, titleView.text.toString(), ShareLinks.youtube(videoId, YtEngine.player?.currentPosition ?: 0)) }
+        // (v2) plakat / teledysk w karcie, wyszukiwanie w oknie kolejki i dodawanie (jak „Dodaj do kolejki” w pionie)
+        override fun posterChanged() = updateStage()
+        override suspend fun search(q: String): List<YtVideo> = YtKeyless.search(q)
+        override fun addToQueue(v: YtVideo, next: Boolean) { lifecycleScope.launch {
+            StubeQueue.add(QueueItem.of(v), next = next)
+            toast(if (next) "Odtworzy się następnie: ${v.title}" else "Dodano do kolejki: ${v.title}")
+            stageSig = ""; updateStage(); updateButtons() } }
         override fun pick(e: YtMusicStage.Entry) {
             val q = e.queue
             if (q != null) lifecycleScope.launch {
@@ -946,6 +1022,7 @@ class YtPlayerActivity : AppCompatActivity() {
             playerView.layoutParams = FrameLayout.LayoutParams(-1, -1)
             panel.visibility = View.GONE; panel.titleView.text = ""; panel.channelView.text = ""     // bez zdublowanego tytułu poza pionem
         }
+        placeV2()      // (v2) panel sterowania: pion – pod wideo, poziom – w kontrolerze
         rebuildStageIfNeeded()
     }
 
@@ -1005,9 +1082,10 @@ class YtPlayerActivity : AppCompatActivity() {
 
     private fun castClick() { CastHub.click(this, CastHub.Kind.STUBE, castLocal) { castMedia() } }
 
-    private fun portraitIcons() = listOf(
-        PortraitPlayerUi.Icon("music", PlayerIcon.MUSIC, "Muzyka") { setMusicView(!stageShown) },
-        PortraitPlayerUi.Icon("lyrics", PlayerIcon.LYRICS, "Tekst") { if (stageShown) stage.selectTab(YtMusicStage.TAB_LYRICS) else portraitPanel?.toggleLyrics() },
+    private fun portraitIcons() = listOfNotNull(
+        // (v2) Muzyka i Tekst – ikony pod tytułem, na belce bez powtórzeń
+        if (ModernV2.active) null else PortraitPlayerUi.Icon("music", PlayerIcon.MUSIC, "Muzyka") { setMusicView(!stageShown) },
+        if (ModernV2.active) null else PortraitPlayerUi.Icon("lyrics", PlayerIcon.LYRICS, "Tekst") { if (stageShown) stage.selectTab(YtMusicStage.TAB_LYRICS) else portraitPanel?.toggleLyrics() },
         PortraitPlayerUi.Icon("options", PlayerIcon.CHAPTERS, "Opcje odtwarzania") { showMusicOptions() },
         PortraitPlayerUi.Icon("cast", PlayerIcon.CAST, "Przesyłaj") { castClick() },
         PortraitPlayerUi.Icon("rotate", PlayerIcon.ROTATE, "Obróć") { PortraitPlayerUi.rotateToLandscape(this) },
@@ -1189,8 +1267,8 @@ class YtPlayerActivity : AppCompatActivity() {
     var eqDialog: AlertDialog? = null; private set
 
     /** Menu wyboru: w widoku muzycznym – okno w stylu widoku ([YtMusicStage.showOptions]), inaczej zwykłe okno systemowe z motywem. */
-    private fun playerMenu(title: String, items: List<Pair<String, () -> Unit>>) {
-        if (stageShown) stage.showOptions(title, items.map { (l, a) -> YtMusicStage.Opt("", l, action = a) })
+    private fun playerMenu(title: String, items: List<Pair<String, () -> Unit>>, icon: String = PlayerIcon.CHAPTERS) {
+        if (stageShown || (ModernV2.active && ::stage.isInitialized)) stage.showOptions(title, items.map { (l, a) -> YtMusicStage.Opt("", l, action = a) }, headerIcon = icon, into = if (stageShown) null else rootView)
         else Dialogs.menu(this, title, items)
     }
 
@@ -1243,7 +1321,7 @@ class YtPlayerActivity : AppCompatActivity() {
 
     /** Opcje odtwarzania (MENU na pilocie). */
     private fun optionsMenu() {
-        if (stageShown) { showMusicOptions(); return }
+        if (stageShown || ModernV2.active) { showMusicOptions(); return }      // (v2) to samo okno opcji co w trybie muzycznym
         Dialogs.menu(this, "Opcje odtwarzania", buildList {
             add("⏩ Prędkość: " + speedLabel(if (live) 100 else Prefs.ytSpeedPct) to { speedMenu() })
             add("🎞 Jakość: " + (if (Prefs.ytQuality > 0) "${Prefs.ytQuality}p" else "automatycznie") to { qualityMenu() })
@@ -1256,6 +1334,8 @@ class YtPlayerActivity : AppCompatActivity() {
             add("🔁 " + autoplayLabel() to { toggleAutoplay() })
             if (pipSupported) add("⧉ Obraz w obrazie (PiP)" to { enterPip(); Unit })
             add("📺 Wygaszacz teraz" to { showAmbient() })
+            // (v2) systemowe udostępnianie linku YouTube (z bieżącą pozycją)
+            if (videoId.isNotBlank()) add("↗ ${ShareLinks.TITLE}" to { ShareLinks.share(this@YtPlayerActivity, titleView.text.toString(), ShareLinks.youtube(videoId, YtEngine.player?.currentPosition ?: 0)); Unit })
             add("⏹ Zatrzymaj odtwarzanie" to { YtEngine.stop(); finish() })
             add("⏭ SponsorBlock: " + (if (Prefs.sbEnabled) "włączony" else "wyłączony") to {
                 Prefs.sbEnabled = !Prefs.sbEnabled
@@ -1450,7 +1530,135 @@ class YtPlayerActivity : AppCompatActivity() {
         return super.dispatchTouchEvent(ev)
     }
 
+    // ---------------- (v2) Nowoczesny v2: dolny panel, pigułka jakości, ikony na obrazie ----------------
+
+    /** Panel sterowania v2 ([StubeV2Controls]); null – inne motywy (kontroler odtwarzacza jak dotąd). */
+    var v2c: StubeV2Controls? = null; private set
+    private var v2TopRow: LinearLayout? = null
+    private val v2PortraitIcons = ArrayList<View>()
+
+    private fun setupV2Controls() {
+        val v = StubeV2Controls(this, { player }, { YtEngine.previous(this) }, { player?.let { if (it.isPlaying) it.pause() else it.play() } }, { YtEngine.next() })
+        v2c = v
+        // pigułki: „Opcje wideo” (prędkość, jakość, audio, napisy, dźwięk, rozdziały…), „Kolejka odtwarzania”, „Tryb muzyczny”,
+        // „Autoodtwarzanie”, „PiP” oraz dotychczasowe (Przesyłaj, Tylko dźwięk, Rozdziały) – te same akcje
+        optionsBar.addView(PlayerChrome.button(this, PlayerIcon.CHAPTERS, V2_OPTIONS) { optionsMenu() }, 0, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = Ui.dp(10) })
+        musicBtn.text = V2_MUSIC
+        (optionsScroll.parent as? ViewGroup)?.removeView(optionsScroll)
+        // przewijany rząd pigułek przycina zawartość do swojego obszaru (dawniej przewinięte pigułki nachodziły na ⏮ ⏯ ⏭)
+        optionsScroll.clipChildren = true; optionsScroll.clipToPadding = true; optionsScroll.setPadding(Ui.dp(6), 0, Ui.dp(6), 0)
+        v.pills.addView(optionsScroll, FrameLayout.LayoutParams(-1, -2))
+        v2Buttons()
+        // kontroler: domyślne paski Media3 ukryte (panel v2 przejmuje ⏮ ⏯ ⏭ i oś czasu)
+        hideMedia3Controls()
+        // u góry obrazu: ◄ wstecz (pion), pigułka jakości, Cast i wyciszenie (pion)
+        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; isFocusable = false }
+        fun icon(kind: String, desc: String, onClick: () -> Unit) = PlayerChrome.button(this, kind, "") { onClick() }.apply { contentDescription = desc }
+        val back = icon(PlayerIcon.BACK, "Wstecz") { onBackPressedDispatcher.onBackPressed() }
+        val cast = icon(PlayerIcon.CAST, "Przesyłaj") { castClick() }
+        val mute = icon(PlayerIcon.AUDIO, "Wycisz") {}
+        mute.setOnClickListener { stageHost.toggleMute().let { m -> mute.contentDescription = if (m) "Włącz dźwięk" else "Wycisz"
+            mute.setCompoundDrawables(PlayerIcon(if (m) PlayerIcon.MUTE else PlayerIcon.AUDIO, PlayerChrome.colors()).apply { setBounds(0, 0, Ui.dp(20), Ui.dp(20)) }, null, null, null) } }
+        top.addView(back, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = Ui.dp(10) })
+        top.addView(v.quality, LinearLayout.LayoutParams(-2, -2))
+        top.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+        // (v2, pion) „Otwórz w oknie” (obraz w obrazie) obok Cast
+        val pip = icon(PlayerIcon.PIP, "Otwórz w oknie") { enterPip() }.apply { visibility = if (pipSupported) View.VISIBLE else View.GONE }
+        if (pipSupported) top.addView(pip, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = Ui.dp(8) })
+        top.addView(cast, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = Ui.dp(8) }); top.addView(mute)
+        v2PortraitIcons.clear(); v2PortraitIcons += listOf(back, cast, mute); if (pipSupported) v2PortraitIcons += pip
+        // pigułka jakości: dotknięcie / OK – okno wyboru jakości
+        v.quality.isClickable = true; v.quality.contentDescription = "Jakość obrazu"; v.quality.setOnClickListener { qualityMenu() }
+        v.qualityText = { fps -> qualityPillText(fps) }
+        v2TopRow = top
+        (playerView.findViewById<ViewGroup>(androidx.media3.ui.R.id.exo_controller))?.addView(top, FrameLayout.LayoutParams(-1, -2, Gravity.TOP).apply { setMargins(Ui.dp(24), Ui.dp(16), Ui.dp(24), 0) })
+        lifecycleScope.launch { repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) { while (true) { v2c?.update(); kotlinx.coroutines.delay(StubeV2Controls.TICK_MS) } } }
+        placeV2()
+    }
+
+    /** Panel v2: poziom / TV – pływający panel u dołu kontrolera; pion telefonu – pod wideo i pod tytułem ([YtPortraitPanel.v2Top] / [YtPortraitPanel.v2Below]). */
+    private fun placeV2() {
+        val v = v2c ?: return
+        val panel = portraitPanel
+        val ctl = playerView.findViewById<ViewGroup>(androidx.media3.ui.R.id.exo_controller)
+        if (portraitActive && panel != null && ctl != null) {
+            // (v2, pion) ⏮ ⏯ ⏭ i pasek postępu na obrazie (jak w zwykłym odtwarzaczu); pod tytułem – ikony funkcji
+            v.placePortraitOverlay(ctl)
+            panel.v2Below.removeAllViews(); panel.v2Below.addView(portraitActionRow(), FrameLayout.LayoutParams(-1, -2))
+        } else {
+            panel?.v2Below?.removeAllViews()
+            ctl?.let { v.placeLandscape(it) }
+        }
+        v2PortraitIcons.forEach { it.visibility = if (portraitActive && (it.contentDescription != "Otwórz w oknie" || (pipSupported && !YtEngine.audioOnly))) View.VISIBLE else View.GONE }
+        v2TopRow?.let { (it.layoutParams as? FrameLayout.LayoutParams)?.let { lp -> val m = Ui.dp(if (portraitActive) 8 else 24); lp.setMargins(m, Ui.dp(if (portraitActive) 8 else 16), m, 0); it.layoutParams = lp } }
+        // poziom: tytuł pod pigułką jakości
+        infoBox.setPadding(Ui.dp(32), Ui.dp(if (portraitActive) 20 else 60), Ui.dp(32), Ui.dp(28))
+    }
+
+    /** (v2, pion) Ikony pod tytułem (bez podpisów): klucz → przycisk (testy, stan zaznaczenia). */
+    val portraitActions = LinkedHashMap<String, TextView>()
+
+    /**
+     * (v2, pion) Rząd okrągłych ikon pod tytułem: Kolejka odtwarzania, Tekst, Tryb muzyczny (z plakatem), Tylko dźwięk,
+     * Autoodtwarzanie – same ikony (opis w contentDescription), aktywne przełączniki z ramką `#38BDF8`.
+     */
+    private fun portraitActionRow(): View {
+        val G = pl.iptv.tv.ui.theme.ObsidianGlass
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; clipChildren = false; clipToPadding = false; setPadding(0, Ui.dp(6), 0, Ui.dp(2)) }
+        portraitActions.clear()
+        fun add(key: String, icon: String, desc: String, onClick: () -> Unit) {
+            val b = TextView(this).apply {
+                contentDescription = desc; isFocusable = true; isClickable = true; gravity = Gravity.CENTER; tag = "keepcolor nozoom"
+                val p = (Ui.dp(PORTRAIT_ACTION_DP) - Ui.dp(22)) / 2; setPadding(p, p, p, p)
+                background = G.pillTab(60, pl.iptv.tv.data.Prefs.lowPerf)
+                setCompoundDrawables(PlayerIcon(icon, android.content.res.ColorStateList.valueOf(Color.WHITE)).apply { setBounds(0, 0, Ui.dp(22), Ui.dp(22)) }, null, null, null)
+                setOnClickListener { onClick(); refreshPortraitActions() }
+            }
+            portraitActions[key] = b
+            row.addView(b, LinearLayout.LayoutParams(Ui.dp(PORTRAIT_ACTION_DP), Ui.dp(PORTRAIT_ACTION_DP)).apply { marginEnd = Ui.dp(10) })
+        }
+        add("queue", PlayerIcon.QUEUE, V2_QUEUE) { portraitPanel?.selectTab(YtPortraitPanel.TAB_NEXT) }
+        add("lyrics", PlayerIcon.LYRICS, "Tekst") { portraitPanel?.toggleLyrics() }
+        add("music", PlayerIcon.MUSIC, V2_MUSIC) { Prefs.ytStagePoster = true; setMusicView(true) }
+        if (!Tutorial.isTv(this)) add("audio", PlayerIcon.AUDIO_ONLY, "Tylko dźwięk") { toggleAudioOnly() }
+        add("autoplay", PlayerIcon.AUTOPLAY, "Autoodtwarzanie") { toggleAutoplay() }
+        refreshPortraitActions()
+        return android.widget.HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; clipChildren = false; clipToPadding = false; addView(row) }
+    }
+
+    /** Stan przełączników pod tytułem (aktywny – zaznaczony). */
+    private fun refreshPortraitActions() {
+        portraitActions["queue"]?.isSelected = portraitPanel?.tab == YtPortraitPanel.TAB_NEXT
+        portraitActions["lyrics"]?.isSelected = portraitPanel?.tab == YtPortraitPanel.TAB_LYRICS
+        portraitActions["audio"]?.isSelected = YtEngine.audioOnly
+        portraitActions["autoplay"]?.let { it.isSelected = Prefs.ytAutoplay; it.contentDescription = autoplayLabel() }
+    }
+
+    /** v2: przyciski szczegółowe (prędkość, jakość, audio, napisy, dźwięk) w „Opcje wideo”; „Kolejka odtwarzania (N)”. */
+    private fun v2Buttons() {
+        for (b in listOf(speedBtn, qualityBtn, audioBtn, subsBtn, eqBtn)) b.visibility = View.GONE
+        queueBtn.text = V2_QUEUE_SHORT + StubeQueue.cached.size.takeIf { it > 0 }?.let { " ($it)" }.orEmpty()
+        // autoodtwarzanie – sama ikona (stan w zaznaczeniu i opisie): wszystkie pigułki mieszczą się w panelu bez przewijania i ucinania
+        fun iconOnly(b: TextView, desc: String) { b.text = ""; b.compoundDrawablePadding = 0; b.setPadding(Ui.dp(12), Ui.dp(9), Ui.dp(12), Ui.dp(9)); b.contentDescription = desc }
+        iconOnly(autoplayBtn, autoplayLabel()); autoplayBtn.isActivated = Prefs.ytAutoplay
+        iconOnly(musicBtn, V2_MUSIC)
+        for (b in listOf(pipBtn, audioOnlyBtn)) if (b.text.isNotEmpty()) iconOnly(b, b.text.toString())
+    }
+
+    /** ⏯ do fokusu: v2 – okrągły przycisk panelu, inaczej przycisk kontrolera Media3. */
+    private fun playPauseView(): View? = v2c?.play ?: playerView.findViewById(androidx.media3.ui.R.id.exo_play_pause)
+
+    /** (v2) Domyślne kontrolki Media3 (środkowe ⏮ ⏪ ⏯ ⏩ ⏭, dolny pasek, oś czasu) ukryte – panel v2 je zastępuje. */
+    private fun hideMedia3Controls() {
+        for (id in listOf(androidx.media3.ui.R.id.exo_bottom_bar, androidx.media3.ui.R.id.exo_progress, androidx.media3.ui.R.id.exo_center_controls,
+                androidx.media3.ui.R.id.exo_play_pause, androidx.media3.ui.R.id.exo_prev, androidx.media3.ui.R.id.exo_next,
+                androidx.media3.ui.R.id.exo_rew_with_amount, androidx.media3.ui.R.id.exo_ffwd_with_amount))
+            playerView.findViewById<View>(id)?.let { it.visibility = View.GONE; it.isFocusable = false }
+    }
+
     private fun onControllerVisibility(v: Int) {
+        // (v2) kontroler pokazany: kontrolki Media3 ukryte (Media3 przywraca ich widoczność), fokus zawsze na ⏯ panelu
+        if (v == View.VISIBLE) v2c?.let { c -> hideMedia3Controls(); if (!portraitActive) c.play.post { if (playerView.isControllerFullyVisible) c.play.requestFocus() } }
         // (7.22) telefon pionowo: tytuł i przyciski w panelu pod obrazem – bez nakładki na wideo
         infoBox.visibility = if (isInPip || portraitActive) View.GONE else v
         updateChapterLabel(); updateUpNext(); updateShelf()
@@ -1502,6 +1710,7 @@ class YtPlayerActivity : AppCompatActivity() {
         // odliczanie autoodtwarzania: dowolny klawisz je przerywa (sam klawisz działa dalej – np. WSTECZ zamyka ekran końcowy)
         if (event.action == KeyEvent.ACTION_DOWN) cancelAutoplay()
         // panel boczny prowadzi nawigację sam (fokus nie wychodzi do kontrolek pod spodem)
+        if (upNextKey(event)) return true      // pigułka „Następne”: OK – od razu następne, WSTECZ – kolejka
         if (panel?.onKey(event) == true) return true
         if (panel?.isOpen == true) return super.dispatchKeyEvent(event)
         if (event.keyCode == KeyEvent.KEYCODE_MENU) { if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) optionsMenu(); return true }
@@ -1554,11 +1763,11 @@ class YtPlayerActivity : AppCompatActivity() {
         // pasek widoczny: ▲ z kontrolek odtwarzacza → przyciski opcji u góry, ▼ z przycisków → ⏯ (PlayerView sam tam nie prowadzi)
         if (event.action == KeyEvent.ACTION_DOWN && !hidden && !isInPip) {
             val f = window.decorView.findFocus()
-            if (event.keyCode == KeyEvent.KEYCODE_DPAD_UP && f != null && f.id in centerControls) {
+            if (v2c == null && event.keyCode == KeyEvent.KEYCODE_DPAD_UP && f != null && f.id in centerControls) {
                 (0 until optionsBar.childCount).map(optionsBar::getChildAt).firstOrNull { it.visibility == View.VISIBLE }?.let { it.requestFocus(); playerView.showController(); return true }
             }
-            if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && f != null && isInside(f, optionsBar)) {
-                playerView.findViewById<View>(androidx.media3.ui.R.id.exo_play_pause)?.let { it.requestFocus(); playerView.showController(); return true }
+            if (v2c == null && event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && f != null && isInside(f, optionsBar)) {
+                playPauseView()?.let { it.requestFocus(); playerView.showController(); return true }
             }
             // uchwyt pod paskiem postępu: ▼ z kontrolek → uchwyt; OK / ▼ na uchwycie wysuwa półkę od dołu, ▲ wraca na ⏯
             if (shelfHandleShown && f != null) {
@@ -1567,7 +1776,7 @@ class YtPlayerActivity : AppCompatActivity() {
                     playerView.showController()
                     when (event.keyCode) {
                         KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> { openShelf(); return true }
-                        KeyEvent.KEYCODE_DPAD_UP -> { playerView.findViewById<View>(androidx.media3.ui.R.id.exo_play_pause)?.requestFocus(); return true }
+                        KeyEvent.KEYCODE_DPAD_UP -> { playPauseView()?.requestFocus(); return true }
                         KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> return true
                     }
                 }

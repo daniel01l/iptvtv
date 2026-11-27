@@ -47,7 +47,7 @@ class V723SettingsFromDashboardTest {
     private fun check() {
         val ch = Repository.channels[0]
         // z pulpitu: telewizja zatrzymana, bez obrazu kanału w tle
-        for (cls in listOf(ModernHomeActivity::class.java, Ps5HomeActivity::class.java, X25DashboardActivity::class.java)) {
+        for (cls in listOf(ModernHomeActivity::class.java)) {                 // (7.27) jedyny pulpit
             Playback.play(ctx, ch, ch.url); idle()
             assertTrue(Playback.active)
             val dash = Robolectric.buildActivity(cls).get()

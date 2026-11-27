@@ -48,6 +48,14 @@ class PlayerActivity : BaseActivity() {
     override val x25Root = true
     override val isPlayerScreen = true
     companion object {
+        /** (v2) Tag pigułki parametrów strumienia w pasku informacji „Obsidian Glass”. */
+        const val STREAM_PILL_TAG = "stream_pill"
+        /** (v2) Opis strumienia: „1080p50 • HW” / „576p25 • SW”; nieznana wysokość – null, nieznany klatkaż – bez liczby. */
+        fun streamBadge(height: Int, fps: Float, software: Boolean): String? {
+            if (height <= 0) return null
+            val f = if (fps > 0f) Math.round(fps).toString() else ""
+            return "${height}p$f • ${if (software) "SW" else "HW"}"
+        }
         fun delayLabel(ms: Int) = when { ms == 0 -> "bez przesunięcia"; ms < 0 -> "dźwięk wcześniej o ${-ms} ms"; else -> "dźwięk później o $ms ms" }
         /** Odtwarzacz w okienku PiP – zamykany, gdy użytkownik wraca do aplikacji innym ekranem. */
         var pipActivity: java.lang.ref.WeakReference<PlayerActivity>? = null
@@ -153,8 +161,19 @@ class PlayerActivity : BaseActivity() {
             scrim.setBackgroundColor(pl.iptv.tv.ui.theme.ObsidianViews.scrim(0x66000000))
             errorTv.background = pl.iptv.tv.ui.theme.ObsidianViews.dialogPanel()
         }
+        // (v2) „Obsidian Glass”: górna pigułka sterowania dotykowego (Menu, Kanały, Ostatnie, ☆, ▲, ▼, ✕) jako szklana kapsuła;
+        // panele (tag „panel” / „glass”), szybkie menu, listy i zaznaczenie – szkło przez Ui (texturedSurface, itemBg, tileBg)
+        if (ModernV2.active) findViewById<View>(R.id.touchBar)?.let { tb ->
+            tb.tag = null; tb.background = pl.iptv.tv.ui.theme.ObsidianGlass.glassOverlay(28); tb.clipToOutline = true   // (v2) V2GlassDialog 72 %
+        }
         leftPanel = findViewById(R.id.leftPanel)
         rightPanel = findViewById(R.id.rightPanel)
+        // (v2) szuflady paneli bocznych: szkło 72 %, zaokrąglenie 24 dp od strony ekranu; ramka ▲▼ (poprzedni / bieżący / następny)
+        if (ModernV2.active) {
+            leftPanel.tag = null; leftPanel.background = LiveV2.edge(leftSide = true)
+            rightPanel.tag = null; rightPanel.background = LiveV2.edge(leftSide = false)
+            zapOsd = LiveV2.ZapOsd(this).also { z -> findViewById<android.view.ViewGroup>(android.R.id.content).addView(z, FrameLayout.LayoutParams(if (resources.configuration.screenWidthDp >= 600) Ui.dp(380) else FrameLayout.LayoutParams.MATCH_PARENT, -2, Gravity.START or Gravity.CENTER_VERTICAL).apply { setMargins(Ui.dp(32), 0, Ui.dp(32), 0) }) }
+        }
         lpChannels = findViewById(R.id.lpChannels)
         lpProgrammes = findViewById(R.id.lpProgrammes)
         lpGroup = findViewById(R.id.lpGroup)
@@ -465,7 +484,7 @@ class PlayerActivity : BaseActivity() {
         recentScheduled = false
         osd?.hide()                      // (7.17) ukryty OSD – pętla postępu zatrzymana
         CastHub.detach(this)
-        AutoFrameRate.reset(this)        // (7.17) AFR – domyślny tryb ekranu po wyjściu z odtwarzacza
+        AutoFrameRate.reset(this)        // (7.27) bez zmiany trybu ekranu przy wyjściu z odtwarzacza (dawniej powrót do trybu domyślnego – negocjacja HDMI przy wejściu w Ustawienia / Pulpit)
         // odtwarzacz zostaje (kanał gra dalej w menu/ustawieniach); odłączamy tylko obraz i słuchacza
         Playback.removeListener(listener)
         Playback.onFatal = null; Playback.onPlayerChanged = null; Playback.onDecoderFallback = null; ChannelEngineOptimizer.onStatus = null
@@ -544,7 +563,44 @@ class PlayerActivity : BaseActivity() {
             findViewById<TextView>(id).setShadowLayer(if (Ui.infoStyle == 4) 8f else 0f, 0f, 2f, android.graphics.Color.BLACK)
         }
         (touchBar.layoutParams as FrameLayout.LayoutParams).gravity = (if (top) Gravity.BOTTOM else Gravity.TOP) or Gravity.END
+        if (ModernV2.active) applyGlassHud() else findViewById<ProgView>(R.id.oProgress).glow = false
         overlay.requestLayout()
+    }
+
+    /**
+     * (v2) Pływający HUD „Obsidian Glass” zamiast paska przez cały dół (v1): szklana karta 24 dp odsunięta 20 dp od lewej i dolnej
+     * krawędzi, na szerokim ekranie najwyżej 65 % szerokości; lewa sekcja – logo w dużym okrągłym pierścieniu `#2F80ED`, prawa –
+     * „numer • nazwa” z pigułką „rozdzielczość • HW/SW”, tytuł audycji, gruby świecący pasek postępu (`#38BDF8` → `#2F80ED`)
+     * i „Następnie: …”. Te same widoki co w v1 (bez zmian w logice paska) – tylko układ i tła.
+     */
+    /** (v2) Ramka przełączania kanałów ▲▼ (null – inne motywy). */
+    var zapOsd: LiveV2.ZapOsd? = null; private set
+
+    private fun applyGlassHud() {
+        val G = pl.iptv.tv.ui.theme.ObsidianGlass
+        val wide = resources.configuration.screenWidthDp >= 600
+        val m = Ui.dp(G.HUD_MARGIN_DP)
+        val lp = overlay.layoutParams as FrameLayout.LayoutParams
+        // (v2) HUD wyśrodkowany poziomo u dołu (70 % szerokości na TV, telefon – cała szerokość z marginesami), 20 dp od krawędzi
+        lp.width = if (wide) (resources.displayMetrics.widthPixels * LiveV2.HUD_WIDTH).toInt() else FrameLayout.LayoutParams.MATCH_PARENT
+        lp.gravity = (if (Ui.infoPos == 1) Gravity.TOP else Gravity.BOTTOM) or Gravity.CENTER_HORIZONTAL
+        lp.setMargins(m, m, m, Ui.dp(LiveV2.HUD_BOTTOM_DP))
+        overlay.background = G.glassDialog(24, G.OVERLAY_FILL)
+        overlay.setPadding(Ui.dp(18), Ui.dp(16), Ui.dp(22), Ui.dp(16))
+        overlay.clipToOutline = false
+        // logo w okrągłym pierścieniu
+        val ring = Ui.dp(if (wide) 96 else 68)
+        findViewById<ImageView>(R.id.oPicon).apply {
+            visibility = View.VISIBLE
+            layoutParams.width = ring; layoutParams.height = ring
+            background = LiveV2.Ring()      // (v2) świecący pierścień #2F80ED → #38BDF8
+            val pad = ring / 6; setPadding(pad, pad, pad, pad)
+            Ui.roundClip(this, ring / 2f)
+        }
+        // gruby świecący pasek postępu
+        findViewById<ProgView>(R.id.oProgress).apply { glow = true; layoutParams.height = Ui.dp(8); (parent as? android.view.ViewGroup)?.clipChildren = false }
+        (overlay as? android.view.ViewGroup)?.clipChildren = false
+        findViewById<TextView>(R.id.oNext).setTextColor(G.TEXT2)
     }
 
     // ---------------- odtwarzanie ----------------
@@ -566,7 +622,7 @@ class PlayerActivity : BaseActivity() {
             }
             // (7.17) AFR: odświeżanie ekranu dopasowane do klatek kanału (gdy opcja włączona)
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
-                // (7.22) po klatkowaniu kanału 25/50 kl/s – dopasowanie do 50 Hz na tę sesję (także przy wyłączonym AFR)
+                // (7.27) tylko przy włączonym AFR – wymuszanie 50 Hz po klatkowaniu (przy wyłączonym AFR) usunięte: przełączało tryb HDMI przy zmianie kanału
                 val sessionFps = Playback.sessionAfrFps
                 // (7.22) Live TV bez podanego klatkażu – 50 Hz (europejska telewizja)
                 (player?.videoFormat?.frameRate?.takeIf { it > 0f } ?: sessionFps ?: AutoFrameRate.LIVE_DEFAULT_FPS.takeIf { !isCatchup && player?.videoFormat != null })?.let {
@@ -689,14 +745,11 @@ class PlayerActivity : BaseActivity() {
         listOf(R.id.ctlBack, R.id.ctlFwd, androidx.media3.ui.R.id.exo_play_pause).forEach { playerView.findViewById<View>(it)?.nextFocusUpId = androidx.media3.ui.R.id.exo_progress }
         listOf(R.id.ctlBack, R.id.ctlFwd, androidx.media3.ui.R.id.exo_play_pause, R.id.ctlSkip, R.id.ctlLive).forEach { id ->
             playerView.findViewById<View>(id)?.let { v ->
-                // przyciski w kształcie motywu: kapsuła (iOS i pozostałe), ostry z limonkową ramką (Xbox)
-                val r = Ui.dp(if (Ui.surface == Ui.S_XBOX) 2 else 22).toFloat()
+                // przyciski w kształcie motywu: kapsuła
+                val r = Ui.dp(22).toFloat()
                 v.background = android.graphics.drawable.StateListDrawable().apply {
                     fun g(c: Int, sw: Int = 0, sc: Int = 0) = android.graphics.drawable.GradientDrawable().apply { setColor(c); cornerRadius = r; if (sw > 0) setStroke(Ui.dp(sw), sc) }
-                    val focused = when (Ui.surface) {
-                        Ui.S_XBOX -> g(Ui.withAlpha(Ui.focus, 0x30), 3, Ui.focus)
-                        else -> g(Ui.focus)
-                    }
+                    val focused = g(Ui.focus)
                     addState(intArrayOf(android.R.attr.state_focused), focused); addState(intArrayOf(android.R.attr.state_pressed), focused)
                     addState(intArrayOf(), g(Ui.withAlpha(Ui.text, 0x26)))
                     setEnterFadeDuration(if (Ui.anim == 0) 0 else 80)
@@ -839,7 +892,12 @@ class PlayerActivity : BaseActivity() {
         pos = (pos + delta + list.size) % list.size
         handler.removeCallbacks(zapStart)
         if (pl.iptv.tv.data.Parental.needsPin(list[pos])) { playCurrent(); return }
-        showOverlay()
+        // (v2) ramka przełączania: poprzedni / bieżący / następny (bez programu i jakości obrazu); inne motywy – pasek informacji
+        val z = zapOsd
+        if (z != null && !osdOn && list.size > 1) {
+            if (overlay.visibility == View.VISIBLE) { handler.removeCallbacks(hideOverlay); hideOverlay.run() }
+            z.show(list[(pos - 1 + list.size) % list.size], list[pos], list[(pos + 1) % list.size], Prefs.showNumbers)
+        } else showOverlay()
         handler.postDelayed(zapStart, Prefs.zapDelayMs.coerceIn(100, 2000).toLong())   // (7.17) opcja dla każdego urządzenia
     }
 
@@ -874,9 +932,12 @@ class PlayerActivity : BaseActivity() {
         val now = System.currentTimeMillis()
         findViewById<ImageView>(R.id.oPicon).loadPicon(ch)
         findViewById<TextView>(R.id.oClock).text = Fmt.time(now)
-        val num = if (Prefs.showNumbers) "${ch.number}. " else ""
+        val glassInfo = Ui.infoStyle == Ui.INFO_GLASS || ModernV2.active      // (v2) pływający HUD zawsze w Nowoczesnym v2
+        // (v2) karta „Obsidian Glass”: „12 • Canal+ Extra 2”; pozostałe style – dawne „12. Nazwa”
+        val num = if (Prefs.showNumbers) (if (glassInfo) "${ch.number} • " else "${ch.number}. ") else ""
         findViewById<TextView>(R.id.oName).text = num + ch.name +
             (if (Repository.isFav(ch)) "  ★" else "") + (if (isCatchup) "  ⟲ ARCHIWUM" else "")
+        updateStreamPill(glassInfo)
         val nowTv = findViewById<TextView>(R.id.oNow)
         val nextTv = findViewById<TextView>(R.id.oNext)
         val prog = findViewById<ProgView>(R.id.oProgress)
@@ -902,6 +963,34 @@ class PlayerActivity : BaseActivity() {
         handler.postDelayed(hideOverlay, if (touch) maxOf(timeout, 6000) else timeout)
     }
 
+    /** (v2) Pigułka parametrów strumienia w karcie „Obsidian Glass” (tworzona raz, obok nazwy kanału). */
+    private var streamPill: TextView? = null
+    /** (v2) Tekst pigułki parametrów (testy). */
+    val streamPillText: String? get() = streamPill?.takeIf { it.visibility == View.VISIBLE }?.text?.toString()
+
+    /**
+     * (v2) „1080p50 • HW” – rozdzielczość i klatkaż bieżącego obrazu ([Playback.player]) oraz dekoder (sprzętowy / programowy).
+     * Bez obrazu (start, radio) – pigułka ukryta. Inne style paska – bez pigułki.
+     */
+    private fun updateStreamPill(show: Boolean) {
+        val nameTv = findViewById<TextView>(R.id.oName)
+        val row = nameTv.parent as? LinearLayout ?: return
+        if (!show) { streamPill?.let { it.visibility = View.GONE; findViewById<View>(R.id.oProgress).layoutParams.height = Ui.dp(8) }; return }
+        val pill = streamPill ?: TextView(this).apply {
+            tag = "keepcolor nozoom $STREAM_PILL_TAG"; textSize = 12f; setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTextColor(pl.iptv.tv.ui.theme.ObsidianGlass.TEXT); isSingleLine = true
+            background = pl.iptv.tv.ui.theme.ObsidianGlass.statusChip(pl.iptv.tv.ui.theme.ObsidianGlass.ACCENT)
+            setPadding(Ui.dp(10), Ui.dp(3), Ui.dp(10), Ui.dp(3))
+            row.addView(this, row.indexOfChild(nameTv) + 1, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(10); marginEnd = Ui.dp(10); gravity = Gravity.CENTER_VERTICAL })
+        }.also { streamPill = it }
+        val vf = Playback.player?.videoFormat
+        val label = vf?.let { streamBadge(it.height, it.frameRate, Playback.softwareDecoding) }
+        pill.text = label ?: ""
+        pill.visibility = if (label.isNullOrEmpty()) View.GONE else View.VISIBLE
+        // smukły, niebieski pasek postępu programu
+        findViewById<View>(R.id.oProgress).layoutParams.height = Ui.dp(if (ModernV2.active) 8 else 4)
+    }
+
     private fun describe(p: Programme): String {
         val next = panelChannel?.let { Repository.nextEpisodeIfReady(it, p) }
         return "${Fmt.time(p.start)}–${Fmt.time(p.end)}  ${p.fullTitle}" +
@@ -914,6 +1003,7 @@ class PlayerActivity : BaseActivity() {
     private fun lpChannelAdapterSelect(ch: Channel) { lpChannelAdapter.selectedKey = ch.key }
 
     private fun openLeft() {
+        zapOsd?.dismiss()      // (v2) ramka ▲▼ nie zostaje pod panelem
         if (!Prefs.channelPanel) return
         groupBrowsing = false
         closeRight(animate = false)
@@ -1011,6 +1101,7 @@ class PlayerActivity : BaseActivity() {
     }
 
     private fun openRight() {
+        zapOsd?.dismiss()      // (v2) ramka ▲▼ nie zostaje pod panelem
         if (!Prefs.recentPanel) return
         closeLeft(animate = false)
         hideOverlay.run()
@@ -1140,6 +1231,8 @@ class PlayerActivity : BaseActivity() {
             "skip_ad" -> if (isCatchup) add("⏭ Pomiń reklamę (+${Prefs.adSkip} s)") { closePanels(); skipAd() }
             "queue" -> add("📋 Kolejka i propozycje") { closePanels(); openQueuePanel() }
             "refresh" -> add("🔄 Odśwież listę i EPG") { refreshSources() }
+            // (v2) udostępnienie „co oglądam” (nazwa kanału i program – bez adresu strumienia z listy)
+            "share" -> add("↗ ${ShareLinks.TITLE}") { ShareLinks.share(this, ch.name, ShareLinks.liveTv(ch.name, Repository.current(ch)?.title)) }
             "apps_all" -> add("▦ Wszystkie aplikacje") { SystemTools.showApps(this) }
             "apps" -> {
                 var sec: String? = "APLIKACJE"
@@ -1360,7 +1453,10 @@ class PlayerActivity : BaseActivity() {
             val label: TextView = v.findViewById(R.id.label)
         }
         override fun onCreateViewHolder(p: android.view.ViewGroup, t: Int): VH {
-            val v = layoutInflater.inflate(R.layout.item_quick, p, false); Ui.style(v); return VH(v)
+            val v = layoutInflater.inflate(R.layout.item_quick, p, false); Ui.style(v)
+            // (v2, ujednolicenie) boczne menu akcji (Ustawienia, Edytor listy, Edytor EPG, Opcje kanału…): szklane pigułki V2PillTab
+            if (ModernV2.active && Ui.color2("focus") == null) v.findViewById<View>(R.id.row)?.background = pl.iptv.tv.ui.theme.ObsidianGlass.pillTab(40, Prefs.lowPerf)
+            return VH(v)
         }
         override fun getItemCount() = items.size
         override fun onBindViewHolder(h: VH, i: Int) {
@@ -1456,7 +1552,91 @@ class PlayerActivity : BaseActivity() {
             A.SUBS -> if (osdOn) openTrackPanel() else trackMenu(androidx.media3.common.C.TRACK_TYPE_TEXT)
             A.SKIP_AD -> skipAd()
             A.ASPECT -> { Prefs.aspectMode = (Prefs.aspectMode + 1) % ASPECTS.size; applyAspect(); toast("📐 ${ASPECTS[Prefs.aspectMode]}") }
+            // (v2) nowe akcje pilota
+            A.MUTE -> player?.let { p -> val muted = p.volume == 0f; p.volume = if (muted) unmutedVolume else { unmutedVolume = p.volume.takeIf { it > 0f } ?: 1f; 0f }
+                toast(if (muted) "🔊 Dźwięk włączony" else "🔇 Wyciszono") } ?: return false
+            A.PIP -> if (!enterPipNow()) { toast("Obraz w obrazie nie jest dostępny na tym urządzeniu"); return true }
+            A.EPG_SEARCH -> if (Prefs.epgSearchEnabled) startActivity(Intent(this, EpgSearchActivity::class.java)) else return false
+            A.SYS_HOME, A.SYS_SETTINGS, A.SYS_INPUTS -> if (!SystemTools.systemAction(this, a)) toast("Ta funkcja nie jest dostępna na tym urządzeniu")
         }
+        return true
+    }
+
+    /** (v2) Głośność przed wyciszeniem akcją pilota [A.MUTE]. */
+    private var unmutedVolume = 1f
+
+    /** (v2) Okienko PiP na żądanie (akcja pilota) – true, gdy system je otworzył. */
+    private fun enterPipNow(): Boolean {
+        if (android.os.Build.VERSION.SDK_INT < 26 || !packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)) return false
+        return runCatching { enterPictureInPictureMode(android.app.PictureInPictureParams.Builder().setAspectRatio(android.util.Rational(16, 9)).build()) }.getOrDefault(false)
+    }
+
+    // ---------------- (v2) podwójne kliknięcie i przytrzymanie klawiszy pilota ----------------
+
+    /** Klawisz z przypisanym podwójnym kliknięciem / przytrzymaniem, który jest teraz wciśnięty (-1 – żaden). */
+    private var gestureKey = -1
+    private var gestureLongDone = false
+    private var gestureReplay = false
+    /** Pierwsze kliknięcie czekające na drugie (podwójne) – klawisz i zdarzenie do odtworzenia jako pojedyncze. */
+    private var pendingTapKey = -1
+    private var pendingTapEvent: KeyEvent? = null
+    /** Liczniki do testów. */
+    var gestureRuns = 0; private set
+    var lastGestureAction: pl.iptv.tv.data.KeyMap.Action? = null; private set
+
+    private val gestureLong = Runnable {
+        if (gestureKey < 0 || gestureLongDone || isFinishing) return@Runnable
+        val a = pl.iptv.tv.data.KeyMap.gestureFor(pl.iptv.tv.data.KeyMap.Press.LONG, gestureKey) ?: return@Runnable
+        gestureLongDone = true; runGesture(a)
+    }
+    private val gestureSingle = Runnable { replaySingle() }
+
+    private fun runGesture(a: pl.iptv.tv.data.KeyMap.Action) { gestureRuns++; lastGestureAction = a; perform(a) }
+
+    /** Pierwsze kliknięcie bez drugiego – zwykłe działanie klawisza (to samo co bez przypisań, także OK z przytrzymaniem menu). */
+    private fun replaySingle() {
+        val ev = pendingTapEvent ?: return
+        pendingTapEvent = null; pendingTapKey = -1
+        gestureReplay = true
+        try { dispatchKeyEvent(KeyEvent(ev.downTime, ev.eventTime, KeyEvent.ACTION_DOWN, ev.keyCode, 0)); dispatchKeyEvent(KeyEvent(ev.downTime, ev.eventTime, KeyEvent.ACTION_UP, ev.keyCode, 0)) }
+        finally { gestureReplay = false }
+    }
+
+    /**
+     * Podwójne / długie naciśnięcie tylko na samym obrazie (bez otwartych paneli, list i paska archiwum) i tylko dla klawiszy
+     * z takim przypisaniem – pozostałe klawisze bez zmian i bez opóźnienia. Przytrzymanie: po [KeyMap.LONG_MS] (albo przy
+     * powtórzeniu klawisza); podwójne: drugie kliknięcie w [KeyMap.DOUBLE_MS], inaczej pojedyncze z opóźnieniem okna.
+     * null – zdarzenie nie dotyczy gestów.
+     */
+    private fun gestureKey(event: KeyEvent): Boolean? {
+        if (gestureReplay) return null
+        val K = pl.iptv.tv.data.KeyMap
+        val code = event.keyCode
+        if (event.action == KeyEvent.ACTION_DOWN && gestureKey < 0) {
+            val plain = !leftOpen && !rightOpen && !miniOpen && !zapOpen && !(isCatchup && playerView.isControllerFullyVisible) && osd?.visible != true
+            val hasLong = K.gestureFor(pl.iptv.tv.data.KeyMap.Press.LONG, code) != null; val hasDouble = K.gestureFor(pl.iptv.tv.data.KeyMap.Press.DOUBLE, code) != null
+            if (!plain || (!hasLong && !hasDouble) || event.repeatCount > 0) return null
+            gestureKey = code; gestureLongDone = false
+            if (hasLong) { handler.removeCallbacks(gestureLong); handler.postDelayed(gestureLong, K.LONG_MS) }
+            return true
+        }
+        if (code != gestureKey) return null
+        if (event.action == KeyEvent.ACTION_DOWN) {                 // powtórzenie wciśniętego klawisza – przytrzymanie od razu
+            if (event.repeatCount > 0 && !gestureLongDone && K.gestureFor(pl.iptv.tv.data.KeyMap.Press.LONG, code) != null) { handler.removeCallbacks(gestureLong); gestureLong.run() }
+            return true
+        }
+        // puszczenie klawisza
+        handler.removeCallbacks(gestureLong)
+        gestureKey = -1
+        if (gestureLongDone) return true
+        val double = K.gestureFor(pl.iptv.tv.data.KeyMap.Press.DOUBLE, code)
+        if (double == null) { pendingTapEvent = event; replaySingle(); return true }
+        if (pendingTapKey == code) {                                 // drugie kliknięcie w oknie – podwójne
+            handler.removeCallbacks(gestureSingle); pendingTapKey = -1; pendingTapEvent = null
+            runGesture(double); return true
+        }
+        pendingTapKey = code; pendingTapEvent = event
+        handler.removeCallbacks(gestureSingle); handler.postDelayed(gestureSingle, K.DOUBLE_MS)
         return true
     }
 
@@ -1485,6 +1665,7 @@ class PlayerActivity : BaseActivity() {
         // panel „Teraz w TV / Kolejka” prowadzi nawigację sam (fokus nie wychodzi do paneli i kontrolek pod spodem)
         sidePanel?.let { if (it.onKey(event)) return true; if (it.isOpen) return super.dispatchKeyEvent(event) }
         osdKey(event)?.let { return it }
+        gestureKey(event)?.let { return it }                 // (v2) podwójne kliknięcie / przytrzymanie z Ustawienia → Pilot
         if (event.action == KeyEvent.ACTION_UP && okPending && (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER)) {
             okPending = false; handler.removeCallbacks(holdOkTimer)
             if (!okLong) { okReplay = true; try { dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, event.keyCode)) } finally { okReplay = false } }
@@ -2095,6 +2276,7 @@ class PlayerActivity : BaseActivity() {
     }
 
     private fun openMini() {
+        zapOsd?.dismiss()      // (v2) ramka ▲▼ nie zostaje pod panelem
         val e = miniEntries(); if (e.isEmpty()) return
         closePanels(); hideOverlay.run()
         val icons = findViewById<android.widget.LinearLayout>(R.id.miniIcons); icons.removeAllViews()
@@ -2136,7 +2318,7 @@ class PlayerActivity : BaseActivity() {
         // powiększona (zaznaczona) ikona nie jest ucinana na brzegach
         icons.setPadding(Ui.dp(4), Ui.dp(6), Ui.dp(4), Ui.dp(4)); icons.clipChildren = false; icons.clipToPadding = false
         miniMenu.clipChildren = false; miniMenu.clipToPadding = false
-        miniMenu.background = Ui.glassBg(); miniMenu.clipToOutline = true        // kafelki nie wychodzą poza zaokrąglony panel
+        miniMenu.background = if (ModernV2.active) pl.iptv.tv.ui.theme.ObsidianGlass.glassDialog(24, LiveV2.MENU_FILL) else Ui.glassBg(); miniMenu.clipToOutline = true   // (v2) V2GlassDialog 76 %        // kafelki nie wychodzą poza zaokrąglony panel
         Ui.style(miniMenu)
         // kształt kafelków ikon wg motywu: okrągłe (iOS), kwadratowe (Xbox), zaokrąglone (pozostałe)
         miniBoxes.forEach { it.background = Ui.iconBoxBg() }

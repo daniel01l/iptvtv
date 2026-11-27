@@ -49,9 +49,13 @@ class V61Test {
 
     @Test fun onlyCoreThemesAndMigration() {
         val ids = Ui.PRESETS.map { it.id }
-        assertTrue(ids.containsAll(listOf("xbox", Ps5Theme.ID)))
-        for (gone in listOf("ps5", "win11", "magic", "ios")) assertFalse(gone, gone in ids)
-        Prefs.theme = "ps5"; assertEquals("xbox", Ui.preset.id)
+        assertEquals(listOf("modern", "modern_v2"), ids)                     // (7.27) Nowoczesny, (v2) + Nowoczesny v2
+        for (gone in listOf("ps5", "win11", "magic", "ios", "classic", "xbox", "x25", "ps5dash")) assertFalse(gone, gone in ids)
+        Prefs.theme = "ps5"; assertEquals("modern", Ui.preset.id)
+        Prefs.theme = "x25"; assertEquals("modern", Ui.preset.id)
+        Prefs.theme = "ps5dash"; assertEquals("modern", Ui.preset.id)
+        Prefs.theme = "classic"; assertEquals("modern", Ui.preset.id)
+        Prefs.theme = "xbox"; assertEquals("modern", Ui.preset.id)
         Prefs.theme = "magic"; assertEquals("modern", Ui.preset.id)
         Prefs.theme = "win11"; assertEquals("modern", Ui.preset.id)
         assertTrue(Ui.ANIMS.none { "PS5" in it || "MagicOS" in it || "Windows" in it })
@@ -63,14 +67,14 @@ class V61Test {
 
         m.pause().stop()
         val epoch = Ui.themeEpoch
-        Ui.applyPreset("xbox"); Ui.changed()
+        Ui.applyPreset(ModernTheme.ID); Ui.changed()   // (7.27) dawniej „xbox”
         assertTrue(Ui.themeEpoch > epoch)
         m.restart().start().resume(); idle(400)
         val now = m.get()
         val item = now.findViewById<androidx.recyclerview.widget.RecyclerView>(pl.iptv.tv.R.id.channels).findViewHolderForAdapterPosition(0)!!.itemView
         val sl = item.background.constantState!!.newDrawable() as android.graphics.drawable.StateListDrawable
         sl.state = intArrayOf(android.R.attr.state_focused)
-        assertTrue("menu w nowym motywie", sl.current is android.graphics.drawable.LayerDrawable)   // zaznaczenie Xbox
+        assertTrue("menu w nowym motywie", sl.current is android.graphics.drawable.LayerDrawable)   // zaznaczenie (Nowoczesny)
         m.pause().stop().destroy()
         // ustawienia: brak prośby o ponowne uruchomienie
         val s = Robolectric.buildActivity(SettingsActivity::class.java, Intent().putExtra("tab", 1)).setup(); idle()
@@ -82,7 +86,7 @@ class V61Test {
     }
 
     @Test fun logosKeepOriginalColors() {
-        Ui.applyPreset("xbox"); Ui.changed()
+        Ui.applyPreset(ModernTheme.ID); Ui.changed()   // (7.27) dawniej „xbox”
         val pv = PiconView(ctx)
         pv.imageTintList = android.content.res.ColorStateList.valueOf(Ui.accent)
         pv.setColorFilter(Ui.focus)

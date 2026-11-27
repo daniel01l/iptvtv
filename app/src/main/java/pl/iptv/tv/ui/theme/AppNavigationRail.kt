@@ -81,6 +81,15 @@ fun AppNavigationRail(
     val w by animateDpAsState(if (expanded) expandedWidth else collapsedWidth,
         if (lowPerf) snap() else tween(AppNavRail.ANIM_MS, easing = FastOutSlowInEasing), label = "appNavRail")
     // tło: zwinięty – półprzezroczysty gradient od lewej krawędzi; rozwinięty – prawie pełna powierzchnia (pędzle w pamięci rysowania)
+    // (v2) „Obsidian Glass”: szklana kolumna (krycie wg „Przezroczystość UI”, połysk, obramowanie) zaokrąglona po prawej
+    val glass = LocalObsidianGlass.current
+    if (glass.active) {
+        // pływająca wyspa: odsunięta o 12 dp od krawędzi, zaokrąglenie 24 dp, tło #0D1426 72 %, gradientowe obramowanie 1,5 dp
+        val m = ObsidianGlass.ISLAND_MARGIN_DP.dp; val ir = ObsidianGlass.ISLAND_RADIUS_DP.dp
+        Column(modifier.fillMaxHeight().padding(m).width(w).glassIsland(ir).clip(RoundedCornerShape(ir))
+            .padding(vertical = 18.dp, horizontal = padding), verticalArrangement = Arrangement.spacedBy(spacing), content = content)
+        return
+    }
     Column(modifier.fillMaxHeight().width(w).clipToBounds().drawWithCache {
         val closed = Brush.horizontalGradient(0f to ObsidianTokens.BackgroundPrimary.copy(alpha = 0.86f), 1f to ObsidianTokens.BackgroundPrimary.copy(alpha = 0.40f))
         val open = Brush.horizontalGradient(0f to ObsidianTokens.BackgroundPrimary.copy(alpha = 0.98f), 1f to ObsidianTokens.SurfaceGlass)
@@ -117,6 +126,26 @@ fun AppNavigationRailItem(
     val shape = RoundedCornerShape(minOf(AppNavRail.ITEM_RADIUS, itemHeight / 2))
     val tint = if (focused || selected) ObsidianTokens.TextPrimary else ObsidianTokens.TextSecondary
     val start = ((railWidth - railPadding * 2 - iconSize) / 2).coerceAtLeast(2.dp)
+    // (v2) fokus – niebieski tint z błękitną ramką 2 dp i poświatą; bieżąca sekcja – gradient przycisku głównego
+    val glass = LocalObsidianGlass.current
+    if (glass.active) {
+        val r = minOf(AppNavRail.ITEM_RADIUS, itemHeight / 2)
+        Row(Modifier.fillMaxWidth().height(itemHeight).then(focusModifier)
+            // fokus – niebieska kapsuła (gradient) z błękitną ramką i poświatą; bieżąca sekcja bez fokusu – tint z cienką ramką
+            .then(if (focused) Modifier.obsidianPrimary(r) else if (selected) Modifier.background(ObsidianGlass.Tokens.FocusTint, RoundedCornerShape(r))
+                .border(1.dp, ObsidianGlass.Tokens.FocusRing.copy(alpha = 0.6f), RoundedCornerShape(r)) else Modifier)
+            .glassFocusGlow(focused, r, glass.lowPerf, tint = false)
+            .padding(start = start, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            val ink = if (focused || selected) ObsidianTokens.TextPrimary else ObsidianTokens.TextSecondary
+            Box(Modifier.size(iconSize).then(if (avatar) Modifier.clip(CircleShape).background(Brush.linearGradient(listOf(accent, live))).padding(4.dp) else Modifier)) {
+                Canvas(Modifier.fillMaxSize()) { icon(if (avatar) Color.White else ink) }
+            }
+            if (expanded) BasicText(label, Modifier.padding(start = 16.dp).weight(1f),
+                style = ObsidianTypography().cardTitle.copy(color = ink, fontSize = 15.sp, fontWeight = if (focused || selected) FontWeight.Bold else FontWeight.Medium),
+                maxLines = 1, softWrap = false, overflow = TextOverflow.Clip)
+        }
+        return
+    }
     Row(Modifier.fillMaxWidth().height(itemHeight).then(focusModifier).clip(shape)
         .background(when { focused -> accent; selected -> accent.copy(alpha = AppNavRail.SELECTED_FILL_ALPHA); else -> Color.Transparent })
         .then(if (selected && !focused) Modifier.border(AppNavRail.SELECTED_STROKE, accent, shape) else Modifier)

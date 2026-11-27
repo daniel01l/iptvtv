@@ -64,23 +64,7 @@ class V66Test {
         assertNull(c.audio); assertFalse(c.subsOff); assertNull(c.embeddedText); assertTrue(c.addonSubs)
     }
 
-    @Test fun dialogStyledBeforeShowing() {
-        Ui.applyPreset(Ps5Theme.ID); Ui.changed()
-        val a = Robolectric.buildActivity(SettingsActivity::class.java).setup().get(); idle()
-        // okno-menu: położenie panelu i tło ustawione już przy tworzeniu – bez zwykłego okna przed właściwym
-        val d = Ui.dialog(a).setTitle("Menu").setItems(arrayOf("A", "B")) { _, _ -> }.create()
-        assertFalse(d.isShowing)
-        assertEquals(Gravity.START or Gravity.TOP, d.window!!.attributes.gravity)
-        assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, d.window!!.attributes.height)
-        d.show(); idle()
-        assertEquals(Gravity.START or Gravity.TOP, d.window!!.attributes.gravity)
-        // pasek podpowiedzi raz (stylowanie przy tworzeniu i pokazaniu)
-        var hints = 0
-        fun count(v: android.view.View) { if (v.tag == Ps5Theme.HINT_TAG) hints++; if (v is ViewGroup) for (i in 0 until v.childCount) count(v.getChildAt(i)) }
-        count(d.window!!.decorView); assertEquals(1, hints)
-        d.dismiss()
-    }
-
+    // (7.27) test „dialogStyledBeforeShowing” usunięty – sprawdzał panel i podpowiedzi okien motywu PS5 (kopia: docs/archiwum_motywy/)
     @Test fun stremioSourcesFivePerResolutionPolishFirst() {
         fun s(t: String) = pl.iptv.tv.data.StremioStream("Torrentio", "u", name = "Torrentio", title = t, url = "http://x/" + t.hashCode())
         val list = (1..7).map { s("Film 1080p WEB $it") } + (1..6).map { s("Film 2160p $it") } + listOf(s("Film 720p"), s("Film 1080p lektor PL"),

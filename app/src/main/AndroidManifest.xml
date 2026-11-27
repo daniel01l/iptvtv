@@ -23,6 +23,11 @@
         <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent>
         <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LEANBACK_LAUNCHER" /></intent>
         <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.HOME" /></intent>
+        <!-- (v2) akcje systemowe pilota: ustawienia systemu i lista wejść TV -->
+        <intent><action android:name="android.settings.SETTINGS" /></intent>
+        <intent><action android:name="com.android.tv.action.VIEW_INPUTS" /></intent>
+        <intent><action android:name="android.settings.INPUT_SETTINGS" /></intent>
+        <intent><action android:name="com.android.tv.settings.INPUTS_SETTINGS" /></intent>
         <!-- SmartTube (Android 11+: widoczność pakietów) – SmartTubeIntegrationHelper -->
         <package android:name="com.liskovsoft.smarttubetv" />
         <package android:name="com.liskovsoft.smarttubetv.beta" />
@@ -101,12 +106,9 @@
         <activity android:name=".ui.StremioPlayerActivity" android:theme="@style/PlayerTheme" android:screenOrientation="behind"
             android:supportsPictureInPicture="true" android:resizeableActivity="true"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboard|keyboardHidden|navigation|uiMode" />
-        <!-- motyw X25: pulpit z kafelkami (Jetpack Compose), nad listą kanałów -->
-        <activity android:name=".ui.X25DashboardActivity" android:screenOrientation="behind" android:windowSoftInputMode="stateHidden" />
-        <!-- motyw PS5: ekran główny (zakładki, rząd aplikacji, karty), nad listą kanałów -->
-        <activity android:name=".ui.Ps5HomeActivity" android:screenOrientation="behind" android:windowSoftInputMode="stateHidden" />
+        <!-- (7.27) pulpit X25 (X25DashboardActivity) i ekran główny PS5 (Ps5HomeActivity) usunięte – kopia w docs/archiwum_motywy/ -->
         <activity android:name=".ui.ModernHomeActivity" android:screenOrientation="behind" android:windowSoftInputMode="stateHidden" />
-        <!-- biblioteka aplikacji (tryb launchera, pulpity X25 / PS5) -->
+        <!-- biblioteka aplikacji (tryb launchera, ekran główny Nowoczesny) -->
         <activity android:name=".ui.AppLibraryActivity" android:screenOrientation="behind" android:windowSoftInputMode="stateHidden" />
         <activity android:name=".ui.STubeActivity" android:screenOrientation="behind"
             android:windowSoftInputMode="adjustResize|stateHidden" />

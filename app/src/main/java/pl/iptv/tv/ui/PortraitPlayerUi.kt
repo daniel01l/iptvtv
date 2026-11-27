@@ -39,6 +39,8 @@ object PortraitPlayerUi {
     const val BAR_TAG = "portrait_player_bar"
     const val ICON_TAG = "pp_icon:"
     const val SHEET_TAG = "portrait_sheet"
+    /** (v2) Odsunięcie kapsuły paska od bocznych krawędzi ekranu (dp). */
+    const val BAR_INSET_DP = 12
     /** Najwyższa część ekranu zajmowana przez arkusz. */
     const val SHEET_MAX_FRACTION = 0.8f
 
@@ -52,9 +54,16 @@ object PortraitPlayerUi {
         val bar = LinearLayout(a).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER; tag = BAR_TAG; isClickable = true
             setPadding(Ui.dp(4), Ui.dp(4), Ui.dp(4), Ui.dp(4))
-            background = GradientDrawable().apply { setColor(CardSheet.withAlpha(pal.panel, 0xF0)); setStroke(Ui.dp(1), pal.specular) }
+            background = if (ModernV2.active) pl.iptv.tv.ui.theme.ObsidianGlass.glassOverlay(0) else GradientDrawable().apply { setColor(CardSheet.withAlpha(pal.panel, 0xF0)); setStroke(Ui.dp(1), pal.specular) }   // (v2) szkło 72 %
         }
-        val tint = android.content.res.ColorStateList(arrayOf(intArrayOf(android.R.attr.state_focused), intArrayOf(android.R.attr.state_pressed), intArrayOf()),
+        val v2 = ModernV2.active
+        val G = pl.iptv.tv.ui.theme.ObsidianGlass
+        // (v2) pływająca szklana kapsuła (24 dp, odsunięta od krawędzi) – jak dolny pasek nawigacji telefonu w motywie v2
+        if (v2) { bar.background = LiveV2.NoPadInset(G.glassDialog(24, G.OVERLAY_FILL), Ui.dp(BAR_INSET_DP), Ui.dp(6), Ui.dp(BAR_INSET_DP), Ui.dp(6))
+            bar.setPadding(Ui.dp(BAR_INSET_DP + 6), Ui.dp(12), Ui.dp(BAR_INSET_DP + 6), Ui.dp(12)) }
+        val tint = if (v2) android.content.res.ColorStateList(arrayOf(intArrayOf(android.R.attr.state_focused), intArrayOf(android.R.attr.state_pressed), intArrayOf()),
+            intArrayOf(android.graphics.Color.WHITE, G.FOCUS_RING, G.TEXT2))
+        else android.content.res.ColorStateList(arrayOf(intArrayOf(android.R.attr.state_focused), intArrayOf(android.R.attr.state_pressed), intArrayOf()),
             intArrayOf(pal.focusText, pal.accent or 0xFF000000.toInt(), pal.text))
         icons.forEach { ic ->
             val item = LinearLayout(a).apply {
@@ -62,7 +71,11 @@ object PortraitPlayerUi {
                 tag = ICON_TAG + ic.key; contentDescription = ic.label
                 minimumWidth = Ui.dp(MIN_TOUCH_DP); minimumHeight = Ui.dp(MIN_TOUCH_DP)
                 setPadding(Ui.dp(2), Ui.dp(4), Ui.dp(2), Ui.dp(4))
-                background = android.graphics.drawable.StateListDrawable().apply {
+                background = if (v2) android.graphics.drawable.StateListDrawable().apply {
+                    addState(intArrayOf(android.R.attr.state_focused), G.tintRing(16, true))
+                    addState(intArrayOf(android.R.attr.state_pressed), GradientDrawable().apply { setColor(G.withAlpha(G.FOCUS, 0x38)); cornerRadius = Ui.dp(16).toFloat() })
+                    addState(intArrayOf(), android.graphics.drawable.ColorDrawable(0))
+                } else android.graphics.drawable.StateListDrawable().apply {
                     fun r(c: Int) = GradientDrawable().apply { setColor(c); cornerRadius = Ui.dp(14).toFloat() }
                     addState(intArrayOf(android.R.attr.state_focused), r(pal.focusFill))
                     addState(intArrayOf(android.R.attr.state_pressed), r(pal.chosenFill))
@@ -89,7 +102,12 @@ object PortraitPlayerUi {
         root.addView(b, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(b) { v, ins ->
             val n = runCatching { ins.getInsets(androidx.core.view.WindowInsetsCompat.Type.navigationBars()).bottom }.getOrDefault(0)
-            v.setPadding(v.paddingLeft, Ui.dp(4), v.paddingRight, Ui.dp(4) + n); ins
+            if (ModernV2.active) {      // (v2) kapsuła nad paskiem nawigacji systemu
+                val G = pl.iptv.tv.ui.theme.ObsidianGlass
+                v.background = LiveV2.NoPadInset(G.glassDialog(24, G.OVERLAY_FILL), Ui.dp(BAR_INSET_DP), Ui.dp(6), Ui.dp(BAR_INSET_DP), Ui.dp(6) + n)
+                v.setPadding(v.paddingLeft, Ui.dp(12), v.paddingRight, Ui.dp(12) + n)
+            } else v.setPadding(v.paddingLeft, Ui.dp(4), v.paddingRight, Ui.dp(4) + n)
+            ins
         }
         b.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ -> onHeight(v.height) }
         runCatching { androidx.core.view.ViewCompat.requestApplyInsets(b) }
@@ -252,7 +270,8 @@ class PortraitSheet(private val a: Activity, val title: String, private val list
     val root = LinearLayout(a).apply {
         orientation = LinearLayout.VERTICAL; tag = PortraitPlayerUi.SHEET_TAG
         val r = Ui.dp(PortraitPlayerUi.SHEET_RADIUS_DP).toFloat()
-        background = GradientDrawable().apply { setColor(pal.panel or 0xFF000000.toInt()); cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f); setStroke(Ui.dp(1), pal.specular) }
+        background = if (ModernV2.active) pl.iptv.tv.ui.theme.ObsidianGlass.glassDialog()      // (v2) V2GlassDialog (dolne rogi poza ekranem)
+            else GradientDrawable().apply { setColor(pal.panel or 0xFF000000.toInt()); cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f); setStroke(Ui.dp(1), pal.specular) }
         setPadding(Ui.dp(16), Ui.dp(8), Ui.dp(16), Ui.dp(12))
         isClickable = true
     }

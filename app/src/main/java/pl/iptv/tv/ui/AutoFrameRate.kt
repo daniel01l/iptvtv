@@ -31,10 +31,22 @@ object AutoFrameRate {
 
     /** Ostatnio ustawione klatki (bez ponownego przełączania przy tym samym kanale). */
     private var appliedFps = 0f
+    /**
+     * (7.27) Tryb ekranu wybrany przez AFR w tej sesji aplikacji – trzymany także w oknach Ustawień, pulpitu i list ([keep]),
+     * żeby przejście między ekranami nie wymuszało powrotu do trybu domyślnego (ponowna negocjacja HDMI, czarny ekran).
+     */
+    var sessionModeId = 0; private set
+    /** Liczba zmian trybu ekranu zleconych przez aplikację (testy). */
+    var modeChanges = 0; private set
 
-    /** [force] – (7.22) dopasowanie na bieżącą sesję po klatkowaniu kanału 25/50 kl/s, także przy wyłączonym AFR. */
+    /**
+     * Dopasowanie trybu ekranu – **wyłącznie** przy włączonej opcji AFR (Ustawienia → Odtwarzanie, domyślnie wył.).
+     * (7.27) [force] nie omija już wyłączonej opcji: wymuszane od 7.22 „50 Hz na sesję” po klatkowaniu kanału HD przełączało
+     * tryb HDMI przy zmianie kanału, a powrót do trybu domyślnego w onStop odtwarzacza – przy wejściu w Ustawienia / Pulpit.
+     */
+    @Suppress("UNUSED_PARAMETER")
     fun apply(a: Activity, fps: Float, surface: SurfaceView?, force: Boolean = false) {
-        if (!(pl.iptv.tv.data.Prefs.autoFrameRate || force) || fps <= 0f || kotlin.math.abs(fps - appliedFps) < 0.01f) return
+        if (!pl.iptv.tv.data.Prefs.autoFrameRate || fps <= 0f || kotlin.math.abs(fps - appliedFps) < 0.01f) return
         // (7.22) Display.Mode / preferredDisplayModeId od API 23 (minSdk 21) – starsze urządzenia bez AFR; każde wywołanie
         // systemowe w try-catch (telefon, ekran bez trybów, okno już zamknięte) – nigdy wyjątek w odtwarzaczu
         if (Build.VERSION.SDK_INT < 23) return
@@ -49,8 +61,10 @@ object AutoFrameRate {
         val target = pick(display.supportedModes.orEmpty().map { Mode(it.modeId, it.physicalWidth, it.physicalHeight, it.refreshRate) }, cur, fps) ?: return
         appliedFps = fps
         val w = a.window ?: return
-        if (target.id != cur.id || w.attributes.preferredDisplayModeId != target.id)
-            w.attributes = w.attributes.also { it.preferredDisplayModeId = target.id }
+        sessionModeId = target.id
+        if (target.id != cur.id || w.attributes.preferredDisplayModeId != target.id) {
+            w.attributes = w.attributes.also { it.preferredDisplayModeId = target.id }; modeChanges++
+        }
         // (7.22) 25 / 50 kl/s – powierzchnia zgłasza 50 Hz; API 31+ – zmiana zawsze (CHANGE_FRAME_RATE_ALWAYS, także gdy niebezszwowa),
         // żeby TV (np. TCL) fizycznie przeszedł w 50 Hz zamiast pulldownu 50 → 60 Hz
         val rate = if (is50Family(fps)) target.refresh else fps
@@ -62,13 +76,25 @@ object AutoFrameRate {
         }
     }
 
-    /** Powrót do domyślnego trybu ekranu (wyjście z odtwarzacza, wyłączona opcja). */
-    fun reset(a: Activity) {
-        appliedFps = 0f
+    /**
+     * (7.27) Każde okno aplikacji (wznowienie ekranu): przy włączonym AFR – ten sam tryb co w odtwarzaczu (Ustawienia, pulpit,
+     * lista kanałów nie wracają do trybu domyślnego); przy wyłączonym AFR – okno nie żąda żadnego trybu (zostaje tryb systemu).
+     * Zapis atrybutów okna tylko przy faktycznej różnicy – bez zbędnej przebudowy okna.
+     */
+    fun keep(a: Activity) {
         if (Build.VERSION.SDK_INT < 23) return
         try {
             val w = a.window ?: return
-            if (w.attributes.preferredDisplayModeId != 0) w.attributes = w.attributes.also { it.preferredDisplayModeId = 0 }
-        } catch (t: Throwable) { runCatching { android.util.Log.w("AutoFrameRate", "reset: ${t.javaClass.simpleName}") } }
+            val want = if (pl.iptv.tv.data.Prefs.autoFrameRate) sessionModeId else 0
+            if (want == 0 && !pl.iptv.tv.data.Prefs.autoFrameRate) { sessionModeId = 0; appliedFps = 0f }
+            if (w.attributes.preferredDisplayModeId != want && (want != 0 || w.attributes.preferredDisplayModeId != 0))
+                w.attributes = w.attributes.also { it.preferredDisplayModeId = want }
+        } catch (t: Throwable) { runCatching { android.util.Log.w("AutoFrameRate", "keep: ${t.javaClass.simpleName}") } }
     }
+
+    /**
+     * (7.27) Dawny powrót do trybu domyślnego przy wyjściu z odtwarzacza – teraz bez zmiany trybu ekranu (przejście do
+     * Ustawień / pulpitu nie wywołuje ponownej negocjacji HDMI). Tryb domyślny wraca tylko po wyłączeniu AFR ([keep]).
+     */
+    fun reset(a: Activity) { keep(a) }
 }

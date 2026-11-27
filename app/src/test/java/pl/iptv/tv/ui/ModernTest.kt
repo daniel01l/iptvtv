@@ -45,7 +45,7 @@ class ModernTest {
         StubeHistory.useDatabase(db); X25Store.clearCache()
         Prefs.permissionsAsked = true; Prefs.setupDone = true
         Prefs.modernHome = true; Prefs.modernOverlay = true
-        Ui.applyPreset("classic"); Ui.applyPreset(ModernTheme.ID); Ui.changed(); X25Theme.justEnabled = false
+        Ui.applyPreset(ModernTheme.ID); Ui.changed(); X25Theme.justEnabled = false
     }
 
     @After fun tearDown() {
@@ -58,8 +58,8 @@ class ModernTest {
 
     @Test fun presetSurfaceFocusAndBackdrop() {
         assertTrue(ModernTheme.active); assertEquals(Ui.S_MODERN, Ui.surface)
-        // nadal pięć motywów, Nowoczesny na pierwszym miejscu (to samo id – dotychczasowi użytkownicy dostają nowy wygląd)
-        assertEquals(listOf("modern", "classic", "xbox", X25Theme.ID, Ps5Theme.ID), Ui.PRESETS.map { it.id })
+        // (7.27) jedyny motyw: Nowoczesny (Klasyczny dekoder, Xbox, X25 i PS5 – docs/archiwum_motywy/)
+        assertEquals(listOf("modern", ModernV2.ID), Ui.PRESETS.map { it.id })   // (v2) + Nowoczesny v2
         assertEquals("Nowoczesny", Ui.PRESETS.first().name)
         // bez nazw zewnętrznych serwisów w motywie
         for (p in Ui.PRESETS) assertFalse(p.name, p.name.contains("VOD", true) || p.name.contains("TVP", true))
@@ -85,7 +85,7 @@ class ModernTest {
     @Test fun menusAsOverlayPanelAndPillButtons() {
         val a = Robolectric.buildActivity(SettingsActivity::class.java).setup().get(); idle()
         val menu = Ui.dialog(a).setTitle("Menu").setItems(arrayOf("A", "B", "C")) { _, _ -> }.show(); idle()
-        assertTrue(ModernTheme.isOverlay(menu)); assertFalse(Ps5Theme.isPanel(menu)); assertFalse(X25Theme.isGuide(menu))
+        assertTrue(ModernTheme.isOverlay(menu))
         val w = menu.window!!.attributes
         assertEquals(Gravity.END or Gravity.TOP, w.gravity)
         assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, w.height)
@@ -103,25 +103,33 @@ class ModernTest {
     }
 
     @Test fun homeScreenRouting() {
-        assertTrue(ModernTheme.homeOn); assertTrue(X25Theme.dashboardOn); assertFalse(Ps5Theme.homeOn)
+        assertTrue(ModernTheme.homeOn); assertTrue(X25Theme.dashboardOn)
         assertEquals(ModernHomeActivity::class.java.name, X25Theme.dashboardIntent(ctx).component?.className)
-        // lista kanałów przy starcie otwiera ekran główny Nowoczesny (nie PS5 / X25)
+        // lista kanałów przy starcie otwiera ekran główny Nowoczesny
         val m = Robolectric.buildActivity(MainActivity::class.java).setup(); idle()
         val started = generateSequence { shadowOf(m.get()).nextStartedActivity }.map { it.component?.className }.toList()
         assertTrue(started.toString(), ModernHomeActivity::class.java.name in started)
-        assertFalse(Ps5HomeActivity::class.java.name in started)
         // bez ekranu startowego – zwykła lista kanałów; tryb launchera – i tak ekran główny Nowoczesny
         Prefs.modernHome = false
         assertFalse(X25Theme.dashboardOn)
         X25Theme.launcherForTest = true; X25Theme.refreshLauncher(ctx)
-        assertTrue(ModernTheme.homeOn); assertFalse(Ps5Theme.homeOn)
+        assertTrue(ModernTheme.homeOn)
         assertEquals(ModernHomeActivity::class.java.name, X25Theme.dashboardIntent(ctx).component?.className)
-        // swobodne przełączanie: PS5 i powrót (wyłączenie PS5 wraca do Nowoczesnego)
         X25Theme.launcherForTest = false; X25Theme.refreshLauncher(ctx); Prefs.modernHome = true
-        Ps5Theme.setEnabled(true); assertTrue(Ps5Theme.active); assertFalse(ModernTheme.active)
-        assertEquals(ModernTheme.ID, Prefs.ps5PrevTheme)
-        Ps5Theme.setEnabled(false); assertTrue(ModernTheme.active)
-        assertTrue(X25Theme.consumeJustEnabled())
+    }
+
+    /** (7.27) Zapisany motyw usunięty z aplikacji → Nowoczesny, bez zmiany pozostałych ustawień. */
+    @Test fun removedThemesFallBackToModernKeepingOtherSettings() {
+        for (old in listOf("classic", "xbox", "x25", "ps5dash", "ps5")) {
+            Prefs.theme = old; Prefs.mainLayout = if (old == "xbox") Ui.LAYOUT_CARDS else 0
+            Prefs.zapDelayMs = 300; Prefs.modernOverlay = false
+            assertEquals(old, ModernTheme.ID, Ui.preset.id)                 // odczyt – od razu Nowoczesny, bez błędu
+            assertTrue(old, Ui.migrateRemovedThemes())
+            assertEquals(ModernTheme.ID, Prefs.theme); assertEquals(0, Prefs.mainLayout)
+            assertEquals(300, Prefs.zapDelayMs); assertFalse(Prefs.modernOverlay)   // inne ustawienia bez zmian
+            assertFalse(Ui.migrateRemovedThemes())                            // drugi raz – nic
+        }
+        Prefs.modernOverlay = true
     }
 
     // ---------------- ekran główny (Compose) ----------------
@@ -232,10 +240,8 @@ class ModernTest {
         val a = home()
         waitFor { "continue" in a.shelfIds }
         assertEquals("Kanał Ostatni", a.featureTitle)
-        // próg „Ostatnio oglądane”: 10 s w motywie Nowoczesnym, 1 min w pozostałych
+        // próg „Ostatnio oglądane”: 10 s w motywie Nowoczesnym (7.27 – jedyny motyw)
         assertEquals(10_000L, PlayerActivity.recentAfterMs())
-        Ui.applyPreset("classic"); assertEquals(60_000L, PlayerActivity.recentAfterMs())
-        Ui.applyPreset(ModernTheme.ID)
     }
 
     @Test fun heldArrowMovesFocusAtSteadyPace() {
@@ -272,8 +278,8 @@ class ModernTest {
         val a = home()
         key(a, KeyEvent.KEYCODE_MENU)
         assertTrue(a.optionsOpen)
-        assertTrue(a.optionLabels.containsAll(listOf("Ekran główny przy starcie", "Menu jako panel nakładkowy", "Wtyczki Stremio",
-            "Przełącz na motyw PS5", "Przełącz na motyw X25")))
+        assertTrue(a.optionLabels.containsAll(listOf("Ekran główny przy starcie", "Menu jako panel nakładkowy", "Wtyczki Stremio")))
+        assertFalse(a.optionLabels.any { it.contains("PS5") || it.contains("X25") })
         a.clickOption("Menu jako panel nakładkowy"); idle()
         assertFalse(Prefs.modernOverlay)
         a.clickOption("Menu jako panel nakładkowy"); idle()
@@ -282,10 +288,6 @@ class ModernTest {
         assertFalse(a.optionsOpen)
         waitFor { a.focusedKey == ModernHomeActivity.HERO_PLAY }
         assertEquals(ModernHomeActivity.HERO_PLAY, a.focusedKey)
-        key(a, KeyEvent.KEYCODE_MENU)
-        a.clickOption("Przełącz na motyw PS5"); idle()
-        assertTrue(Ps5Theme.active); assertTrue(a.isFinishing)
-        assertEquals(Ps5HomeActivity::class.java.name, shadowOf(a).nextStartedActivity?.component?.className)
     }
 
     @Test @Config(qualifiers = "w890dp-h400dp-land-xxhdpi") fun compactOnLowLandscapeScreen() {

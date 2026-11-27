@@ -26,12 +26,17 @@ import pl.iptv.tv.data.Repository
 import pl.iptv.tv.data.StartActions
 
 class MainActivity : BaseActivity() {
+    /** (v2, ujednolicenie) Górna belka modułu (V2TopModuleBar) – nazwa sekcji. */
+    override val v2ModuleTitle: String? get() = "Live TV"
     /** (7.22) Telefon pionowo: zakładka „Live TV” dolnego paska ([MobilePortraitScaffold]). */
     override val portraitTab get() = MobilePortraitScaffold.Tab.LIVE
     override val miniPlayer = true
     companion object {
         /** (7.22) Wysokość listy programu pod podglądem w pionie telefonu (dp). */
         const val PORTRAIT_EPG_DP = 132
+        /** (v2) Tagi akcji szklanego pustego stanu (brak listy kanałów) w motywie Nowoczesny v2. */
+        const val EMPTY_ADD_TAG = "empty_add_m3u"
+        const val EMPTY_WIFI_TAG = "empty_wifi"
         /** (7.6) Kategoria pod kursorem pilota otwiera się po tej chwili (dawniej 250 ms). */
         const val GROUP_FOCUS_DELAY_MS = 180L
         const val EXTRA_FROM_BOOT = "from_boot"
@@ -191,6 +196,100 @@ class MainActivity : BaseActivity() {
             val w = info.width
             if (w > 0) { box.layoutParams.height = minOf(w * 9 / 16, (info.height * 0.55f).toInt()); box.requestLayout() }
         }
+        if (ModernV2.active) glassColumns(info, box)
+    }
+
+    /**
+     * (v2) Nowoczesny v2 – „Obsidian Glass” w widoku 3-kolumnowym: pasek nawigacji (Program, Kanały, STube, Stremio, Edytor,
+     * Ustawienia) na szklanej kapsule 24 dp, kolumna kategorii i lista kanałów na szklanych kartach (wiersze, fokus z ramką
+     * i poświatą – [Ui.itemBg]), podgląd na żywo z niebieską ramką i ramówka pod nim na karcie. Układ, nawigacja pilotem
+     * i dotyk bez zmian (te same widoki – tylko tła i odstępy).
+     */
+    private fun glassColumns(info: android.widget.LinearLayout, box: android.widget.FrameLayout) {
+        val G = pl.iptv.tv.ui.theme.ObsidianGlass
+        // pływająca wyspa nawigacji: odsunięta 12 dp od krawędzi, 24 dp, #0D1426 72 %, gradientowe obramowanie 1,5 dp
+        sideNav.background = G.island()
+        val m = Ui.dp(G.ISLAND_MARGIN_DP)
+        (sideNav.layoutParams as? android.widget.FrameLayout.LayoutParams)?.let { it.setMargins(m, m, m, m); sideNav.layoutParams = it }
+        // miejsce w kolumnach zarezerwowane dla zwiniętego paska (pierwsze dziecko treści) – szersze o odsunięcie wyspy
+        (info.parent as? android.widget.LinearLayout)?.getChildAt(0)?.let { ph ->
+            (ph.layoutParams as? android.widget.LinearLayout.LayoutParams)?.let { it.marginStart = m * 2; ph.layoutParams = it }
+        }
+        fun card(v: View, pad: Int) {
+            v.background = G.glassOverlay(G.DIALOG_RADIUS_DP);   /* (v2, ujednolicenie) V2GlassDialog */ v.setPadding(Ui.dp(pad), Ui.dp(pad), Ui.dp(pad), Ui.dp(pad))
+            (v as? ViewGroup)?.clipToPadding = false
+        }
+        card(groupsRv, 6); card(channelsRv, 8)
+        if (android.os.Build.VERSION.SDK_INT >= 23) box.foreground = android.graphics.drawable.GradientDrawable().apply {
+            cornerRadius = Ui.dp(G.RADIUS_CARD_DP).toFloat(); setStroke(Ui.dp(G.FOCUS_STROKE_DP), G.withAlpha(G.FOCUS_RING, 0xB0)); setColor(0) }
+        progRv.background = G.glassOverlay(G.DIALOG_RADIUS_DP); progRv.setPadding(Ui.dp(8), Ui.dp(8), Ui.dp(8), Ui.dp(8)); progRv.clipToPadding = false
+        epgDesc.setTextColor(G.TEXT2)
+    }
+
+    /**
+     * (v2) Pusty stan bez listy kanałów: szklana karta z „+” (Ustawienia → Listy, jak dotąd) i akcjami szybkiego dodania listy
+     * M3U (kreator nowej listy) oraz przesłania jej przez Wi-Fi (strona w przeglądarce telefonu / aplikacja – adres, PIN i QR).
+     */
+    /**
+     * (v2) Nagłówek Live TV w belce modułu: bez powtórzonej nazwy aplikacji (jest w lewym górnym rogu belki); po prawej – dni
+     * ważności listy obok godziny, pod nimi data (dotychczasowy zegar belki ukryty); stan i pogoda obok. Dawny pasek znika.
+     */
+    private fun v2Header() {
+        val bar = v2TopBar as? android.widget.LinearLayout ?: return
+        val top = findViewById<android.widget.LinearLayout>(R.id.topBar) ?: return
+        val expiry = findViewById<View>(R.id.expiry); val date = findViewById<TextView>(R.id.date); val weather = findViewById<View>(R.id.weather)
+        val clockCol = clock.parent as? ViewGroup
+        for (v in listOf(expiry, status, weather, clock, date)) (v.parent as? ViewGroup)?.removeView(v)
+        top.visibility = View.GONE
+
+        (0 until bar.childCount).map { bar.getChildAt(it) }.firstOrNull { (it.tag as? String)?.contains(pl.iptv.tv.ui.theme.V2TopModuleBar.CLOCK_TAG) == true }?.let { bar.removeView(it) }
+        val at = maxOf(0, bar.childCount - 1)          // przed ikoną profilu
+        val row = android.widget.LinearLayout(this).apply { orientation = android.widget.LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL }
+        (expiry as? TextView)?.setSingleLine(); clock.setSingleLine(); status.maxWidth = Ui.dp(260); status.setSingleLine()
+        row.addView(expiry, android.widget.LinearLayout.LayoutParams(-2, -2).apply { marginEnd = Ui.dp(10) }); row.addView(clock, android.widget.LinearLayout.LayoutParams(-2, -2))
+        clock.text = Fmt.time(System.currentTimeMillis())
+        val col = android.widget.LinearLayout(this).apply { orientation = android.widget.LinearLayout.VERTICAL; gravity = android.view.Gravity.END }
+        col.addView(row, android.widget.LinearLayout.LayoutParams(-2, -2)); col.addView(date, android.widget.LinearLayout.LayoutParams(-2, -2))
+        bar.addView(status, at, android.widget.LinearLayout.LayoutParams(-2, -2).apply { marginEnd = Ui.dp(12) })
+        bar.addView(weather, at + 1, android.widget.LinearLayout.LayoutParams(-2, -2).apply { marginEnd = Ui.dp(12) })
+        bar.addView(col, at + 2, android.widget.LinearLayout.LayoutParams(-2, -2).apply { marginEnd = Ui.dp(14) })
+        clockCol?.let { (it.parent as? ViewGroup)?.removeView(it) }
+    }
+
+    private fun glassEmptyState() {
+        val G = pl.iptv.tv.ui.theme.ObsidianGlass
+        val box = empty as? android.widget.LinearLayout ?: return
+        if (box.childCount > 2) return                    // karta już zbudowana
+        box.background = G.glassDialog()      // (v2) V2GlassDialog
+        box.setPadding(Ui.dp(28), Ui.dp(24), Ui.dp(28), Ui.dp(24))
+        (box.getChildAt(1) as? TextView)?.text = "Brak listy kanałów.\nDodaj listę M3U albo prześlij ją z telefonu przez Wi-Fi."
+        fun action(text: String, tag: String, onClick: () -> Unit) = TextView(this).apply {
+            this.text = text; this.tag = "item $tag"; textSize = 16f; gravity = android.view.Gravity.CENTER
+            isFocusable = true; isClickable = true; setPadding(Ui.dp(22), Ui.dp(12), Ui.dp(22), Ui.dp(12))
+            setOnClickListener { onClick() }
+        }
+        val row = android.widget.LinearLayout(this).apply { gravity = android.view.Gravity.CENTER; orientation =
+            if (resources.configuration.screenWidthDp < 600) android.widget.LinearLayout.VERTICAL else android.widget.LinearLayout.HORIZONTAL }
+        row.addView(action("＋ Dodaj listę M3U", EMPTY_ADD_TAG) {
+            startActivity(Intent(this, SetupActivity::class.java).putExtra(SetupActivity.EXTRA_ADD_LIST, true))
+        }, android.widget.LinearLayout.LayoutParams(-2, -2))
+        row.addView(action("📶 Prześlij przez Wi-Fi", EMPTY_WIFI_TAG) { wifiTransfer() }, android.widget.LinearLayout.LayoutParams(-2, -2).apply {
+            if (row.orientation == android.widget.LinearLayout.HORIZONTAL) marginStart = Ui.dp(12) else topMargin = Ui.dp(10) })
+        box.addView(row, android.widget.LinearLayout.LayoutParams(-2, -2).apply { topMargin = Ui.dp(18) })
+        Ui.style(box)
+    }
+
+    /** (v2) Odbiór listy przez Wi-Fi z pustego stanu – jak w kreatorze: serwer włączony, adres, PIN i kod QR strony. */
+    private fun wifiTransfer() {
+        Prefs.remoteOn = true; pl.iptv.tv.remote.RemoteServer.start(this)
+        val ip = pl.iptv.tv.remote.RemoteServer.localIps().firstOrNull()
+        val url = "http://${ip ?: "?"}:${pl.iptv.tv.remote.RemoteServer.PORT}"
+        Ui.dialog(this).setTitle("📶 Lista przez Wi-Fi").setMessage(
+            "Na telefonie lub komputerze w tej samej sieci otwórz w przeglądarce:\n\n$url\n\nPIN: ${pl.iptv.tv.remote.RemoteServer.ensurePin()}\n\n" +
+                "Albo w D-iptv Player na telefonie: Ustawienia → Listy → Wyślij w tej samej sieci Wi-Fi. Lista pojawi się tutaj automatycznie.")
+            .apply { if (ip != null) setView(android.widget.FrameLayout(this@MainActivity).apply { setPadding(0, Ui.dp(8), 0, 0)
+                addView(QrCode.image(this@MainActivity, url, 140), android.widget.FrameLayout.LayoutParams(Ui.dp(140), Ui.dp(140), android.view.Gravity.CENTER_HORIZONTAL)) }) }
+            .setPositiveButton("OK", null).show()
     }
 
     private var layoutApplied = -1
@@ -299,6 +398,7 @@ class MainActivity : BaseActivity() {
         progRv = findViewById(R.id.programmes)
         status = findViewById(R.id.status)
         clock = findViewById(R.id.clock)
+        if (ModernV2.active) v2Header()
         epgChannel = findViewById(R.id.epgChannel)
         epgDesc = findViewById(R.id.epgDesc)
         empty = findViewById(R.id.empty)
@@ -331,6 +431,7 @@ class MainActivity : BaseActivity() {
         findViewById<View>(R.id.btnSettings).setOnClickListener { startActivity(Intent(this, SettingsActivity::class.java)) }
         // brak listy: „+” na środku otwiera Ustawienia → Listy
         findViewById<View>(R.id.emptyAdd).setOnClickListener { startActivity(Intent(this, SettingsActivity::class.java).putExtra("tab", 0)) }
+        if (ModernV2.active) glassEmptyState()
         findViewById<View>(R.id.btnEditor).setOnClickListener {
             if (pl.iptv.tv.data.Prefs.parentalSettings) ParentalUi.require(this) { startActivity(Intent(this, EditorActivity::class.java)) }
             else startActivity(Intent(this, EditorActivity::class.java))
@@ -706,6 +807,7 @@ class MainActivity : BaseActivity() {
         tv.text = when { d < 0 -> "⛔ Lista wygasła"; d == 0 -> "⚠ Ważna do dziś"; d == 1 -> "⚠ 1 dzień"; else -> "📅 $d dni" }
         tv.setTextColor(color)
         tv.background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = Ui.dp(12).toFloat(); setStroke(Ui.dp(2), color) }
+        (tv.parent as? View)?.let { p -> p.requestLayout(); (p.parent as? View)?.requestLayout() }
     }
 
     /** Po wczytaniu EPG i co minutę: tylko teksty programów i postęp (bez przebudowy list – bez przycięć odtwarzania). */

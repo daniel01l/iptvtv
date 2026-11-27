@@ -64,6 +64,9 @@ class YtPortraitPanel(c: Context, private val host: Host) : LinearLayout(c) {
     val channelView = TextView(c).apply { textSize = 14f; setTextColor(pal.text2); tag = "keepcolor"; maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
     /** Miejsce na pasek ikon odtwarzacza ([PortraitPlayerUi.bar]) – na dole panelu. */
     val actions = FrameLayout(c)
+    /** (v2) Miejsca na panel sterowania odtwarzacza w pionie ([StubeV2Controls]); puste – bez zmian. */
+    val v2Top = FrameLayout(c)
+    val v2Below = FrameLayout(c)
     private val tabViews = mutableListOf<TextView>()
     var tab = TAB_NEXT; private set
     private val body = FrameLayout(c)
@@ -94,7 +97,10 @@ class YtPortraitPanel(c: Context, private val host: Host) : LinearLayout(c) {
     init {
         orientation = VERTICAL; tag = TAG; setBackgroundColor(Ui.bg or 0xFF000000.toInt())
         setPadding(Ui.dp(14), Ui.dp(10), Ui.dp(14), 0)
+        // (v2) Nowoczesny v2: nad tytułem – czas i interaktywny pasek postępu ([v2Top]), pod tytułem – pigułki funkcji ([v2Below])
+        addView(v2Top, LayoutParams(-1, -2))
         addView(titleView); addView(channelView, LayoutParams(-1, -2).apply { topMargin = Ui.dp(2) })
+        addView(v2Below, LayoutParams(-1, -2).apply { topMargin = Ui.dp(4) })
         val tabs = LinearLayout(c).apply { clipChildren = false; clipToPadding = false; setPadding(0, Ui.dp(8), 0, Ui.dp(6)) }
         TAB_NAMES.forEachIndexed { i, n ->
             val t = MobilePortraitScaffold.chip(c, n, i == tab) { selectTab(i) }.apply { setTag(pl.iptv.tv.R.id.row_key, "yt_tab:$i") }
@@ -103,6 +109,9 @@ class YtPortraitPanel(c: Context, private val host: Host) : LinearLayout(c) {
         addView(android.widget.HorizontalScrollView(c).apply { isHorizontalScrollBarEnabled = false; addView(tabs) })
         list.apply { layoutManager = LinearLayoutManager(c); adapter = Adapter(); itemAnimator = null; clipToPadding = false; setPadding(0, 0, 0, Ui.dp(24)) }
         lyricsScroll.apply { isVerticalScrollBarEnabled = false; addView(lyricsBox); visibility = View.GONE }
+        // (v2) tekst jak w trybie muzycznym: miejsce na wyśrodkowanie pierwszych / ostatnich wierszy, wygaszone krawędzie, komunikat na środku
+        if (ModernV2.active) { lyricsBox.setPadding(Ui.dp(4), Ui.dp(60), Ui.dp(4), Ui.dp(160)); lyricsScroll.isVerticalFadingEdgeEnabled = true; lyricsScroll.setFadingEdgeLength(Ui.dp(48))
+            lyricsStatus.gravity = Gravity.CENTER; lyricsStatus.setTextColor(pl.iptv.tv.ui.theme.ObsidianGlass.TEXT2) }
         body.addView(list, FrameLayout.LayoutParams(-1, -1)); body.addView(lyricsScroll, FrameLayout.LayoutParams(-1, -1))
         results.apply { layoutManager = LinearLayoutManager(c); adapter = ResultsAdapter(); itemAnimator = null; clipToPadding = false; setPadding(0, Ui.dp(6), 0, Ui.dp(24)) }
         searchBox.addView(searchField, LayoutParams(-1, -2).apply { topMargin = Ui.dp(2) })
@@ -205,6 +214,9 @@ class YtPortraitPanel(c: Context, private val host: Host) : LinearLayout(c) {
         lines = r.synced.map { l ->
             TextView(context).apply {
                 text = l.text.ifBlank { "♪" }; textSize = 18f; tag = "keepcolor"; setTextColor(CardSheet.withAlpha(pal.text, 0x88)); setPadding(Ui.dp(6), Ui.dp(8), Ui.dp(6), Ui.dp(8))
+                // (v2) jak w trybie muzycznym: wiersze wyśrodkowane, pogrubione, stały rozmiar (bieżący – kolor i poświata, bez skoku układu)
+                if (ModernV2.active) { gravity = Gravity.CENTER; textSize = 20f; typeface = Ui.typeface(android.graphics.Typeface.BOLD); setLineSpacing(0f, 1.15f)
+                    setTextColor(Ui.withAlpha(pl.iptv.tv.ui.theme.ObsidianGlass.TEXT, 0x70)); setPadding(Ui.dp(16), Ui.dp(10), Ui.dp(16), Ui.dp(10)) }
                 isClickable = true; setOnClickListener { host.seekTo((l.ms + host.lyricDelayMs()).coerceAtLeast(0)) }
             }.also { lyricsBox.addView(it, LayoutParams(-1, -2)) }
         }
@@ -218,6 +230,15 @@ class YtPortraitPanel(c: Context, private val host: Host) : LinearLayout(c) {
         var i = -1
         for (k in times.indices) { if (times[k] <= pos) i = k else break }
         if (i == current && !force) return
+        if (ModernV2.active) {
+            val G = pl.iptv.tv.ui.theme.ObsidianGlass
+            lines.getOrNull(current)?.apply { setTextColor(Ui.withAlpha(G.TEXT, 0x70)); setShadowLayer(0f, 0f, 0f, 0) }
+            current = i
+            val cur = lines.getOrNull(i) ?: return
+            cur.setTextColor(G.FOCUS_RING); cur.setShadowLayer(Ui.dp(8).toFloat(), 0f, 0f, G.withAlpha(G.FOCUS_RING, 0xB0))
+            lyricsScroll.post { lyricsScroll.smoothScrollTo(0, (cur.top - (lyricsScroll.height - cur.height) / 2).coerceAtLeast(0)) }
+            return
+        }
         lines.getOrNull(current)?.apply { setTextColor(CardSheet.withAlpha(pal.text, 0x88)); setTypeface(null, android.graphics.Typeface.NORMAL); textSize = 18f }
         current = i
         val cur = lines.getOrNull(i) ?: return

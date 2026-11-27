@@ -66,6 +66,18 @@ object TmdbKeyUi {
     fun showPlatforms(a: Activity, onDone: () -> Unit): android.app.Dialog {
         val pal = CardSheet.palette()
         val scroll = android.widget.ScrollView(a).apply { isVerticalScrollBarEnabled = false; clipToPadding = false; addView(platformList(a, pal, title = false) {}) }
+        // (v2) Nowoczesny v2: szklany modal z „ZAPISZ” / „ANULUJ” – przełączniki działają od razu (podgląd), ANULUJ / WSTECZ
+        // przywraca wybór sprzed otwarcia okna
+        if (ModernV2.active) {
+            val before = runCatching { Prefs.stremioTop10Platforms }.getOrNull()
+            var saved = false
+            val d = Ui.dialog(a).setTitle(PLATFORMS_TITLE).setView(scroll)
+                .setPositiveButton(ModernV2.TOP10_SAVE) { _, _ -> saved = true }
+                .setNegativeButton(ModernV2.TOP10_CANCEL, null).create()
+            d.setOnDismissListener { if (!saved) Prefs.stremioTop10Platforms = before; onDone() }
+            d.show()
+            return d
+        }
         val d = Ui.dialog(a).setTitle(PLATFORMS_TITLE).setView(scroll).setPositiveButton("Gotowe", null).create()
         d.setOnDismissListener { onDone() }
         d.show()

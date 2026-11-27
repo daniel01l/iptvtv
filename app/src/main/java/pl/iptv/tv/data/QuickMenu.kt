@@ -31,7 +31,7 @@ object QuickMenu : OrderedMenu(linkedMapOf(
     "channel" to "☰ Opcje kanału", "fav" to "★ Ulubione", "guide" to "📅 Program TV (przewodnik)",
     "search" to "🔎 Szukaj w programie TV", "reminders" to "🔔 Przypomnienia", "audio" to "🔊 Ścieżka audio",
     "subs" to "💬 Napisy", "aspect" to "📐 Proporcje obrazu", "skip_ad" to "⏭ Pomiń reklamę (archiwum)", "record" to "⏺ Nagrywanie",
-    "queue" to "📋 Kolejka i propozycje", "refresh" to "🔄 Odśwież listę i EPG", "apps_all" to "▦ Wszystkie aplikacje", "apps" to "📱 Moje aplikacje (skróty)",
+    "queue" to "📋 Kolejka i propozycje", "refresh" to "🔄 Odśwież listę i EPG", "share" to "↗ Udostępnij (co oglądam)", "apps_all" to "▦ Wszystkie aplikacje", "apps" to "📱 Moje aplikacje (skróty)",
 ), { Prefs.quickOrder }, { Prefs.quickOrder = it }, { Prefs.quickHidden }, { Prefs.quickHidden = it })
 
 /** Mini menu ikon (długie OK / przytrzymanie ekranu w odtwarzaczu). */

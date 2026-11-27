@@ -421,6 +421,7 @@ class ProgrammeAdapter(
     }
     /** (7.17) „Obsidian Stream”: pigułka NA ŻYWO i wyraźne nagłówki dni. */
     var obsidian = false
+    companion object { const val EPG_ROW_TAG = "epg_v2_row" }
 
     override fun onCreateViewHolder(p: ViewGroup, t: Int) = VH(inflate(p, R.layout.item_programme))
     override fun getItemCount() = items.size
@@ -453,6 +454,11 @@ class ProgrammeAdapter(
             else -> h.badge.text = ""
         }
         h.title.alpha = if (p.end <= now && p.start < catchupFrom) 0.5f else 1f
+        // (v2) program TV kanału (Live TV, panel odtwarzacza): te same komórki co siatka Programu TV – trwający program wyróżniony, kursor osobno
+        if (ModernV2.active) {
+            if (h.row.getTag(R.id.epg_bg) != EPG_ROW_TAG) { h.row.background = pl.iptv.tv.ui.theme.ObsidianGlass.epgCell(12); h.row.setTag(R.id.epg_bg, EPG_ROW_TAG) }
+            h.row.isActivated = p.isNow(now)
+        }
         h.row.setOnClickListener { onClick(p) }
         h.row.setOnFocusChangeListener { _, f -> if (f) onFocus(p) }
         h.row.setOnLongClickListener(onLongClick?.let { l -> View.OnLongClickListener { l(p); true } })

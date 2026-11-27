@@ -42,8 +42,10 @@ class PlayerIcon(private val kind: String, private val tint: ColorStateList = Co
         const val ROTATE = "rotate"
         // (7.25) przesyłanie na urządzenia w pobliżu (Cast); CAST_ON – trwa przesyłanie
         const val CAST = "cast"; const val CAST_ON = "cast_on"
+        // (v2) STube – tryb muzyczny w pionie: wstecz, udostępnij, wyciszenie
+        const val BACK = "back"; const val SHARE = "share"; const val MUTE = "mute"
         val ALL = listOf(SPEED, QUALITY, AUDIO, CC, EQ, CHAPTERS, QUEUE, PIP, AUTOPLAY, NEXT, DELAY, STYLE, ASPECT, INFO, RELATED,
-            PLAY, PAUSE, PREV, REW, FWD, AUDIO_ONLY, SHUFFLE, REPEAT, REPEAT_ONE, LYRICS, VIDEO, MUSIC, STOP, SEARCH, HOME, PHONE, REFRESH, CLOSE, USER, NEWS, TRENDING, SPORT, KIDS, HEADLINES, GAMES, PLUG, CINEMA, CHECK, STAR, TVSET, FILM, EYE, PLUS, EDIT, MIC, BOOKMARK_ADD, BOOKMARK_ADDED, ROTATE, CAST, CAST_ON)
+            PLAY, PAUSE, PREV, REW, FWD, AUDIO_ONLY, SHUFFLE, REPEAT, REPEAT_ONE, LYRICS, VIDEO, MUSIC, STOP, SEARCH, HOME, PHONE, REFRESH, CLOSE, USER, NEWS, TRENDING, SPORT, KIDS, HEADLINES, GAMES, PLUG, CINEMA, CHECK, STAR, TVSET, FILM, EYE, PLUS, EDIT, MIC, BOOKMARK_ADD, BOOKMARK_ADDED, ROTATE, CAST, CAST_ON, BACK, SHARE, MUTE)
     }
 
     private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
@@ -87,6 +89,10 @@ class PlayerIcon(private val kind: String, private val tint: ColorStateList = Co
             NEXT -> { tri(0.12f, 0.18f, 0.12f, 0.82f, 0.62f, 0.5f); line(0.8f, 0.2f, 0.8f, 0.8f) }
             DELAY -> { c.drawCircle(x(0.5f), y(0.54f), s * 0.38f, p); line(0.5f, 0.54f, 0.5f, 0.32f); line(0.5f, 0.54f, 0.66f, 0.62f); line(0.4f, 0.06f, 0.6f, 0.06f) }
             STYLE -> { f.textSize = s * 0.62f; f.isFakeBoldText = false; f.textAlign = Paint.Align.CENTER; c.drawText("Aa", x(0.5f), y(0.74f), f) }
+            BACK -> { line(0.64f, 0.16f, 0.32f, 0.5f); line(0.32f, 0.5f, 0.64f, 0.84f) }
+            SHARE -> { c.drawCircle(x(0.74f), y(0.2f), s * 0.11f, f); c.drawCircle(x(0.26f), y(0.5f), s * 0.11f, f); c.drawCircle(x(0.74f), y(0.8f), s * 0.11f, f)
+                line(0.26f, 0.5f, 0.74f, 0.2f); line(0.26f, 0.5f, 0.74f, 0.8f) }
+            MUTE -> { tri(0.08f, 0.38f, 0.56f, 0.12f, 0.56f, 0.88f); tri(0.08f, 0.62f, 0.08f, 0.38f, 0.56f, 0.88f); line(0.7f, 0.36f, 0.94f, 0.64f); line(0.94f, 0.36f, 0.7f, 0.64f) }
             CAST, CAST_ON -> { line(0.1f, 0.34f, 0.1f, 0.22f); line(0.1f, 0.22f, 0.9f, 0.22f); line(0.9f, 0.22f, 0.9f, 0.8f); line(0.9f, 0.8f, 0.6f, 0.8f)
                 r.set(x(0.1f) - s * 0.2f, y(0.84f) - s * 0.2f, x(0.1f) + s * 0.2f, y(0.84f) + s * 0.2f); c.drawArc(r, 270f, 90f, false, p)
                 r.set(x(0.1f) - s * 0.38f, y(0.84f) - s * 0.38f, x(0.1f) + s * 0.38f, y(0.84f) + s * 0.38f); c.drawArc(r, 270f, 90f, false, p)
@@ -95,7 +101,7 @@ class PlayerIcon(private val kind: String, private val tint: ColorStateList = Co
             ROTATE -> { rect(0.3f, 0.08f, 0.7f, 0.66f, 0.08f); r.set(x(0.12f), y(0.38f), x(0.92f), y(0.96f)); c.drawArc(r, 200f, -160f, false, p); tri(0.06f, 0.6f, 0.26f, 0.62f, 0.12f, 0.78f) }
             ASPECT -> { rect(0.06f, 0.2f, 0.94f, 0.8f, 0.08f); line(0.2f, 0.36f, 0.2f, 0.5f); line(0.2f, 0.36f, 0.34f, 0.36f); line(0.8f, 0.64f, 0.8f, 0.5f); line(0.8f, 0.64f, 0.66f, 0.64f) }
             INFO -> { c.drawCircle(x(0.5f), y(0.5f), s * 0.4f, p); line(0.5f, 0.46f, 0.5f, 0.72f); c.drawCircle(x(0.5f), y(0.3f), s * 0.055f, f) }
-            PLAY -> tri(0.26f, 0.14f, 0.26f, 0.86f, 0.86f, 0.5f)
+            PLAY -> tri(0.3f, 0.14f, 0.3f, 0.86f, 0.9f, 0.5f)   // środek ciężkości trójkąta w środku ikony (dawniej optycznie przesunięty w lewo)
             PAUSE -> { r.set(x(0.22f), y(0.16f), x(0.42f), y(0.84f)); c.drawRoundRect(r, s * 0.04f, s * 0.04f, f); r.set(x(0.58f), y(0.16f), x(0.78f), y(0.84f)); c.drawRoundRect(r, s * 0.04f, s * 0.04f, f) }
             PREV -> { tri(0.88f, 0.18f, 0.88f, 0.82f, 0.38f, 0.5f); line(0.2f, 0.2f, 0.2f, 0.8f) }
             REW -> { tri(0.52f, 0.2f, 0.52f, 0.8f, 0.1f, 0.5f); tri(0.92f, 0.2f, 0.92f, 0.8f, 0.5f, 0.5f) }
@@ -166,14 +172,29 @@ object PlayerChrome {
     val STREMIO = Color.parseColor("#7B5BF5")
 
     fun colors() = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_focused), intArrayOf(android.R.attr.state_pressed), intArrayOf()),
-        intArrayOf(INK, INK, Color.WHITE))
+        intArrayOf(if (ModernV2.active) Color.WHITE else INK, if (ModernV2.active) Color.WHITE else INK, Color.WHITE))   // (v2) biały tekst na tincie fokusu
 
-    fun pillBg(): Drawable = StateListDrawable().apply {
+    fun pillBg(): Drawable = if (ModernV2.active) glassPill() else StateListDrawable().apply {
         val rad = Ui.dp(24).toFloat()
         addState(intArrayOf(android.R.attr.state_focused), GradientDrawable().apply { cornerRadius = rad; setColor(Color.WHITE) })
         addState(intArrayOf(android.R.attr.state_pressed), GradientDrawable().apply { cornerRadius = rad; setColor(Color.WHITE) })
         addState(intArrayOf(), GradientDrawable().apply { cornerRadius = rad; setColor(0x33FFFFFF) })
         setEnterFadeDuration(90); setExitFadeDuration(90)
+    }
+
+    /**
+     * (v2) Nowoczesny v2: pigułki odtwarzaczy STube / Stremio (prędkość, jakość, dźwięk, następne, autoodtwarzanie, okno, tylko
+     * dźwięk…) – spoczynek szkło z krawędzią, fokus biały z wyraźną niebieską ramką (tekst ciemny – [colors]).
+     */
+    private fun glassPill(): Drawable = StateListDrawable().apply {
+        val G = pl.iptv.tv.ui.theme.ObsidianGlass
+        val rad = Ui.dp(24).toFloat()
+        addState(intArrayOf(android.R.attr.state_focused), G.focus(24, runCatching { pl.iptv.tv.data.Prefs.lowPerf }.getOrDefault(false)))   // tint + błękitna ramka + poświata
+        addState(intArrayOf(android.R.attr.state_pressed), G.focus(24, true))
+        addState(intArrayOf(android.R.attr.state_selected), GradientDrawable().apply { cornerRadius = rad; setColor(G.withAlpha(G.ACCENT, 0x55)); setStroke(Ui.dp(1), G.FOCUS_RING) })
+        addState(intArrayOf(), GradientDrawable().apply { cornerRadius = rad; setColor(G.withAlpha(G.SURFACE_TOP, pl.iptv.tv.ui.theme.ObsidianGlass.Opacity.current().surfaceAlpha)); setStroke(Ui.dp(1), G.BORDER) })
+        val ms = if (Ui.anim == 0) 0 else 90
+        setEnterFadeDuration(ms); setExitFadeDuration(ms)
     }
 
     /**
@@ -189,7 +210,8 @@ object PlayerChrome {
         setPadding(Ui.dp(if (label.isEmpty()) 12 else 16), Ui.dp(9), Ui.dp(if (label.isEmpty()) 12 else 18), Ui.dp(9))
         tag = "keepcolor nozoom"
         setOnClickListener { onClick() }
-        setOnFocusChangeListener { v, has -> Ui.focusZoom(v, has, 1.06f) }
+        // (v2) bez powiększenia – powiększona pigułka była przycinana przez przewijany rząd panelu
+        setOnFocusChangeListener { v, has -> if (!ModernV2.active) Ui.focusZoom(v, has, 1.06f) }
     }
 
     /**

@@ -25,11 +25,6 @@
         <item name="android:windowEnterAnimation">@anim/dialog_in</item>
         <item name="android:windowExitAnimation">@anim/dialog_out</item>
     </style>
-    <!-- X25: okna-menu jako panel boczny (Guide) -->
-    <style name="X25GuideAnim">
-        <item name="android:windowEnterAnimation">@anim/x25_guide_in</item>
-        <item name="android:windowExitAnimation">@anim/x25_guide_out</item>
-    </style>
     <!-- Nowoczesny: okna-menu jako panel nakładkowy wysuwany z prawej -->
     <style name="ModernOverlayAnim">
         <item name="android:windowEnterAnimation">@anim/modern_overlay_in</item>

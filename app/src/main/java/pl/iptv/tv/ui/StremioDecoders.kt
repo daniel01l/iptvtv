@@ -91,7 +91,9 @@ object StremioDecoders {
 
     fun player(c: Context, stage: Stage, sources: MediaSource.Factory, forceVideo: Boolean = false): ExoPlayer =
         ExoPlayer.Builder(c, renderersFactory(c, stage)).setTrackSelector(trackSelector(c, forceVideo)).setMediaSourceFactory(sources)
-            .setLoadControl(loadControl()).build()
+            .setLoadControl(loadControl())
+            .setVideoChangeFrameRateStrategy(Playback.frameRateStrategy(pl.iptv.tv.data.Prefs.autoFrameRate))      // (7.27) bez zmiany odświeżania ekranu przy wyłączonym AFR
+            .build()
 
     /** Plik ma obraz, ale żadna ścieżka obrazu nie została wybrana (zaniżone możliwości dekodera) – start z wymuszonym obrazem. */
     fun needsForcedVideo(tracks: androidx.media3.common.Tracks): Boolean {

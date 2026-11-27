@@ -23,6 +23,8 @@ import pl.iptv.tv.data.Repository
  * zmiana grupy, mapowanie EPG. Zmiany zapisują się od razu.
  */
 class EditorActivity : BaseActivity() {
+    /** (v2, ujednolicenie) Górna belka modułu (V2TopModuleBar) – nazwa sekcji. */
+    override val v2ModuleTitle: String? get() = "Edytor listy"
     companion object { const val ALL = "Wszystkie kanały"; const val HIDDEN = "🚫 Ukryte"; const val SWITCH_TAG = "visibility_switch" }
 
     private lateinit var groupsRv: RecyclerView

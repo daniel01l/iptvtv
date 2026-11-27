@@ -30,12 +30,13 @@ import java.text.DateFormat
 import java.util.Date
 
 class SettingsActivity : BaseActivity() {
+    /** (v2, ujednolicenie) Górna belka modułu (V2TopModuleBar) – nazwa sekcji. */
+    override val v2ModuleTitle: String? get() = "Ustawienia"
     /** (7.22) Telefon pionowo: zakładka „Więcej” dolnego paska. */
     override val portraitTab get() = MobilePortraitScaffold.Tab.MORE
-    override val ps5Hints = true
 
     /**
-     * (7.23) Ustawienia otwarte z pulpitu ([fromDashboard] – Nowoczesny, PS5, X25; telefon i TV): Live TV zatrzymane i zwolnione
+     * (7.23) Ustawienia otwarte z pulpitu ([fromDashboard] – ekran główny Nowoczesny; telefon i TV): Live TV zatrzymane i zwolnione
      * (dekodery, połączenia, fokus audio – [Playback.suspendForApp] w [BaseActivity.onResume]), w tle tylko tło aktywnego motywu
      * (bez obrazu kanału). Po wyjściu – z powrotem na ten sam pulpit ([returnToOrigin]); kanał wraca tak jak przed wejściem
      * (pulpit, który sam wstrzymuje telewizję, nadal ją wstrzymuje). Ustawienia otwarte z innych ekranów – bez zmian.
@@ -50,7 +51,7 @@ class SettingsActivity : BaseActivity() {
         returning = true
         val o = origin?.get()
         if (o != null && !o.isFinishing && !o.isDestroyed) return          // pulpit pod spodem – finish() wraca na niego
-        // pulpit aktywnego motywu (X25 / Nowoczesny / PS5 – po zmianie motywu w Ustawieniach to może być inny niż ten, z którego weszliśmy);
+        // ekran główny (Nowoczesny);
         // pulpity wyłączone – zwykły powrót na ekran pod spodem
         if (X25Theme.dashboardOn) { X25Theme.openDashboard(this); returnedTo = X25Theme.dashboardIntent(this).component?.className }
     }
@@ -90,7 +91,8 @@ class SettingsActivity : BaseActivity() {
             setPadding(Ui.dp(if (narrow) 12 else 32), Ui.dp(16), Ui.dp(if (narrow) 12 else 32), Ui.dp(8))
         }
         // nagłówek wg motywu (iOS: duży, pogrubiony)
-        root.addView(TextView(this).apply { text = "Ustawienia"; textSize = 24f * Ui.geo.headerScale; tag = "accent"; setTypeface(typeface, 1) })
+        root.addView(TextView(this).apply { text = "Ustawienia"; textSize = 24f * Ui.geo.headerScale; tag = "accent"; setTypeface(typeface, 1)
+            if (ModernV2.active) visibility = View.GONE })      // (v2) nazwa sekcji w belce modułu (V2TopModuleBar)
         // karty w pionowej kolumnie po lewej, treść po prawej
         // telefon w pionie: karty w przewijanym pasku u góry, treść na pełną szerokość (TV i poziom – kolumna po lewej)
         val portrait = narrow && resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT
@@ -314,6 +316,8 @@ class SettingsActivity : BaseActivity() {
 
     private fun topButton(t: String, onClick: () -> Unit) = TextView(this).apply {
         text = t; tag = "item"; isFocusable = true; isClickable = true; textSize = 16f
+        // (v2, ujednolicenie) V2PillTab: pełna kapsuła – spoczynek ciemne szkło, fokus / aktywna karta – tint + ramka #38BDF8 + poświata
+        if (ModernV2.active) { tag = "keepcolor nozoom"; background = pl.iptv.tv.ui.theme.ObsidianGlass.pillTab(40, Prefs.lowPerf); setTextColor(pl.iptv.tv.ui.theme.ObsidianViews.pillText()) }
         setPadding(Ui.dp(18), Ui.dp(10), Ui.dp(18), Ui.dp(10))
         layoutParams = LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) }
         setOnClickListener { onClick() }
@@ -397,26 +401,26 @@ class SettingsActivity : BaseActivity() {
             setOnClickListener { lastKey = rk; onClick() }
         }
         r.setTag(R.id.row_key, rk)
-        r.addView(TextView(this).apply { text = shown; textSize = 16f }, LinearLayout.LayoutParams(0, -2, 1f))
+        r.addView(TextView(this).apply { text = shown; textSize = 16f; if (ModernV2.active) setTypeface(Ui.typeface(android.graphics.Typeface.BOLD)) }, LinearLayout.LayoutParams(0, -2, 1f))
         if (value != null) r.addView(TextView(this).apply {
             text = value; textSize = 15f; gravity = Gravity.END or Gravity.CENTER_VERTICAL
             // pion: wartość nie wypycha tytułu poza ekran (najwyżej 45% szerokości, zawijanie do 2 linii)
             if (narrowPortrait) { maxWidth = (resources.displayMetrics.widthPixels * 0.45f).toInt(); maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }
             if (valueColor != null) { tag = "keepcolor"; setTextColor(valueColor) } else tag = "text2"
         }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
-        target().addView(r, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = Ui.dp(4) })
+        target().addView(r, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = Ui.dp(if (ModernV2.active) 8 else 4) })   // (v2) V2OptionRow – osobne karty 16 dp z odstępem
         return r
     }
 
     private fun toggle(title: String, get: () -> Boolean, look: Boolean = false, set: (Boolean) -> Unit): View {
         val click = { set(!get()); if (look) lookChanged() else build(keepFocus = true) }
         val obsidian = pl.iptv.tv.ui.theme.ObsidianViews.active
-        if (!Ps5Theme.active && !obsidian) return row(title, if (get()) "✔ Włączone" else "✖ Wyłączone") { click() }
-        // PS5 i „Obsidian Stream”: przełącznik po prawej stronie wiersza (Obsidian – tor w kolorze akcentu)
+        if (!obsidian) return row(title, if (get()) "✔ Włączone" else "✖ Wyłączone") { click() }
+        // „Obsidian Stream”: przełącznik po prawej stronie wiersza (Obsidian – tor w kolorze akcentu)
         val on = get()
         return (row(title) { click() } as LinearLayout).also { r ->
             r.contentDescription = clean(title) + if (on) ": włączone" else ": wyłączone"
-            r.addView(android.widget.ImageView(this).apply { setImageDrawable(if (obsidian) pl.iptv.tv.ui.theme.ObsidianViews.Switch(on) else Ps5Switch(on)); tag = "ps5switch"; isDuplicateParentStateEnabled = true },
+            r.addView(android.widget.ImageView(this).apply { setImageDrawable(pl.iptv.tv.ui.theme.ObsidianViews.Switch(on)); tag = "ps5switch"; isDuplicateParentStateEnabled = true },
                 LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(12) })
         }
     }
@@ -790,6 +794,13 @@ class SettingsActivity : BaseActivity() {
         choice("Motyw", Ui.PRESETS.map { it.name }, { Ui.PRESETS.indexOf(Ui.preset) }) {
             Ui.applyPreset(Ui.PRESETS[it].id)
         }
+        // (v2) podgląd motywów: próbki kolorów (tło, panel, akcent, zaznaczenie, tekst); OK – zastosuj
+        Ui.PRESETS.forEach { p ->
+            val r = row(p.name + if (Ui.preset.id == p.id) "  ✔" else "", "■", key = THEME_SWATCH_KEY + p.id) {
+                if (Ui.preset.id != p.id) { Ui.applyPreset(p.id); lookChanged() }
+            }
+            ((r as LinearLayout).getChildAt(1) as TextView).apply { tag = "keepcolor"; text = themeSwatches(p) }
+        }
         // (7.7) własne motywy: zapis bieżącego wyglądu (kolory, czcionka, animacje…) i przywracanie
         row("💾 Zapisz bieżący wygląd jako własny motyw…") {
             Dialogs.input(this, "Własny motyw", "Mój motyw", "Nazwa motywu") { name ->
@@ -823,28 +834,19 @@ class SettingsActivity : BaseActivity() {
         } else row("Włącz motyw Nowoczesny") { ModernTheme.enable(); lookChanged() }
         note("Nowoczesny: głęboka czerń, pasek ikon przy lewej krawędzi, duży podgląd zaznaczonego materiału z przyciskami „Odtwórz” i „Więcej informacji”, " +
             "rzędy kanałów, filmów STube i tytułów Stremio z postępem oglądania; menu jako półprzezroczysty panel z prawej strony.")
-        header("X25 Dashboard")
-        toggle("Motyw X25 Dashboard", { X25Theme.active }, look = true) { X25Theme.setEnabled(it) }
-        if (X25Theme.active) {
-            toggle("Pulpit X25 jako ekran startowy", { Prefs.x25Dashboard }) { Prefs.x25Dashboard = it }
-            toggle("Menu jako panel boczny (Guide)", { Prefs.x25Guide }) { Prefs.x25Guide = it }
-            toggle("Dźwięki nawigacji", { Prefs.x25Sounds }) { Prefs.x25Sounds = it }
-            row("▶ Otwórz pulpit X25") { X25Theme.openDashboard(this) }
-            row("↺ Przywróć układ kafelków pulpitu") {
-                lifecycleScope.launch { pl.iptv.tv.data.X25Store.reset(); I18n.makeToast(this@SettingsActivity, "Przywrócono domyślny układ pulpitu", Toast.LENGTH_SHORT).show() }
-            }
+        // (v2) „▸ Nowoczesny v2” – opcje motywu Obsidian Glass (zapis poza PRESET_KEYS – zmiana motywu / aktualizacja ich nie zeruje)
+        header(ModernV2.SECTION_TITLE)
+        if (!ModernV2.active) row("Włącz motyw ${ModernV2.NAME}") { ModernV2.enable(); lookChanged() }
+        choice(ModernV2.ANIMATIONS_TITLE, ModernV2.ANIMATION_OPTIONS, { if (Prefs.mv2Animations) 0 else 1 }, look = false,
+            descriptions = listOf("Płynne przenikanie ekranów, okien i fokusu", "Natychmiastowe przejścia – szybsza reakcja na słabszych urządzeniach")) {
+            Prefs.mv2Animations = it == 0; Ui.changed()
         }
-        note("X25: grafit i czerń z neonową zielenią, akrylowe panele i pulpit z kafelkami. Kafelki edytujesz na pulpicie: przytrzymaj OK lub MENU. Wyłączenie wraca do poprzedniego motywu.")
-        header("PS5")
-        toggle("Motyw PS5", { Ps5Theme.active }, look = true) { Ps5Theme.setEnabled(it) }
-        if (Ps5Theme.active) {
-            toggle("Ekran główny PS5 jako ekran startowy", { Prefs.ps5Home }) { Prefs.ps5Home = it }
-            toggle("Menu jako panel ustawień PS5", { Prefs.ps5Panel }) { Prefs.ps5Panel = it }
-            toggle("Dźwięki nawigacji", { Prefs.ps5Sounds }) { Prefs.ps5Sounds = it }
-            row("▶ Otwórz ekran główny PS5") { Ps5Theme.openHome(this) }
+        choice(ModernV2.OPACITY_TITLE, ModernV2.OPACITY_OPTIONS, { Prefs.mv2Opacity }, look = false,
+            descriptions = listOf("Panele mocno prześwitujące – widać tło i obraz", "Zrównoważone szkło (domyślnie)", "Panele prawie kryjące – najlepsza czytelność")) {
+            Prefs.mv2Opacity = it; lookChanged()
         }
-        note("PS5: głęboki granat, świetliste błękity i tło w stylu rysunku technicznego, ekran główny z zakładkami, rzędem aplikacji i kartami. " +
-            "Włączenie PS5 przy X25 (i odwrotnie) przełącza motyw konsolowy; wyłączenie wraca do poprzedniego.")
+        note(ModernV2.NOTE)
+        // (7.27) sekcje motywów X25 Dashboard i PS5 usunięte (kopia: docs/archiwum_motywy/, instrukcja PRZYWRACANIE.md)
         header("Układ menu głównego")
         choice("Układ menu", MAIN_LAYOUTS, { Prefs.mainLayout }, look = false) { Prefs.mainLayout = it }
         choice("Orientacja ekranu (telefon)", listOf("Poziomo", "Automatycznie (obrót)", "Pionowo (odtwarzacz z obrotem)"), { Prefs.orientation }, look = false) {
@@ -1175,6 +1177,10 @@ class SettingsActivity : BaseActivity() {
         header(CAST_HEADER)
         toggle(CAST_TOGGLE, { Prefs.castButton }) { on -> Prefs.castButton = on; CastHub.settingChanged(this) }
         note(if (!Prefs.castButton) CAST_NOTE_OFF else CAST_NOTE)
+        // (v2) filmy i seriale z listy M3U – osobno od kanałów Live TV (moduł VOD bez konta Stremio)
+        header(VOD_HEADER)
+        toggle(VOD_SEPARATE_TOGGLE, { Prefs.vodSeparate }) { Prefs.vodSeparate = it; pl.iptv.tv.data.Repository.reapply() }
+        note(VOD_SEPARATE_NOTE)
         // (7.20) rzędy „Top 10” platform w Stremio; (7.26) z trendów tygodnia, odświeżanie domyślnie co 6 h, zmiana ręczna i pobranie od razu
         header("Stremio – Top 10")
         note(TOP10_TREND_NOTE)
@@ -1236,7 +1242,7 @@ class SettingsActivity : BaseActivity() {
             else -> "⚠ Włączony – nie jest domyślny"
         }) { launcherMenu(launcherOn, isHome) }
         note("Jako ekran główny aplikacja otwiera się przy każdym włączeniu telewizora, a HOME od razu pokazuje pulpit: " +
-            "X25 przy motywie X25, w pozostałych motywach ekran główny w stylu PS5 (telewizja, STube, Stremio, aplikacje z urządzenia). " +
+            "ekran główny Nowoczesny (telewizja, STube, Stremio, aplikacje z urządzenia). " +
             "Wszystkie aplikacje i ustawienia systemu – w bibliotece aplikacji (kafelek „Aplikacje”, MENU → Wszystkie aplikacje).")
         if (launcherOn) row("▦ Aplikacje systemu") { SystemTools.showApps(this) }
 
@@ -1543,6 +1549,41 @@ class SettingsActivity : BaseActivity() {
             }
         }
         row("↺ Przywróć układ standardowy") { K.applyPreset(0); build(keepFocus = true) }
+        // (v2) podwójne kliknięcie i przytrzymanie – osobne przypisania (klawisz bez nich działa jak dotąd, bez opóźnienia)
+        header(GESTURES_HEADER)
+        note(GESTURES_NOTE)
+        for (p in listOf(pl.iptv.tv.data.KeyMap.Press.DOUBLE, pl.iptv.tv.data.KeyMap.Press.LONG)) K.gestures(p).toSortedMap().forEach { (code, a) ->
+            row("${p.label}: ${K.keyName(code)}", a.label, key = "gesture|${p.name}|$code") {
+                Dialogs.menu(this, "${p.label}: ${K.keyName(code)}", listOf(
+                    "Zmień akcję…" to { pickGestureAction(p, code) },
+                    "✕ Usuń przypisanie" to { K.setGesture(p, code, null); build(keepFocus = true) },
+                ))
+            }
+        }
+        row("➕ Dodaj podwójne kliknięcie…") { learnGestureKey(pl.iptv.tv.data.KeyMap.Press.DOUBLE) }
+        row("➕ Dodaj przytrzymanie…") { learnGestureKey(pl.iptv.tv.data.KeyMap.Press.LONG) }
+        if (K.gestures(pl.iptv.tv.data.KeyMap.Press.DOUBLE).isNotEmpty() || K.gestures(pl.iptv.tv.data.KeyMap.Press.LONG).isNotEmpty())
+            row("✕ Usuń wszystkie podwójne kliknięcia i przytrzymania") { K.clearGestures(); build(keepFocus = true) }
+    }
+
+    /** (v2) Klawisz dla podwójnego kliknięcia / przytrzymania (naciśnij na pilocie), potem wybór akcji. */
+    private fun learnGestureKey(p: pl.iptv.tv.data.KeyMap.Press) {
+        val d = Ui.dialog(this).setTitle(p.label).setMessage("Naciśnij klawisz na pilocie…\n(WSTECZ – anuluj)")
+            .setNegativeButton("Anuluj", null).create()
+        d.setOnKeyListener { dlg, code, ev ->
+            if (code == android.view.KeyEvent.KEYCODE_BACK) return@setOnKeyListener false
+            if (ev.action == android.view.KeyEvent.ACTION_DOWN && ev.repeatCount == 0) { dlg.dismiss(); pickGestureAction(p, code) }
+            true
+        }
+        d.show()
+    }
+
+    private fun pickGestureAction(p: pl.iptv.tv.data.KeyMap.Press, code: Int) {
+        val K = pl.iptv.tv.data.KeyMap
+        val actions = pl.iptv.tv.data.KeyMap.Action.values().toList()
+        val cur = K.gestureFor(p, code)
+        lastChoice = Dialogs.choiceCards(this, "${p.label}: ${K.keyName(code)}", actions.map { it.label }, actions.indexOf(cur), emptyList(),
+            onDismiss = {}) { i -> K.setGesture(p, code, actions[i]); toast("${p.label} ${K.keyName(code)}: ${actions[i].label}"); build(keepFocus = true) }
     }
 
     /** Okno czekające na naciśnięcie klawisza (WSTECZ anuluje). */
@@ -1978,7 +2019,7 @@ class SettingsActivity : BaseActivity() {
         @Volatile var returnedTo: String? = null; internal set
 
         /** Ekrany pulpitu (wszystkie motywy). Nowy pulpit – dopisać tutaj. */
-        fun isDashboard(a: android.app.Activity) = a is ModernHomeActivity || a is Ps5HomeActivity || a is X25DashboardActivity
+        fun isDashboard(a: android.app.Activity) = a is ModernHomeActivity
 
         /** Ustawienia z ekranu [a]: z pulpitu – tryb „z pulpitu” (Live TV zatrzymane, powrót na ten pulpit), inaczej jak dotąd. */
         fun intentFrom(a: android.app.Activity): Intent {
@@ -1998,11 +2039,28 @@ class SettingsActivity : BaseActivity() {
         const val AUTO_STUTTER_TITLE = "Automatyczna korekta przy zacinaniu obrazu"
         /** (7.24) Reset profilu silnika do domyślnego („Szybkie przełączanie (Sport / Live TV)”). */
         const val RESET_ENGINE_PROFILE = "↺ Przywróć domyślny profil silnika"
-        const val TOP10_TREND_NOTE = "Kolejność według bieżących trendów tygodnia (TMDB – tytuły najchętniej oglądane w ostatnich 7 dniach) wśród tytułów danej platformy. Bez sieci – ostatnia zapisana lista."
+        /** (v2) Ustawienia → Pilot: podwójne kliknięcie i przytrzymanie. */
+        const val GESTURES_HEADER = "Podwójne kliknięcie i przytrzymanie"
+        const val GESTURES_NOTE = "Dodatkowe akcje klawisza w odtwarzaczu (na samym obrazie, bez otwartych paneli): podwójne kliknięcie i przytrzymanie, także akcje systemowe (ekran główny, ustawienia, wejścia TV – jeśli urządzenie je obsługuje). Klawisz bez takich przypisań działa jak dotąd; z podwójnym kliknięciem pojedyncze wykonuje się po krótkiej chwili."
+        /** (v2) Ustawienia → Odtwarzanie: filmy i seriale z listy M3U. */
+        const val VOD_HEADER = "Filmy i seriale z listy M3U"
+        const val VOD_SEPARATE_TOGGLE = "Tylko w module VOD (bez listy kanałów Live TV)"
+        const val VOD_SEPARATE_NOTE = "Filmy i odcinki seriali wykryte w liście (tvg-type, adresy /movie/ i /series/, pliki wideo, grupy VOD / Filmy / Seriale, oznaczenia S01E01) są w Stremio → Filmy / Seriale z pigułkami gatunków – także bez konta Stremio. Wyłącz, aby widzieć je też na liście kanałów."
+        const val TOP10_TREND_NOTE ="Kolejność według bieżących trendów tygodnia (TMDB – tytuły najchętniej oglądane w ostatnich 7 dniach) wśród tytułów danej platformy. Bez sieci – ostatnia zapisana lista."
         const val CAST_HEADER = "Przesyłanie na urządzenia w pobliżu (Cast)"
         const val CAST_TOGGLE = "Przycisk „Przesyłaj” w odtwarzaczach (Live TV, STube, Stremio)"
         const val CAST_NOTE = "Przycisk pojawia się tylko, gdy w tej samej sieci Wi-Fi jest Chromecast, Android TV lub Google TV z Google Cast. Obraz i dźwięk przechodzą na telewizor, a tutaj odtwarzanie jest wstrzymane; zakończenie przesyłania albo błąd odbiornika wraca do odtwarzania na tym urządzeniu. Na TV: przytrzymaj OK w odtwarzaczu."
         const val CAST_NOTE_OFF = "Przycisk przesyłania jest ukryty we wszystkich odtwarzaczach."
+        /** (v2) Klucz wiersza podglądu motywu (próbki kolorów) w Ustawienia → Wygląd → Motyw: `theme_swatch|<id>`. */
+        const val THEME_SWATCH_KEY = "theme_swatch|"
+
+        /** (v2) Próbki kolorów motywu (tło, panel, akcent, zaznaczenie, tekst) – też w kreatorze (krok „Wygląd”). */
+        fun themeSwatches(p: ThemePreset): CharSequence = android.text.SpannableStringBuilder().apply {
+            listOf(p.bg, p.panel, p.accent, p.focus, p.text).forEach { c ->
+                val st = length; append("■ ")
+                setSpan(android.text.style.ForegroundColorSpan(c), st, st + 1, 0)
+            }
+        }
         /** (7.22) Ustawienia → Wygląd. */
         const val UI_RESOLUTION_TITLE = "Rozdzielczość interfejsu"
         const val UI_RESOLUTION_NOTE = "Wielkość menu, okien i kafelków (obraz wideo bez zmian). Na telefonie trzymanym pionowo zawsze obowiązuje gęstość systemu."

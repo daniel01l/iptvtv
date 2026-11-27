@@ -95,7 +95,8 @@ object Dialogs {
                 setPadding(Ui.dp(16), Ui.dp(12), Ui.dp(16), Ui.dp(12))
             }
             val radio = Radio(a, pal).also { radios += it }
-            card.addView(radio, android.widget.LinearLayout.LayoutParams(Ui.dp(22), Ui.dp(22)).apply { marginEnd = Ui.dp(14) })
+            // (v2) V2OptionRow: znacznik ✓ po prawej stronie (dodawany za opisem)
+            if (!ModernV2.active) card.addView(radio, android.widget.LinearLayout.LayoutParams(Ui.dp(22), Ui.dp(22)).apply { marginEnd = Ui.dp(14) })
             val col = android.widget.LinearLayout(a).apply { orientation = android.widget.LinearLayout.VERTICAL }
             col.addView(android.widget.TextView(a).apply { text = label; textSize = 16f; setTextColor(CardSheet.textColors(pal)); isDuplicateParentStateEnabled = true; setTypeface(typeface, android.graphics.Typeface.BOLD) })
             descriptions.getOrNull(i)?.takeIf { it.isNotBlank() }?.let { s ->
@@ -103,6 +104,7 @@ object Dialogs {
             }
             col.isDuplicateParentStateEnabled = true
             card.addView(col, android.widget.LinearLayout.LayoutParams(0, -2, 1f))
+            if (ModernV2.active) card.addView(radio, android.widget.LinearLayout.LayoutParams(Ui.dp(22), Ui.dp(22)).apply { marginStart = Ui.dp(14) })
             card.setOnClickListener { current = i; mark(); onPick(i) }
             CardSheet.focusScale(card)
             cards += card
@@ -135,7 +137,11 @@ object Dialogs {
         var on = false
         private val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
         init { isDuplicateParentStateEnabled = true }
+        private val box = android.graphics.RectF()
         override fun onDraw(cv: android.graphics.Canvas) {
+            // (v2) wybrana opcja – niebieski znacznik ✓ (#38BDF8; przy fokusie biały), niewybrana – nic
+            if (ModernV2.active) { if (on) { box.set(0f, 0f, width.toFloat(), height.toFloat())
+                pl.iptv.tv.ui.theme.ObsidianGlass.drawCheck(cv, box, p, if ((parent as? android.view.View)?.isFocused == true) android.graphics.Color.WHITE else pl.iptv.tv.ui.theme.ObsidianGlass.FOCUS_RING) }; return }
             val r = minOf(width, height) / 2f; val cx = width / 2f; val cy = height / 2f
             val focused = (parent as? android.view.View)?.isFocused == true
             p.style = android.graphics.Paint.Style.STROKE; p.strokeWidth = Ui.dp(2).toFloat()

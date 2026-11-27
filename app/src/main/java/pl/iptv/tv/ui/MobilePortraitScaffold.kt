@@ -32,6 +32,8 @@ object MobilePortraitScaffold {
 
     /** Wysokość paska bez odstępu systemowego (dp). */
     const val BAR_DP = 62
+    /** (v2) Nowoczesny v2: odstęp pływającego paska od krawędzi ekranu (boki i dół, nad paskiem nawigacji systemu). */
+    const val FLOAT_MARGIN_DP = 12
     const val ICON_DP = 24
     /** Tag paska i zakładek: „portrait_nav”, „portrait_tab:<NAZWA>”. */
     const val TAG = "portrait_nav"
@@ -57,14 +59,27 @@ object MobilePortraitScaffold {
             elevation = Ui.dp(8).toFloat(); isClickable = true
         }
         Tab.entries.forEach { t -> bar.addView(tabView(a, t, t == current, pal) { open(a, t) }, LinearLayout.LayoutParams(0, -2, 1f)) }
-        root.addView(bar, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
+        // (v2) Nowoczesny v2: pływająca szklana kapsuła (24 dp) z marginesem nad paskiem nawigacji systemu
+        val floating = ModernV2.active
+        if (floating) {
+            bar.background = pl.iptv.tv.ui.theme.ObsidianGlass.glass(pl.iptv.tv.ui.theme.ObsidianGlass.RADIUS_SHEET_DP, panel = true)
+            bar.setPadding(Ui.dp(8), Ui.dp(4), Ui.dp(8), Ui.dp(4)); bar.elevation = Ui.dp(12).toFloat()
+            bar.clipToOutline = true
+        }
+        root.addView(bar, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply {
+            if (floating) { leftMargin = Ui.dp(FLOAT_MARGIN_DP); rightMargin = Ui.dp(FLOAT_MARGIN_DP); bottomMargin = Ui.dp(FLOAT_MARGIN_DP) }
+        })
         // odstęp systemowego paska nawigacji (gesty / przyciski) – pasek w strefie kciuka, ponad nim
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(bar) { v, ins ->
             val b = runCatching { ins.getInsets(androidx.core.view.WindowInsetsCompat.Type.navigationBars()).bottom }.getOrDefault(0)
-            v.setPadding(v.paddingLeft, v.paddingTop, v.paddingRight, Ui.dp(4) + b); ins
+            if (floating) (v.layoutParams as? FrameLayout.LayoutParams)?.let { lp ->
+                val m = Ui.dp(FLOAT_MARGIN_DP) + b
+                if (lp.bottomMargin != m) { lp.bottomMargin = m; v.layoutParams = lp }
+            } else v.setPadding(v.paddingLeft, v.paddingTop, v.paddingRight, Ui.dp(4) + b)
+            ins
         }
         bar.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
-            val h = v.height
+            val h = v.height + ((v.layoutParams as? FrameLayout.LayoutParams)?.bottomMargin ?: 0)
             (content.layoutParams as? FrameLayout.LayoutParams)?.let { lp -> if (lp.bottomMargin != h) { lp.bottomMargin = h; content.layoutParams = lp } }
             onInset(h)
         }

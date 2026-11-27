@@ -176,6 +176,21 @@ object SystemTools {
 
     fun openSystemSettings(a: Activity) { if (!tryStart(a, Intent(Settings.ACTION_SETTINGS))) toast(a, "Brak ustawień systemu") }
 
+    /**
+     * (v2) Akcje systemowe pilota (Ustawienia → Pilot): ekran główny systemu (w trybie launchera – pulpit aplikacji, jak HOME),
+     * ustawienia Androida / TV, lista wejść / źródeł (intencje launcherów Android TV / Google TV; bez nich – ustawienia wejść,
+     * potem false). Wszystko w try-catch – brak obsługi na urządzeniu nie kończy odtwarzania.
+     */
+    fun systemAction(a: Activity, action: pl.iptv.tv.data.KeyMap.Action): Boolean = when (action) {
+        pl.iptv.tv.data.KeyMap.Action.SYS_HOME -> tryStart(a, Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        pl.iptv.tv.data.KeyMap.Action.SYS_SETTINGS -> tryStart(a, Intent(Settings.ACTION_SETTINGS))
+        pl.iptv.tv.data.KeyMap.Action.SYS_INPUTS -> INPUT_INTENTS.any { tryStart(a, Intent(it).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        else -> false
+    }
+
+    /** (v2) Intencje listy wejść TV (kolejno: Google TV / Android TV, ustawienia wejść). */
+    val INPUT_INTENTS = listOf("com.android.tv.action.VIEW_INPUTS", "android.settings.INPUT_SETTINGS", "com.android.tv.settings.INPUTS_SETTINGS")
+
     private fun tryStart(a: Activity, i: Intent): Boolean = try {
         if (i.resolveActivity(a.packageManager) == null) false else { a.startActivity(i); true }
     } catch (_: ActivityNotFoundException) { false } catch (_: SecurityException) { false }

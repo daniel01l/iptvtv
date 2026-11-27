@@ -223,12 +223,22 @@ class SetupActivity : BaseActivity() {
     private fun build() {
         head.text = (if (addMode) "Nowa lista" else "Konfiguracja") + "  •  krok ${pos + 1}/${order.size}: ${titles[step]}"
         stepsBar.removeAllViews()
+        val glass = ModernV2.active
         order.forEachIndexed { i, st ->
             stepsBar.addView(TextView(this).apply {
                 text = "${i + 1}. ${titles[st]}"; textSize = 12f; tag = if (i == pos) "accent" else "text2"
                 setPadding(0, 0, Ui.dp(14), 0); if (i == pos) setTypeface(typeface, 1)
+                // (v2) „Obsidian Glass”: kroki jako szklane pigułki, bieżący – niebieski z ramką, ukończone – ✓
+                if (glass) {
+                    if (i < pos) text = "✓ ${titles[st]}"
+                    tag = if (i == pos) "keepcolor" else "text2"; if (i == pos) setTextColor(android.graphics.Color.WHITE)
+                    background = pl.iptv.tv.ui.theme.ObsidianGlass.pill(i == pos)
+                    setPadding(Ui.dp(12), Ui.dp(6), Ui.dp(12), Ui.dp(6))
+                    layoutParams = LinearLayout.LayoutParams(-2, -2).apply { marginEnd = Ui.dp(8) }
+                }
             })
         }
+        // (v2) karta kroku (`container`, tag „panel”) – szkło Obsidian Glass przez Ui.style (texturedSurface)
         container.removeAllViews(); field = null; field2 = null; fieldName = null; fieldExpiry = null; status = null; builds++
         when (step) { 0 -> stepWelcome(); 1 -> stepPlaylist(); 2 -> stepEpg(); 3 -> stepCatchup(); 4 -> stepLook(); else -> stepStart() }
         btnBack.visibility = if (pos == 0) View.INVISIBLE else View.VISIBLE
@@ -365,18 +375,12 @@ class SetupActivity : BaseActivity() {
     }
 
     private fun stepLook() {
-        text("Wybierz motyw – zmiana jest widoczna od razu. Szczegóły (kolory, gradienty, czcionki, animacje) ustawisz później w Ustawienia → Wygląd.", 15f)
+        // (7.27) Klasyczny dekoder, Xbox, X25 i PS5 – docs/archiwum_motywy/; (v2) Nowoczesny i Nowoczesny v2 – lista z Ui.PRESETS z próbkami kolorów
+        text("Motyw aplikacji: Nowoczesny albo Nowoczesny v2 (Obsidian Glass – granatowe szkło z poświatą). Szczegóły (kolory, gradienty, czcionki, " +
+            "animacje, przezroczystość) ustawisz później w Ustawienia → Wygląd.", 15f)
         Ui.PRESETS.forEach { p ->
-            val r = row(p.name + if (Ui.preset.id == p.id) "  ✔" else "", "■ ■ ■") { Ui.applyPreset(p.id); Ui.changed(); build() }
-            ((r as LinearLayout).getChildAt(1) as TextView).apply {
-                tag = "keepcolor"
-                text = android.text.SpannableStringBuilder().apply {
-                    listOf(p.bg, p.panel, p.accent, p.focus).forEach { c ->
-                        val st = length; append("■ ")
-                        setSpan(android.text.style.ForegroundColorSpan(c), st, st + 1, 0)
-                    }
-                }
-            }
+            val r = row(p.name + if (Ui.preset.id == p.id) "  ✔" else "", "■ ■ ■") { if (Ui.preset.id != p.id) { Ui.applyPreset(p.id); Ui.changed() }; build() }
+            ((r as LinearLayout).getChildAt(1) as TextView).apply { tag = "keepcolor"; text = SettingsActivity.themeSwatches(p) }
         }
         choice("Wielkość tekstu", Ui.FONT_SCALES.map { it.second }, { Ui.fontScaleIndex }) { Ui.fontScaleIndex = it; Ui.changed() }
         choice("Czcionka", Ui.FONTS.map { it.label }, { Ui.fontIndex }) { Ui.fontIndex = it; Ui.changed() }

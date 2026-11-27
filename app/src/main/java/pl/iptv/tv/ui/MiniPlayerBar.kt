@@ -79,7 +79,8 @@ class MiniPlayerBar(private val a: Activity) : FrameLayout(a) {
     }
 
     /** Szkło 72 %: Obsidian – `SurfaceGlass`, inne motywy – kolor paneli motywu; krawędź specular 1 dp. */
-    private fun glassBg() = GradientDrawable().apply {
+    private fun glassBg(): android.graphics.drawable.Drawable = if (ModernV2.active) pl.iptv.tv.ui.theme.ObsidianGlass.glassDialog(RADIUS_DP + 8, pl.iptv.tv.ui.theme.ObsidianGlass.OVERLAY_FILL)   // (v2) szkło V2GlassDialog
+        else GradientDrawable().apply {
         val base = if (pl.iptv.tv.ui.theme.ObsidianViews.active) pl.iptv.tv.ui.theme.ObsidianViews.SURFACE_GLASS else Ui.panel
         setColor((base and 0x00FFFFFF) or (GLASS_ALPHA shl 24)); cornerRadius = Ui.dp(RADIUS_DP).toFloat()
         setStroke(Ui.dp(1), pl.iptv.tv.ui.theme.ObsidianViews.SPECULAR)

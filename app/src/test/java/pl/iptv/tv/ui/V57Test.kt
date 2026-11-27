@@ -51,40 +51,7 @@ class V57Test {
     private fun match(hs: Int?, aws: Int?, state: Scores.State = Scores.State.LIVE, id: String = "m1") =
         Scores.Match(id, "eng.1", "🏴 Premier League", "Leeds", "Spurs", "1", "2", hs, aws, state, "45'", System.currentTimeMillis())
 
-    @Test fun newThemesWithTextures() {
-        for (id in listOf(Ps5Theme.ID, "xbox")) assertTrue(id, Ui.PRESETS.any { it.id == id })
-        Ui.applyPreset("xbox"); Ui.changed()
-        assertEquals(Ui.S_XBOX, Ui.surface)
-        assertTrue(Ui.bgDrawable() is TexturedDrawable)
-        assertTrue(Ui.panelBg() is TexturedDrawable)
-        assertTrue(Ui.dialogBg() is TexturedDrawable)
-        Ui.applyPreset(Ps5Theme.ID); Ui.changed()
-        assertEquals(Ui.S_PS5, Ui.surface)
-        assertTrue(Ui.surfaceBg() is TexturedDrawable)
-        assertEquals(12, Ui.preset.radius)
-        // własny kolor tła (gradient) ma pierwszeństwo przed fakturą
-        Ui.setGradient("bg", 0xFF000000.toInt(), 0xFF202020.toInt())
-        assertTrue(Ui.bgDrawable() is android.graphics.drawable.GradientDrawable)
-        // motyw bez faktury – zwykłe tła (Nowoczesny od 7.0 ma własną fakturę S_MODERN)
-        Ui.applyPreset("classic"); Ui.changed()
-        assertEquals(Ui.S_FLAT, Ui.surface)
-        assertTrue(Ui.panelBg() is android.graphics.drawable.GradientDrawable)
-        Ui.applyPreset("modern"); Ui.changed()
-        assertEquals(Ui.S_MODERN, Ui.surface)
-        assertTrue(Ui.panelBg() is TexturedDrawable)
-        // ekrany z nowymi motywami otwierają się bez błędów
-        for (id in listOf(Ps5Theme.ID, "xbox")) {
-            Ui.applyPreset(id); Ui.changed()
-            val s = Robolectric.buildActivity(SettingsActivity::class.java, Intent().putExtra("tab", 1)).setup(); idle()
-            val m = Robolectric.buildActivity(MainActivity::class.java).setup(); idle(400)
-            Dialogs.confirm(m.get(), "Test", "Okno") {}; idle()
-            assertTrue(ShadowDialog.getLatestDialog().window!!.decorView.background is TexturedDrawable)
-            ShadowDialog.getLatestDialog().dismiss(); idle()
-            m.pause().stop().destroy(); s.pause().stop().destroy()
-        }
-        Ui.applyPreset("modern"); Ui.changed()
-    }
-
+    // (7.27) test „newThemesWithTextures” usunięty – dotyczył usuniętych motywów Klasyczny / Xbox / X25 / PS5 (kopia: docs/archiwum_motywy/)
     @Test fun itemBackgroundsCachedPerLook() {
         val a = Ui.itemBg(); val b = Ui.itemBg()
         assertNotSame(a, b)

@@ -385,11 +385,21 @@ object Playback {
     }
 
     /** Pełne zwolnienie odtwarzacza i jego połączeń (bez zmiany zapamiętanego kanału). */
+    /** (v2) Liczba zwolnionych odtwarzaczy w procesie (testy – brak wycieków przy przełączaniu profili). */
+    @Volatile var releases = 0; private set
+
     private fun releasePlayer() {
         main.removeCallbacks(retry); main.removeCallbacks(watchdog); main.removeCallbacks(startCheck); main.removeCallbacks(startRetry)
         val p = player
         target?.let { if (it.player === p) it.player = null }   // widok nie trzyma zwolnionego odtwarzacza
-        if (p != null) { listeners.forEach { p.removeListener(it) }; p.removeListener(recovery); runCatching { p.release() } }
+        if (p != null) {
+            listeners.forEach { p.removeListener(it) }; p.removeListener(recovery)
+            // (v2) każdy profil silnika (także własny / zmodyfikowany): najpierw zatrzymanie i odpięcie źródła i powierzchni –
+            // bufory źródła, kodeki i AudioTrack zwalniane od razu, Surface / TextureView nie trzyma odwołania do starego odtwarzacza
+            runCatching { p.stop(); p.clearMediaItems(); p.clearVideoSurface() }
+            runCatching { p.release() }
+            releases++
+        }
         player = null
         // aktywne żądania przerwane; bezczynne połączenia z puli zostają – nowy odtwarzacz użyje ich od razu
         // (bez ponownego łączenia, które mogłoby trafić na martwy adres serwera)
@@ -1152,6 +1162,8 @@ object Playback {
         // czysty start (zwolnione dekodery + nowa powierzchnia obrazu): po błędzie, po kanale, który nie zdążył ruszyć
         // (np. wadliwy strumień), i zawsze na słabszych urządzeniach – inaczej następny kanał potrafi zaciąć obraz
         val clean = hadError || wasHeadless || p.playerError != null || !reachedReady || pl.iptv.tv.data.Prefs.cleanDecoderOnZap   // (7.17) opcja dla każdego urządzenia
+        // (7.27) nowa powierzchnia obrazu tylko po faktycznym błędzie – przy zwykłej zmianie kanału ta sama powierzchnia (bez rekonfiguracji wyjścia obrazu boxa)
+        val freshSurface = hadError || p.playerError != null
         if (clean) { p.stop(); p.clearMediaItems() }
         // osobna grupa połączeń dla nowego strumienia; poprzednia zamykana po podmianie źródła (niżej)
         val previousCalls = calls
@@ -1179,7 +1191,7 @@ object Playback {
         main.removeCallbacks(startRetry)
         if (streamUrl == ch.url) main.postDelayed(startRetry, START_RETRY_MS)
         // po błędzie: świeża powierzchnia obrazu (to samo, co wcześniej dawało dopiero otwarcie menu)
-        if (clean) main.post { target?.let { v -> if (v.player === p) { v.player = null; v.player = p } } }
+        if (freshSurface) main.post { target?.let { v -> if (v.player === p) { v.player = null; v.player = p } } }
         // kanał na żywo: kontrola startu (pierwsze klatki w [START_CHECK_MS]) – inaczej dobór silnika w tle
         startedAt = android.os.SystemClock.uptimeMillis()
         main.removeCallbacks(startCheck)

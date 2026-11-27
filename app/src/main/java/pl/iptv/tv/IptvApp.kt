@@ -119,7 +119,9 @@ class IptvApp : Application(), coil.ImageLoaderFactory {
         S.safe("activation") { pl.iptv.tv.data.Activation.init(this); if (pl.iptv.tv.data.Activation.enabled) activationLoop() }
         S.safe("ui") { pl.iptv.tv.ui.Ui.init(this) }
         S.safe("i18n") { pl.iptv.tv.ui.I18n.init(this) }                       // (7.8) język interfejsu (słownik tylko dla języka innego niż polski)
-        // świeża instalacja (nie aktualizacja): motyw PS5 jako domyślny; pomijane w testach Robolectric (motyw ustawiają same testy)
+        // (7.27) zapisany motyw usunięty z aplikacji (Klasyczny dekoder, Xbox, X25, PS5) → Nowoczesny; pozostałe ustawienia bez zmian
+        S.safe("themeMigration") { pl.iptv.tv.ui.Ui.migrateRemovedThemes() }
+        // świeża instalacja (nie aktualizacja): motyw Nowoczesny jako domyślny; pomijane w testach Robolectric (motyw ustawiają same testy)
         if (android.os.Build.FINGERPRINT != "robolectric") runCatching {
             val pi = packageManager.getPackageInfo(packageName, 0)
             pl.iptv.tv.ui.Ui.applyFirstRunTheme(pi.firstInstallTime == pi.lastUpdateTime)
@@ -147,7 +149,8 @@ class IptvApp : Application(), coil.ImageLoaderFactory {
             }
             override fun onActivityCreated(a: Activity, b: Bundle?) { pl.iptv.tv.ui.OrientationPolicy.apply(a) }   // API < 29 (bez onActivityPreCreated)
             // (7.8) tłumaczenie interfejsu na każdym ekranie (bez narzutu przy języku polskim)
-            override fun onActivityResumed(a: Activity) { pl.iptv.tv.ui.OrientationPolicy.apply(a); pl.iptv.tv.ui.I18n.attach(a.window) }
+            // (7.27) tryb ekranu okna zgodny z AFR (bez powrotu do trybu domyślnego przy przejściu między ekranami – brak ponownej negocjacji HDMI)
+            override fun onActivityResumed(a: Activity) { pl.iptv.tv.ui.OrientationPolicy.apply(a); pl.iptv.tv.ui.I18n.attach(a.window); pl.iptv.tv.ui.AutoFrameRate.keep(a) }
             override fun onActivityPaused(a: Activity) {}
             override fun onActivitySaveInstanceState(a: Activity, b: Bundle) {}
             override fun onActivityDestroyed(a: Activity) {}

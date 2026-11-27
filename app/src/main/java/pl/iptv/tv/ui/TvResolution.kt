@@ -257,6 +257,6 @@ fun TvResolution1080pProvider(content: @Composable () -> Unit) {
         val dm = try { res?.displayMetrics } catch (_: Throwable) { null }
         TvResolution.composeDensityFor(profile, dm?.widthPixels ?: 0, dm?.heightPixels ?: 0, res)
     }
-    if (d == null) CompositionLocalProvider(LocalDeviceDisplayProfile provides profile) { content() }
-    else CompositionLocalProvider(LocalDensity provides d, LocalDeviceDisplayProfile provides profile) { content() }
+    if (d == null) CompositionLocalProvider(LocalDeviceDisplayProfile provides profile) { pl.iptv.tv.ui.theme.ObsidianGlassProvider(content) }   // (v2) stan motywu na szczycie drzewa
+    else CompositionLocalProvider(LocalDensity provides d, LocalDeviceDisplayProfile provides profile) { pl.iptv.tv.ui.theme.ObsidianGlassProvider(content) }
 }

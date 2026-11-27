@@ -22,31 +22,42 @@ object ObsidianViews {
     /** Obsidian działa w motywie Nowoczesny (paleta presetu = tokeny Obsidian). */
     val active: Boolean get() = runCatching { ModernTheme.active }.getOrDefault(false)
 
-    const val BG = 0xFF080A0F.toInt()
-    const val SURFACE_GLASS = 0xD9121722.toInt()
-    const val SURFACE_ELEVATED = 0xEB1A2233.toInt()
+    /**
+     * (v2) Kolory zależne od wariantu: Nowoczesny – stałe „Obsidian Stream” (7.17), Nowoczesny v2 – tokeny [ObsidianGlass]
+     * (krycie powierzchni wg „Przezroczystość UI”). Dawniej `const val` – teraz odczyt przy każdym użyciu (wszystkie ekrany
+     * na widokach: Live TV, odtwarzacz, EPG, wyszukiwarki, Edytor, STube, Stremio, Ustawienia dostają paletę v2 bez zmian w kodzie).
+     */
+    private val v2: Boolean get() = pl.iptv.tv.ui.ModernV2.active
+    private val G = ObsidianGlass
+    private fun glassAlpha(rgb: Int, panel: Boolean): Int {
+        val o = ObsidianGlass.Opacity.current(); return G.withAlpha(rgb, if (panel) o.panelAlpha else o.surfaceAlpha)
+    }
+
+    val BG: Int get() = if (v2) G.BG_TOP else 0xFF080A0F.toInt()
+    val SURFACE_GLASS: Int get() = if (v2) glassAlpha(G.SURFACE_TOP, false) else 0xD9121722.toInt()
+    val SURFACE_ELEVATED: Int get() = if (v2) glassAlpha(G.SURFACE_BOTTOM, true) else 0xEB1A2233.toInt()
     const val ACCENT = 0xFF3B82F6.toInt()
-    const val ACCENT_GLOW = 0x5960A5FA
+    val ACCENT_GLOW: Int get() = if (v2) G.FOCUS_GLOW else 0x5960A5FA
     const val LIVE = 0xFFEF4444.toInt()
-    const val TEXT = 0xFFF8FAFC.toInt()
+    val TEXT: Int get() = if (v2) G.TEXT else 0xFFF8FAFC.toInt()
     const val TEXT2 = 0xFF94A3B8.toInt()
-    /** Panele Ustawień: `#0F141F` 90 %. */
-    const val PANEL_90 = 0xE60F141F.toInt()
-    /** Okna dialogowe i panele nakładkowe: `#0F141F` 92 %. */
-    const val PANEL_92 = 0xEB0F141F.toInt()
-    /** Przyciemnienie ekranu pod oknem dialogowym (scrim 75 %). */
-    const val DIALOG_DIM = 0.75f
+    /** Panele Ustawień: `#0F141F` 90 % (v2 – szkło wg „Przezroczystość UI”). */
+    val PANEL_90: Int get() = if (v2) glassAlpha(G.SURFACE_BOTTOM, true) else 0xE60F141F.toInt()
+    /** Okna dialogowe i panele nakładkowe: `#0F141F` 92 % (v2 – szkło wg „Przezroczystość UI”). */
+    val PANEL_92: Int get() = if (v2) glassAlpha(G.SURFACE_BOTTOM, true) else 0xEB0F141F.toInt()
+    /** Przyciemnienie ekranu pod oknem dialogowym (scrim 75 %; v2 – 72 %). */
+    val DIALOG_DIM: Float get() = if (v2) G.DIALOG_DIM else 0.75f
     /** Szklane powierzchnie (panele list): `SurfaceGlass` → `SurfaceElevated`. */
-    const val GLASS_TOP = 0xD9121722.toInt()
-    const val GLASS_BOTTOM = 0xEB1A2233.toInt()
+    val GLASS_TOP: Int get() = if (v2) glassAlpha(G.SURFACE_TOP, false) else 0xD9121722.toInt()
+    val GLASS_BOTTOM: Int get() = if (v2) glassAlpha(G.SURFACE_BOTTOM, true) else 0xEB1A2233.toInt()
 
     /** Tło nakładki nad obrazem (kapsuły i panele w odtwarzaczach): Obsidian – panel 92 %, inne motywy – [fallback]. */
-    fun overlay(fallback: Int): Int = if (active) PANEL_92 else fallback
-    /** Przyciemnienie treści pod panelem: Obsidian – scrim 75 % (`#080A0F`), inne motywy – [fallback]. */
-    fun scrim(fallback: Int): Int = if (active) 0xBF080A0F.toInt() else fallback
+    fun overlay(fallback: Int): Int = if (active) (if (v2) G.OVERLAY_FILL else PANEL_92) else fallback   // (v2) V2GlassDialog 72 %
+    /** Przyciemnienie treści pod panelem: Obsidian – scrim 75 % (`#080A0F`; v2 – granat `#070B14`), inne motywy – [fallback]. */
+    fun scrim(fallback: Int): Int = if (active) (if (v2) G.withAlpha(G.BG_TOP, 0xB8) else 0xBF080A0F.toInt()) else fallback
 
     /** Okno dialogowe: panel 92 % z krawędzią specular, zaokrąglenie 16 dp. */
-    fun dialogPanel(): Drawable = round(PANEL_92, Ui.dp(RADIUS_DP).toFloat(), Ui.dp(1), SPECULAR)
+    fun dialogPanel(): Drawable = if (pl.iptv.tv.ui.ModernV2.active) ObsidianGlass.dialogPanel() else round(PANEL_92, Ui.dp(RADIUS_DP).toFloat(), Ui.dp(1), SPECULAR)
 
     /**
      * Przełącznik w kolorze akcentu (włączony – tor `AccentPrimary`, gałka biała po prawej; wyłączony – szary tor, gałka po lewej).
@@ -60,6 +71,7 @@ object ObsidianViews {
         override fun draw(c: android.graphics.Canvas) {
             val b = bounds; val h = b.height().toFloat(); val rad = h / 2
             r.set(b.left.toFloat(), b.top.toFloat(), b.right.toFloat(), b.bottom.toFloat())
+            if (v2) { G.drawSwitch(c, b, on, p, r); return }      // (v2) niebieska kapsuła #2F80ED → #38BDF8 / ciemnoszara
             p.color = if (on) ACCENT else 0x3394A3B8; c.drawRoundRect(r, rad, rad, p)
             p.color = if (on) 0xFFFFFFFF.toInt() else 0xFFCBD5E1.toInt()
             val cx = if (on) b.right - rad else b.left + rad
@@ -71,7 +83,7 @@ object ObsidianViews {
     }
     /** Przyciemnienie kanału grającego w tle Ustawień: 65 %. */
     const val VIDEO_DIM_65 = 0xA6000000.toInt()
-    const val SPECULAR = 0x29FFFFFF
+    val SPECULAR: Int get() = if (v2) G.BORDER else 0x29FFFFFF
     const val RADIUS_DP = 16
 
     private val FOCUSED = intArrayOf(android.R.attr.state_focused)
@@ -83,7 +95,10 @@ object ObsidianViews {
     }
 
     /** Pigułka z fokusem: zaznaczona – akcent, wybrana – akcent 18 % z obwódką, zwykła – [rest]. */
-    fun pill(radius: Float = Ui.dp(40).toFloat(), rest: Int = 0): Drawable = StateListDrawable().apply {
+    fun pill(radius: Float = Ui.dp(40).toFloat(), rest: Int = 0): Drawable =
+        // (v2) zakładki / filtry / kategorie: aktywna – gradient #2F80ED → #1D4ED8, fokus – tint z błękitną ramką i poświatą,
+        // zwykła – półprzezroczyste szkło z obramowaniem 1 dp ([ObsidianGlass.pillStates])
+        if (v2) G.pillStates(maxOf(1, Math.round(radius / Ui.density)), runCatching { pl.iptv.tv.data.Prefs.lowPerf }.getOrDefault(false)) else StateListDrawable().apply {
         val on = round(ACCENT, radius)
         addState(FOCUSED, on); addState(PRESSED, on)
         val chosen = round(0x2E3B82F6, radius, Ui.dp(1), ACCENT)
@@ -96,7 +111,7 @@ object ObsidianViews {
      * (7.17) Pozycja paska nawigacji (zaokrąglenie 14 dp): fokus – wypełnienie akcentem; wybrana sekcja – akcent 22 % z pełną
      * obwódką 1,5 dp (GradientDrawable rysuje obrys wewnątrz granic – nic nie jest ucinane przy krawędzi ekranu).
      */
-    fun railPill(): Drawable = StateListDrawable().apply {
+    fun railPill(): Drawable = if (v2) railPillGlass() else StateListDrawable().apply {
         val r = Ui.dp(AppNavRail.ITEM_RADIUS.value.toInt()).toFloat()
         val on = round(ACCENT, r)
         addState(FOCUSED, on); addState(PRESSED, on)
@@ -106,11 +121,22 @@ object ObsidianViews {
         addState(intArrayOf(), ColorDrawable(0))
     }
 
+    /**
+     * (v2) Pozycja paska nawigacji „Obsidian Glass”: fokus – niebieski tint z błękitną ramką 2 dp i poświatą (bez pełnego
+     * wypełnienia jak w Nowoczesnym), bieżąca sekcja – gradient przycisku głównego, spoczynek – bez tła.
+     */
+    private fun railPillGlass(): Drawable {
+        // (v2, ujednolicenie) V2PillTab: pełna kapsuła – fokus / bieżąca sekcja: tint 22 % + ramka 2 dp #38BDF8 + poświata,
+        // spoczynek – ciemne szkło #0E1629 65 % z ramką 1 dp
+        val low = runCatching { pl.iptv.tv.data.Prefs.lowPerf }.getOrDefault(false)
+        return G.pillTab(AppNavRail.ITEM_RADIUS.value.toInt(), low)      // geometria jak w v1 (ikona na środku pozycji), kolory v2
+    }
+
     /** Kolory tekstu pigułki: biały przy fokusie / wyborze, inaczej drugorzędny. */
     fun pillText(): ColorStateList = ColorStateList(arrayOf(FOCUSED, PRESSED, SELECTED, ACTIVATED, intArrayOf()), intArrayOf(TEXT, TEXT, TEXT, TEXT, TEXT2))
 
     /** Szkło bez rozmycia: pionowy gradient powierzchni + krawędź specular 1 dp. */
-    fun glass(radiusDp: Int = RADIUS_DP): Drawable = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(SURFACE_GLASS, SURFACE_ELEVATED)).apply {
+    fun glass(radiusDp: Int = RADIUS_DP): Drawable = if (pl.iptv.tv.ui.ModernV2.active) ObsidianGlass.glass(radiusDp) else GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(SURFACE_GLASS, SURFACE_ELEVATED)).apply {
         cornerRadius = Ui.dp(radiusDp).toFloat(); setStroke(Ui.dp(1), SPECULAR)
     }
 
@@ -118,7 +144,7 @@ object ObsidianViews {
     fun previewFrame(): Drawable = round(0xFF000000.toInt(), Ui.dp(RADIUS_DP).toFloat(), Ui.dp(1), 0x33FFFFFF)
 
     /** Panel 90 % (`#0F141F`) – Ustawienia. */
-    fun panel90(radiusDp: Int = RADIUS_DP): Drawable = round(PANEL_90, Ui.dp(radiusDp).toFloat())
+    fun panel90(radiusDp: Int = RADIUS_DP): Drawable = if (pl.iptv.tv.ui.ModernV2.active) ObsidianGlass.glassOverlay(ObsidianGlass.DIALOG_RADIUS_DP) else round(PANEL_90, Ui.dp(radiusDp).toFloat())
 
     /** Czerwona pigułka „NA ŻYWO” (tekst biały). */
     fun livePill(): Drawable = round(LIVE, Ui.dp(10).toFloat())

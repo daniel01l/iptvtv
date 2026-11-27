@@ -46,7 +46,8 @@ class LockActivity : AppCompatActivity() {
         pl.iptv.tv.ui.TvResolution.applyMetrics(resources); pl.iptv.tv.ui.TvResolution.applyMetrics(applicationContext.resources)   // (7.20) siatka TV 960 × 540 dp
         super.onCreate(savedInstanceState)
         window.decorView.setBackgroundColor(Ui.bg)
-        box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; val s = Ui.dp(if (resources.configuration.screenWidthDp < 600) 16 else 28); setPadding(s, Ui.dp(24), s, Ui.dp(24)) }
+        if (ModernV2.active) window.decorView.background = Ui.bgDrawable()      // (v2) granat → czerń z poświatą (GlassBackdrop)
+        box =LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; val s = Ui.dp(if (resources.configuration.screenWidthDp < 600) 16 else 28); setPadding(s, Ui.dp(24), s, Ui.dp(24)) }
         val sv = ScrollView(this).apply { isFillViewport = true; addView(box) }
         setContentView(sv)
         // (7.23) telefon: treść pod paskami systemowymi z własnymi odstępami (pasek stanu / nawigacji / wycięcie) – przyciski nie są zasłonięte
@@ -146,6 +147,7 @@ class LockActivity : AppCompatActivity() {
         }
         box.addView(text(title, 21f, bold = true, top = 18))
         box.addView(text(info, 15f, Ui.text2))
+        if (pl.iptv.tv.ui.ModernV2.active) { renderGlass(st); return }
         box.addView(text(Activation.code, if (narrow) 30f else 44f, Ui.accent, bold = true, top = 14).apply { letterSpacing = if (narrow) 0.06f else 0.12f; setTextIsSelectable(false) })
         // kontakt: QR do Telegrama
         val qr = resources.getIdentifier("contact_qr", "drawable", packageName)
@@ -159,6 +161,57 @@ class LockActivity : AppCompatActivity() {
         row.getChildAt(0).requestFocus()
     }
 
+    /**
+     * (v2) Nowoczesny v2 – „Obsidian Glass”: szklana karta kodu urządzenia (kod + QR z tym samym kodem do zeskanowania telefonem),
+     * pod nią plakietka stanu sprawdzania (kropka w kolorze stanu, „Sprawdzono: HH:mm:ss” aktualizowane bez przebudowy), kontakt
+     * i przyciski. Logika aktywacji bez zmian ([Activation.code], odpytywanie [startPolling]).
+     */
+    private fun renderGlass(st: State) {
+        val G = pl.iptv.tv.ui.theme.ObsidianGlass
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; tag = CODE_CARD_TAG
+            background = G.glass(G.RADIUS_SHEET_DP, panel = true)
+            val p = Ui.dp(if (narrow) 16 else 24); setPadding(p, p, p, p)
+        }
+        card.addView(text("KOD URZĄDZENIA", 12f, Ui.text2, bold = true, top = 0).apply { letterSpacing = 0.18f })
+        card.addView(text(Activation.code, if (narrow) 30f else 44f, Ui.accent, bold = true, top = 6).apply { letterSpacing = if (narrow) 0.06f else 0.12f; setTextIsSelectable(false) })
+        val qrDp = if (narrow) 132 else 150
+        runCatching { QrCode.image(this, Activation.code, qrDp) }.getOrNull()?.let { q ->
+            q.tag = "keepcolor nozoom $CODE_QR_TAG"; q.contentDescription = "Kod QR z kodem urządzenia"
+            q.setBackgroundColor(0xFFFFFFFF.toInt()); q.setPadding(Ui.dp(8), Ui.dp(8), Ui.dp(8), Ui.dp(8))   // biała ramka – skaner rozpozna kod na ciemnym tle
+            card.addView(q, LinearLayout.LayoutParams(Ui.dp(qrDp + 16), Ui.dp(qrDp + 16)).apply { topMargin = Ui.dp(14); gravity = Gravity.CENTER_HORIZONTAL })
+            card.addView(text("Zeskanuj telefonem, aby przepisać kod bez pomyłek", 12f, Ui.text2, top = 6))
+        }
+        box.addView(card, LinearLayout.LayoutParams(if (narrow) -1 else -2, -2).apply { topMargin = Ui.dp(16); gravity = Gravity.CENTER_HORIZONTAL })
+        // plakietka stanu: niebieska – czekanie na zatwierdzenie, czerwona – blokada, pomarańczowa – brak połączenia / błąd
+        val color = when { st == State.BLOCKED -> G.LIVE; st == State.OFFLINE || Activation.lastError.isNotBlank() -> G.WARNING; else -> G.ACCENT }
+        val chip = LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL; tag = STATUS_TAG; background = G.statusChip(color)
+            setPadding(Ui.dp(14), Ui.dp(7), Ui.dp(14), Ui.dp(7))
+        }
+        chip.addView(View(this).apply { background = G.dot(color) }, LinearLayout.LayoutParams(Ui.dp(8), Ui.dp(8)).apply { marginEnd = Ui.dp(8) })
+        val status = text(checkedText(), 13f, top = 0).apply { tag = "keepcolor"; setTextColor(G.TEXT); layoutParams = LinearLayout.LayoutParams(-2, -2) }
+        checkedTv = status
+        chip.addView(status)
+        box.addView(chip, LinearLayout.LayoutParams(-2, -2).apply { topMargin = Ui.dp(14); gravity = Gravity.CENTER_HORIZONTAL })
+        val qr = resources.getIdentifier("contact_qr", "drawable", packageName)
+        if (qr != 0) box.addView(ImageView(this).apply { setImageResource(qr); setBackgroundColor(0xFFFFFFFF.toInt()); setPadding(Ui.dp(6), Ui.dp(6), Ui.dp(6), Ui.dp(6)) },
+            LinearLayout.LayoutParams(Ui.dp(110), Ui.dp(110)).apply { topMargin = Ui.dp(16) })
+        if (BuildConfig.CONTACT.isNotBlank()) box.addView(text("Kontakt: Telegram ${BuildConfig.CONTACT} (zeskanuj kod QR)", 14f, Ui.text2, top = 8))
+        val row = buttonRow(button("🔄 Sprawdź ponownie", true) { check() }, button("Zamknij", false) { finishAffinity() })
+        box.addView(row)
+        Ui.style(box)
+        row.getChildAt(0).requestFocus()
+    }
+
+    companion object {
+        /** (v2) Tagi ekranu aktywacji Nowoczesny v2 (testy). */
+        const val CODE_CARD_TAG = "lock_code_card"
+        const val CODE_QR_TAG = "lock_code_qr"
+        const val STATUS_TAG = "lock_status"
+        const val CONSENT_CARD_TAG = "lock_consent_card"
+    }
+
     private fun renderConsent() {
         box.addView(text("Zanim zaczniesz", 21f, bold = true, top = 18))
         box.addView(text("""Ta wersja aplikacji wymaga aktywacji przez administratora.
@@ -168,6 +221,18 @@ Co wysyła aplikacja: tylko kod tego urządzenia (nie da się z niego odczytać 
 Aplikacja NIE wysyła: list kanałów, adresów, haseł, historii oglądania, plików ani adresu IP do administratora. Nie zawiera reklam ani narzędzi śledzących.
 
 Aplikacja jest wyłącznie odtwarzaczem i nie dostarcza żadnych treści – korzystasz z własnych list.""", 14f, Ui.text2))
+        // (v2) Nowoczesny v2: treść zgody na szklanej karcie (24 dp), wyrównana do lewej – łatwiejsza do czytania
+        if (ModernV2.active) (box.getChildAt(box.childCount - 1) as? TextView)?.let { t ->
+            box.removeView(t)
+            t.gravity = Gravity.START; t.layoutParams = LinearLayout.LayoutParams(-1, -2)
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL; tag = CONSENT_CARD_TAG
+                background = pl.iptv.tv.ui.theme.ObsidianGlass.glass(pl.iptv.tv.ui.theme.ObsidianGlass.RADIUS_SHEET_DP, panel = true)
+                val p = Ui.dp(if (narrow) 16 else 24); setPadding(p, p, p, p)
+            }
+            card.addView(t)
+            box.addView(card, LinearLayout.LayoutParams(-1, -2).apply { topMargin = Ui.dp(14) })
+        }
         val row = buttonRow(button("✔ Zgadzam się", true) { if (!Activation.consent) { Activation.consent = true; render(); check() } }, button("Wyjdź", false) { finishAffinity() })
         box.addView(row)
         Ui.style(box)

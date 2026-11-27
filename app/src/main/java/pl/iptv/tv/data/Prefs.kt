@@ -164,6 +164,8 @@ object Prefs {
     var ytAutoplay: Boolean get() = bool("yt_autoplay", true); set(v) = putBool("yt_autoplay", v)
     /** (7.9) Widok muzyczny odtwarzacza STube (okładka, kolejka, tekst) dla utworów; domyślnie wyłączony (przycisk „Widok muzyczny” w odtwarzaczu włącza go dla bieżącego i kolejnych utworów); wyłączony – zwykły odtwarzacz wideo. */
     var ytMusicView: Boolean get() = bool("yt_music_view", false); set(v) = putBool("yt_music_view", v)
+    /** (v2) Tryb muzyczny: sam plakat zamiast teledysku w karcie (dotyczy kolejnych utworów). */
+    var ytStagePoster: Boolean get() = bool("yt_stage_poster", true); set(v) = putBool("yt_stage_poster", v)
     /** (7.9) Tekst piosenki w widoku muzycznym (zapytanie z tytułem i wykonawcą do bazy tekstów). */
     /** (7.14) Odrzucone utwory STube (wykonawcy, gatunki, id) – patrz [StubeTaste]. */
     var ytDislikes: String get() = str("yt_dislikes"); set(v) = put("yt_dislikes", v)
@@ -240,33 +242,25 @@ object Prefs {
     var stremioAddonScores: String get() = str("stremio_addon_scores"); set(v) = put("stremio_addon_scores", v)
     /** Serwer strumieniujący źródła P2P (TorrServer / serwer Stremio), np. „192.168.1.10:11470”; pusty – szukanie na tym urządzeniu. */
     var torrentServer: String get() = str("torrent_server"); set(v) = put("torrent_server", v)
-    // ---- motyw X25 ----
-    /** Pulpit X25 jako ekran startowy (gdy włączony motyw X25). */
-    var x25Dashboard: Boolean get() = bool("x25_dash", true); set(v) = putBool("x25_dash", v)
-    /** Menu i listy wyboru jako panel boczny „Guide”. */
-    var x25Guide: Boolean get() = bool("x25_guide", true); set(v) = putBool("x25_guide", v)
-    /** Dźwięki nawigacji pilotem. */
-    var x25Sounds: Boolean get() = bool("x25_sounds", true); set(v) = putBool("x25_sounds", v)
-    /** Motyw sprzed włączenia X25 (wyłączenie wraca do niego). */
-    var x25PrevTheme: String get() = str("x25_prev"); set(v) = put("x25_prev", v)
-    /** Kafelek Stremio dopisany do zapisanego układu pulpitu (raz – usunięty przez użytkownika nie wraca). */
+    // ---- (7.27) dawne motywy X25 / PS5 (usunięte, kopia: docs/archiwum_motywy/) – odczyt tylko przy migracji (Ui.migrateRemovedThemes) ----
+    /** Pulpit X25 był ekranem startowym (motyw X25) – migracja włącza wtedy ekran główny Nowoczesny. */
+    val x25Dashboard: Boolean get() = bool("x25_dash", true)
+    /** Ekran główny PS5 był ekranem startowym (motyw PS5) – jak wyżej. */
+    val ps5Home: Boolean get() = bool("ps5_home", true)
+    /** Kafelek Stremio dopisany do zapisanego układu pulpitu X25 (dane pulpitu w bazie Room zostają – data/X25Dash.kt). */
     var x25StremioTile: Boolean get() = bool("x25_stremio_tile", false); set(v) = putBool("x25_stremio_tile", v)
-    // ---- motyw PS5 ----
-    /** Ekran główny PS5 jako ekran startowy (gdy włączony motyw PS5). */
-    var ps5Home: Boolean get() = bool("ps5_home", true); set(v) = putBool("ps5_home", v)
-    /** Menu i listy wyboru jako panel ustawień PS5 (pionowa lista przy lewej krawędzi). */
-    var ps5Panel: Boolean get() = bool("ps5_panel", true); set(v) = putBool("ps5_panel", v)
-    /** Dźwięki nawigacji pilotem w motywie PS5. */
-    var ps5Sounds: Boolean get() = bool("ps5_sounds", true); set(v) = putBool("ps5_sounds", v)
-    /** Motyw sprzed włączenia PS5 (wyłączenie wraca do niego – także do X25). */
-    var ps5PrevTheme: String get() = str("ps5_prev"); set(v) = put("ps5_prev", v)
-    /** Aplikacje z urządzenia dodane do rzędu ekranu głównego PS5 (ComponentName.flattenToString). */
-    var ps5Apps: List<String> get() = list("ps5_apps"); set(v) = putList("ps5_apps", v)
     // ---- motyw Nowoczesny (7.0) ----
     /** Ekran główny Nowoczesny (pasek ikon, hero, rzędy) jako ekran startowy (gdy włączony motyw Nowoczesny). */
     var modernHome: Boolean get() = bool("modern_home", true); set(v) = putBool("modern_home", v)
     /** Menu i listy wyboru jako półprzezroczysty panel nakładkowy z prawej strony. */
     var modernOverlay: Boolean get() = bool("modern_overlay", true); set(v) = putBool("modern_overlay", v)
+    /** (v2) Filmy i seriale z listy M3U tylko w module VOD (Stremio) – bez nich lista kanałów Live TV ([Repository.isVod]). */
+    var vodSeparate: Boolean get() = bool("vod_separate", true); set(v) = putBool("vod_separate", v)
+    // ---- motyw Nowoczesny v2 „Obsidian Glass” (po 7.26) – klucze tylko dla v2, poza PRESET_KEYS (zmiana motywu ich nie zeruje) ----
+    /** Animacje przejść i fokusu motywu Nowoczesny v2 (Włączone / Wyłączone). */
+    var mv2Animations: Boolean get() = bool("mv2_anim", true); set(v) = putBool("mv2_anim", v)
+    /** Przezroczystość UI motywu Nowoczesny v2: 0 – wysoka, 1 – średnia (domyślnie), 2 – niska (prawie kryjące panele). */
+    var mv2Opacity: Int get() = int("mv2_opacity", 1).coerceIn(0, 2); set(v) = putInt("mv2_opacity", v.coerceIn(0, 2))
 
     // ---- funkcje (można wyłączać) ----
     var showFavGroup: Boolean get() = bool("f_fav", true); set(v) = putBool("f_fav", v)
@@ -423,6 +417,9 @@ object Prefs {
 
     // ---- pilot ----
     var keyMapJson: String get() = str("keymap"); set(v) = put("keymap", v)
+    /** (v2) Pilot: podwójne kliknięcie / przytrzymanie – JSON {kod klawisza: akcja} ([KeyMap.gestures]). */
+    var keyMapDoubleJson: String get() = str("keymap_double"); set(v) = put("keymap_double", v)
+    var keyMapLongJson: String get() = str("keymap_long"); set(v) = put("keymap_long", v)
 
     // ---- wygląd przewodnika ----
     var guideRows: Int get() = int("g_rows", 6); set(v) = putInt("g_rows", v)

@@ -205,7 +205,18 @@ class V23Test {
 }
 
 /** (7.17) Test w motywie Klasyczny (układ menu sprzed „Obsidian Stream”), po nim z powrotem Nowoczesny. */
+/**
+ * Dawny „Klasyczny dekoder” jako ukryty preset tylko dla testów ([Ui.testPreset]) – motyw bez faktury Obsidian (7.27: usunięty
+ * z aplikacji, zapisane „classic” w aplikacji → Nowoczesny). Zerowany przy wyborze innego motywu.
+ */
+internal val TEST_CLASSIC = ThemePreset("classic", "Klasyczny dekoder (test)", android.graphics.Color.parseColor("#06134A"),
+    android.graphics.Color.parseColor("#0D2470"), android.graphics.Color.parseColor("#FFC400"), android.graphics.Color.parseColor("#FFB300"),
+    android.graphics.Color.parseColor("#000000"), android.graphics.Color.parseColor("#FFFFFF"), android.graphics.Color.parseColor("#B8C7F0"),
+    0, 2, FocusStyle.GRADIENT, 0, 3, 0, false)
+
+internal fun applyClassic() { Ui.testPreset = TEST_CLASSIC; Ui.applyPreset("classic") }
+
 internal inline fun classicTheme(body: () -> Unit) {
-    Ui.applyPreset("classic"); Ui.changed()
+    applyClassic(); Ui.changed()
     try { body() } finally { Ui.applyPreset(ModernTheme.ID); Ui.changed(); X25Theme.justEnabled = false }
 }

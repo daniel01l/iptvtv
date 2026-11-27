@@ -262,14 +262,28 @@ object Repository {
     /** Zmienia się przy każdej przebudowie listy (ekrany odświeżają się tylko, gdy coś się zmieniło). */
     @Volatile var version = 0; private set
 
+    /**
+     * (v2) Pozycja VOD (film / odcinek serialu wg [M3uVod.classify]) – wynik zapamiętany po kluczu i adresie (kolejne przebudowy
+     * listy, np. po edycji, nie liczą wzorców od nowa).
+     */
+    private val vodKind = HashMap<String, Boolean>()
+    fun isVod(c: Channel): Boolean {
+        val k = c.key + '\u0000' + c.url + '\u0000' + c.group + '\u0000' + c.tvgType
+        if (vodKind.size > 60_000) vodKind.clear()
+        return vodKind.getOrPut(k) { M3uVod.isStrongVod(c) && M3uVod.classify(c) != M3uVod.Kind.LIVE }
+    }
+
     private fun rebuild() {
         version++
         val all = ChannelEdits.apply(raw, edits).map(::withCatchupDefault)
         allChannels = all
-        channels = all.filter { !it.hidden && !Parental.hideFromLists(it) }
+        val visible = all.filter { !it.hidden && !Parental.hideFromLists(it) }
         byKey = all.associateBy { it.key }
         // (7.23) filmy i seriale z listy – katalog VOD budowany w tle (Dispatchers.Default), bez blokowania wątku UI
-        VodLibrary.invalidate(version, channels)          // widoczne pozycje (bez ukrytych i zablokowanych kontrolą rodzicielską)
+        VodLibrary.invalidate(version, visible)           // widoczne pozycje (bez ukrytych i zablokowanych kontrolą rodzicielską)
+        // (v2) filmy i odcinki seriali z listy tylko w module VOD (Stremio) – lista Live TV, grupy, zapping i EPG bez nich
+        // (`Prefs.vodSeparate`, domyślnie wł.; Edytor i allChannels – wszystkie pozycje, jak dotąd)
+        channels = if (runCatching { Prefs.vodSeparate }.getOrDefault(false)) visible.filter { !isVod(it) } else visible
         mapEpg()
     }
 

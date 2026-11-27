@@ -15,4 +15,5 @@
     <item name="mini_inset" type="id"/>
     <item name="settings_styled" type="id"/>
     <item name="picon_url" type="id"/>
+    <item name="epg_bg" type="id"/>
 </resources>

@@ -70,13 +70,14 @@ class SidePanel(private val a: Activity, private val tabs: List<Tab>, private va
         val bar = LinearLayout(a).apply { orientation = LinearLayout.HORIZONTAL }
         tabViews = tabs.mapIndexed { i, t ->
             TextView(a).apply {
-                text = t.title; tag = "item"; textSize = 17f; isFocusable = true; isClickable = true
+                text = t.title; tag = "item"; textSize = 17f; isFocusable = true; isClickable = true; maxLines = 1
                 setPadding(Ui.dp(16), Ui.dp(9), Ui.dp(16), Ui.dp(9))
                 setOnClickListener { select(i, focusList = true) }
                 setOnFocusChangeListener { _, f -> if (f && tab != i) select(i, focusList = false) }
             }.also { bar.addView(it, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = Ui.dp(8) }) }
         }
-        panel.addView(bar)
+        // zakładki w przewijanym rzędzie: ostatnia (np. „Podobne”) nie jest ściskana i nie łamie się na kilka linii (wysoki rząd = pusta przerwa nad listą)
+        panel.addView(RailHorizontalScrollView(a).apply { isHorizontalScrollBarEnabled = false; isFocusable = false; clipChildren = false; clipToPadding = false; addView(bar) }, LinearLayout.LayoutParams(-1, -2))
         emptyView = TextView(a).apply { tag = "text2"; textSize = 15f; setPadding(Ui.dp(6), Ui.dp(16), Ui.dp(6), 0); visibility = View.GONE }
         panel.addView(emptyView)
         list = RecyclerView(a).apply {
@@ -87,12 +88,15 @@ class SidePanel(private val a: Activity, private val tabs: List<Tab>, private va
         panel.addView(TextView(a).apply {
             tag = "text2"; textSize = 13f; setPadding(Ui.dp(6), Ui.dp(6), 0, 0)
             text = "OK – odtwórz  •  długie OK / MENU – opcje  •  ◄► zakładki  •  WSTECZ – zamknij"
+            if (MobilePortraitScaffold.active(a)) visibility = View.GONE      // telefon (dotyk) – bez podpowiedzi klawiszy pilota
         })
         val w = minOf(Ui.dp(460), (a.resources.displayMetrics.widthPixels * 0.9).toInt())
         r.addView(panel, FrameLayout.LayoutParams(w, -1, Gravity.END).apply { setMargins(0, Ui.dp(12), Ui.dp(12), Ui.dp(12)) })
         content.addView(r, FrameLayout.LayoutParams(-1, -1))
         root = r
         Ui.style(panel)
+        // (v2) panel prawie kryjący – lista czytelna nad obrazem i opisem (szkło 72 % – prześwitywała treść spod spodu)
+        if (ModernV2.active) { val G = pl.iptv.tv.ui.theme.ObsidianGlass; panel.background = G.glassDialog(24, G.withAlpha(G.DIALOG_FILL, YtMusicStage.OPTIONS_ALPHA)); r.setBackgroundColor(0x99000000.toInt()) }
         Ui.slideIn(panel, fromLeft = false)
         tab = startTab.coerceIn(tabs.indices)
         select(tab, focusList = true)

@@ -118,6 +118,8 @@ object YtEngine {
             .setAudioAttributes(androidx.media3.common.AudioAttributes.Builder().setUsage(C.USAGE_MEDIA)
                 .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
             .setHandleAudioBecomingNoisy(true)
+            // (7.27) bez zmiany odświeżania ekranu (Surface.setFrameRate), gdy AFR wyłączone – jak w Live TV
+            .setVideoChangeFrameRateStrategy(Playback.frameRateStrategy(pl.iptv.tv.data.Prefs.autoFrameRate))
             // (7.22) muzyka przy wygaszonym ekranie telefonu: blokada procesora i Wi-Fi tylko podczas odtwarzania (Media3 zwalnia ją przy pauzie / stop)
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()

@@ -156,6 +156,22 @@ class V723StubePlayerTest {
 
     // ---------------- pigułka „Co następuje / Proponowane” ----------------
 
+    /** Pigułka „Następne”: WSTECZ – znika i otwiera kolejkę odtwarzania; OK – od razu następna pozycja. */
+    @Test @Config(sdk = [34], qualifiers = "w800dp-h400dp-land-xhdpi")
+    fun upNextPillBackOpensQueueOkPlaysNext() {
+        runBlocking { StubeQueue.clear(); StubeQueue.add(QueueItem.of(YtVideo("nx2", "Film nx2", "Kanał"))) }
+        val c = player(); val a = c.get()
+        val pill = a.upNextPill!!
+        a.checkUpNext(posMs = 92_000, durMs = 100_000); idle(100)
+        assertTrue(pill.shown)
+        fun press(code: Int) { val t = android.os.SystemClock.uptimeMillis()
+            a.dispatchKeyEvent(android.view.KeyEvent(t, t, android.view.KeyEvent.ACTION_DOWN, code, 0)); a.dispatchKeyEvent(android.view.KeyEvent(t, t + 40, android.view.KeyEvent.ACTION_UP, code, 0)); idle() }
+        press(android.view.KeyEvent.KEYCODE_BACK)
+        assertFalse(pill.shown)
+        assertTrue(a.panel?.isOpen == true)
+        assertFalse(a.isFinishing)
+    }
+
     @Test @Config(sdk = [34], qualifiers = "w800dp-h400dp-land-xhdpi")
     fun upNextPillOnlyFrom95PercentForTenSecondsWithLoadingBorder() {
         runBlocking { StubeQueue.clear(); StubeQueue.add(QueueItem.of(YtVideo("nx1", "Film nx1", "Kanał"))) }
@@ -166,10 +182,10 @@ class V723StubePlayerTest {
         assertFalse(pill.shown)
         a.checkUpNext(posMs = 50_000, durMs = 100_000); idle()
         assertFalse(pill.shown)
-        a.checkUpNext(posMs = 94_000, durMs = 100_000); idle()
+        a.checkUpNext(posMs = 89_000, durMs = 100_000); idle()
         assertFalse(pill.shown)
-        // 95 % – pigułka po stronie następnego (prawa, dół), obramowanie ładuje się przez 10 s
-        a.checkUpNext(posMs = 95_000, durMs = 100_000); idle(100)
+        // 10 s przed końcem – pigułka po stronie następnego (prawa, dół), obramowanie ładuje się przez 10 s
+        a.checkUpNext(posMs = 90_000, durMs = 100_000); idle(100)
         assertTrue(pill.shown)
         assertTrue(pill.text.toString().startsWith("⏭ Co następuje:  ▶ Film nx1"))
         assertEquals(android.view.Gravity.END or android.view.Gravity.BOTTOM, (pill.layoutParams as android.widget.FrameLayout.LayoutParams).gravity)

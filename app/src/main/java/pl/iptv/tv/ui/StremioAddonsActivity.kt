@@ -19,7 +19,6 @@ import pl.iptv.tv.data.StremioStore
  */
 class StremioAddonsActivity : BaseActivity() {
     override val pausesLiveTv = true
-    override val ps5Hints = true
     lateinit var adapter: StremioAddonAdapter; private set
     private lateinit var list: RecyclerView
     private lateinit var status: TextView

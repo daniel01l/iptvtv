@@ -52,26 +52,7 @@ class V58Test {
 
     @After fun tearDown() { Ui.applyPreset("modern"); Ui.changed(); Prefs.mainLayout = 0; Prefs.remove("anim") }
 
-    @Test fun consoleThemesSetGeometryAndLayout() {
-        for (id in listOf(Ps5Theme.ID, "xbox")) assertTrue(id, Ui.PRESETS.any { it.id == id }); for (id in listOf("magic", "win11", "ps5")) assertFalse(id, Ui.PRESETS.any { it.id == id })
-        Ui.applyPreset("ps5"); Ui.changed()
-        assertEquals(Ui.S_XBOX, Ui.surface)                                 // usunięty PS5 → Xbox
-        assertEquals(Ui.LAYOUT_CARDS, Prefs.mainLayout)                      // motyw konsolowy = karty poziome
-        assertTrue(Ui.geo.topBar)
-        assertTrue(Ui.panelBg() is TexturedDrawable)
-        val focused = (Ui.itemBg() as android.graphics.drawable.StateListDrawable).apply { state = intArrayOf(android.R.attr.state_focused) }.current
-        assertTrue(focused is android.graphics.drawable.LayerDrawable)        // ramka + jasna linia
-        Ui.applyPreset("xbox"); Ui.changed()
-        assertEquals(Ui.LAYOUT_CARDS, Prefs.mainLayout)
-        assertEquals(2, Ui.preset.radius); assertEquals(3, Ui.geo.focusStroke); assertTrue(Ui.geo.topBar)
-        Ui.applyPreset("modern"); Ui.changed()
-        assertEquals(0, Prefs.mainLayout)                                    // zwykły motyw przywraca układ
-        // każdy motyw ma własne przejście ekranów
-        assertEquals(listOf(3, 8), listOf(Ps5Theme.ID, "xbox").map { id -> Ui.PRESETS.first { it.id == id }.anim })
-        assertEquals(10, Ui.ANIMS.size)                                       // 7.1: + „Nowoczesny – płynne przenikanie”
-        assertEquals(9, Ui.PRESETS.first { it.id == ModernTheme.ID }.anim)
-    }
-
+    // (7.27) test „consoleThemesSetGeometryAndLayout” usunięty – dotyczył usuniętych motywów Klasyczny / Xbox / X25 / PS5 (kopia: docs/archiwum_motywy/)
     @Test fun themeTransitions() {
         val s = Robolectric.buildActivity(SettingsActivity::class.java).setup(); idle()
         val sh = shadowOf(s.get())
@@ -88,44 +69,8 @@ class V58Test {
         s.pause().stop().destroy()
     }
 
-    @Test fun dialogFramesPerTheme() {
-        val m = Robolectric.buildActivity(MainActivity::class.java).setup(); idle(400)
-        Ui.applyPreset(Ps5Theme.ID); Ui.changed()
-        Dialogs.confirm(m.get(), "Tytuł", "Treść") {}; idle()
-        var d = ShadowDialog.getLatestDialog() as androidx.appcompat.app.AlertDialog
-        val t = d.findViewById<TextView>(androidx.appcompat.R.id.alertTitle)!!
-        assertEquals(android.view.Gravity.START, t.gravity and android.view.Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK)
-        assertTrue(t.textSize > Ui.dp(20))                                   // większy nagłówek (PS5)
-        d.dismiss(); idle()
-        Ui.applyPreset("xbox"); Ui.changed()
-        Dialogs.confirm(m.get(), "Tytuł 2", "Treść") {}; idle()
-        d = ShadowDialog.getLatestDialog() as androidx.appcompat.app.AlertDialog
-        assertTrue(d.window!!.decorView.background is TexturedDrawable)
-        assertEquals(android.view.Gravity.START, d.findViewById<TextView>(androidx.appcompat.R.id.alertTitle)!!.gravity and android.view.Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK)
-        d.dismiss(); idle()
-        m.pause().stop().destroy()
-    }
-
-    @Test fun horizontalCardsLayout() {
-        Ui.applyPreset("xbox"); Ui.changed()
-        val c = Robolectric.buildActivity(MainActivity::class.java).setup(); idle(600)
-        val a = c.get()
-        val rv = a.findViewById<RecyclerView>(R.id.channels)
-        assertEquals(LinearLayoutManager.HORIZONTAL, (rv.layoutManager as LinearLayoutManager).orientation)
-        val first = rv.findViewHolderForAdapterPosition(0)!!.itemView as LinearLayout
-        assertEquals(LinearLayout.VERTICAL, first.orientation)
-        assertEquals(Ui.dp(196), first.layoutParams.width)
-        assertTrue(all(first).filterIsInstance<PiconView>().single().layoutParams.width >= Ui.dp(120))
-        rv.focusPosition(0); idle()
-        key(a, KeyEvent.KEYCODE_DPAD_RIGHT)
-        assertEquals(1, rv.findContainingViewHolder(a.window.decorView.findFocus()!!)!!.bindingAdapterPosition)
-        key(a, KeyEvent.KEYCODE_DPAD_LEFT); key(a, KeyEvent.KEYCODE_DPAD_LEFT)   // z pierwszej karty – kategorie
-        assertTrue(generateSequence(a.window.decorView.findFocus() as View?) { it.parent as? View }.any { it.id == R.id.groups })
-        key(a, KeyEvent.KEYCODE_DPAD_RIGHT)
-        assertNotNull(rv.findContainingViewHolder(a.window.decorView.findFocus()!!))
-        c.pause().stop().destroy()
-    }
-
+    // (7.27) test „dialogFramesPerTheme” usunięty – dotyczył usuniętych motywów Klasyczny / Xbox / X25 / PS5 (kopia: docs/archiwum_motywy/)
+    // (7.27) test „horizontalCardsLayout” usunięty – układ kart narzucany przez motyw Xbox (kopia: docs/archiwum_motywy/)
     @Test fun holdOkShowsEngineTileOpeningPopup() {
         Prefs.okLongAction = 1
         val c = Robolectric.buildActivity(PlayerActivity::class.java, Intent(ctx, PlayerActivity::class.java)
@@ -150,12 +95,7 @@ class V58Test {
         c.pause().stop().destroy()
     }
 
-    @Test fun roundIconTilesInConsoleTheme() {
-        Ui.applyPreset("xbox"); Ui.changed()
-        val sq = (Ui.iconBoxBg() as android.graphics.drawable.StateListDrawable).current as android.graphics.drawable.GradientDrawable
-        assertEquals(android.graphics.drawable.GradientDrawable.RECTANGLE, sq.shape)
-    }
-
+    // (7.27) test „roundIconTilesInConsoleTheme” usunięty – dotyczył usuniętego motywu Xbox (kopia: docs/archiwum_motywy/)
     @Test fun logoFallbackChainAndMonogram() {
         val ch = Repository.channels[0]
         assertTrue(Repository.piconCandidates(ch).isEmpty())

@@ -34,8 +34,10 @@ data class ModernColors(
     val lowPerf: Boolean,
 ) {
     companion object {
-        fun fromUi() = ModernColors(Color(Ui.bg), Color(Ui.panel), Color(Ui.accent), Color(ModernTheme.RING), Color(ModernTheme.LIVE),
-            Color(Ui.text), Color(Ui.text2), Color.White.copy(alpha = 0.16f), runCatching { Prefs.lowPerf }.getOrDefault(false))
+        // (v2) Nowoczesny v2: ramka fokusu Obsidian Glass; „Animacje przejść: Wyłączone” = przejścia jak w trybie słabszych urządzeń (natychmiast)
+        fun fromUi() = ModernColors(Color(Ui.bg), Color(Ui.panel), Color(Ui.accent), Color(ModernTheme.ring), Color(ModernTheme.LIVE),
+            Color(Ui.text), Color(Ui.text2), Color.White.copy(alpha = if (ModernV2.active) 0.12f else 0.16f),
+            runCatching { Prefs.lowPerf }.getOrDefault(false) || ModernV2.animationsOff)
     }
 }
 
@@ -133,6 +135,8 @@ class ModernOption(val label: String, val sub: String = "", val switch: Boolean?
 /** Ikony paska nawigacji (własne rysunki: ekran główny, wyjście); pozostałe – [X25Icons]. */
 object ModernIcons {
     const val HOME = "m:home"; const val EXIT = "m:exit"; const val PLAYLIST = "m:playlist"; const val INFO = "m:info"
+    /** (v2) Górny pasek START i skróty: przypomnienia (dzwonek), nagrywanie. */
+    const val BELL = "m:bell"; const val REC = "m:rec"
 
     fun draw(s: DrawScope, kind: String, c: Color) = with(s) {
         val m = minOf(size.width, size.height); val ox = (size.width - m) / 2; val oy = (size.height - m) / 2
@@ -157,6 +161,17 @@ object ModernIcons {
                 drawCircle(c, 0.4f * m, p(0.5f, 0.5f), style = st)
                 drawLine(c, p(0.5f, 0.46f), p(0.5f, 0.72f), st.width, StrokeCap.Round)
                 drawCircle(c, 0.05f * m, p(0.5f, 0.31f))
+            }
+            BELL -> {
+                drawArc(c, 180f, 180f, false, p(0.26f, 0.18f), Size(0.48f * m, 0.48f * m), style = st)
+                drawLine(c, p(0.26f, 0.42f), p(0.22f, 0.7f), st.width, StrokeCap.Round)
+                drawLine(c, p(0.74f, 0.42f), p(0.78f, 0.7f), st.width, StrokeCap.Round)
+                drawLine(c, p(0.14f, 0.72f), p(0.86f, 0.72f), st.width, StrokeCap.Round)
+                drawCircle(c, 0.07f * m, p(0.5f, 0.85f))
+            }
+            REC -> {
+                drawCircle(c, 0.38f * m, p(0.5f, 0.5f), style = st)
+                drawCircle(c, 0.2f * m, p(0.5f, 0.5f))
             }
             else -> X25Icons.draw(this, kind, c)
         }

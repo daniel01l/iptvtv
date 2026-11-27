@@ -27,6 +27,12 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.focus.onFocusChanged
 import pl.iptv.tv.data.Prefs
 
+/*
+ * (7.27) Motyw PS5 usunięty (kopia: docs/archiwum_motywy/). Zostały wspólne elementy Compose: kolory z [Ui] dla biblioteki
+ * aplikacji ([PS5ThemeProvider] – wartości aktywnego motywu, czyli Nowoczesnego), obwódka [ps5Frame], [TileImage],
+ * [SmoothScroll], [focusSpring], [raiseOnFocus], [focusScale].
+ */
+
 /** Kolory PS5 dla Compose – z [Ui] (preset PS5 + ewentualne kolory własne z Ustawień → Wygląd). */
 @Immutable
 data class Ps5Colors(
@@ -37,7 +43,7 @@ data class Ps5Colors(
 ) {
     companion object {
         // poświata: błękit PS5, przy innych motywach (ekran główny trybu launchera, biblioteka aplikacji) – akcent motywu
-        fun fromUi() = Ps5Colors(Color(Ui.bg), Color(Ui.panel), Color(Ui.accent), Color(Ui.focus), Color(if (Ps5Theme.active) Ps5Theme.GLOW else Ui.accent), Color(Ui.text), Color(Ui.text2),
+        fun fromUi() = Ps5Colors(Color(Ui.bg), Color(Ui.panel), Color(Ui.accent), Color(Ui.focus), Color(Ui.accent), Color(Ui.text), Color(Ui.text2),
             Color(Ui.panel).copy(alpha = 0.78f), runCatching { Prefs.lowPerf }.getOrDefault(false))
     }
 }
@@ -48,7 +54,7 @@ val LocalPs5 = staticCompositionLocalOf {
 }
 
 /**
- * Dostawca motywu PS5 dla ekranów w Compose (niezależny od [X25ThemeProvider]). Kolory czytane raz na wersję wyglądu
+ * Dostawca motywu PS5 dla ekranów w Compose . Kolory czytane raz na wersję wyglądu
  * ([Ui.version]) – zmiana w Ustawieniach odświeża ekran bez ponownego uruchamiania.
  */
 @Composable
@@ -88,7 +94,7 @@ fun Modifier.ps5Frame(on: Boolean, radius: Dp, ring: Color, glow: Color, halo: B
         }
     }
 
-/** Przełącznik „switch” w Compose (jak [Ps5Switch]). */
+/** Przełącznik „switch” w Compose (panel opcji ekranu głównego Nowoczesny). */
 fun DrawScope.ps5Switch(on: Boolean, accent: Color) {
     val h = size.height; val rad = h / 2
     drawRoundRect(if (on) accent else Color.White.copy(alpha = 0.22f), cornerRadius = CornerRadius(rad))
@@ -149,10 +155,6 @@ fun SmoothScrolling(content: @Composable () -> Unit) =
 /** Inicjały nazwy (np. kanału) – zastępstwo logo. */
 fun initialsOf(s: String) = s.split(' ').filter { it.isNotBlank() }.take(2).joinToString("") { it.take(1) }.uppercase()
 
-/** Pozycja panelu opcji PS5 ([switch] = przełącznik po prawej, null – zwykła pozycja). */
-@androidx.compose.runtime.Immutable
-class Ps5Option(val label: String, val sub: String = "", val switch: Boolean? = null, val action: () -> Unit)
-
 /** (7.3) Sztywność sprężyny przewijania list na pulpitach (ok. 250–300 ms do zatrzymania, bez odbicia). */
 const val SCROLL_STIFFNESS = 450f
 
@@ -201,22 +203,3 @@ fun Modifier.raiseOnFocus(): Modifier {
 fun focusScale(focused: Boolean, to: Float, label: String = "fs"): androidx.compose.runtime.State<Float> =
     androidx.compose.animation.core.animateFloatAsState(if (focused) to else 1f, focusSpring(), label = label)
 
-/**
- * (7.6) Wejście pulpitu (X25, PS5): treść przenika z lekkim uniesieniem (260 ms) – tylko w warstwie rysowania, bez ponownego
- * składania; w trybie słabszych urządzeń od razu.
- */
-@Composable
-fun Modifier.dashboardEnter(): Modifier {
-    val low = runCatching { pl.iptv.tv.data.Prefs.lowPerf }.getOrDefault(false)
-    val a = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(if (low) 1f else 0f) }
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        a.animateTo(1f, androidx.compose.animation.core.tween(DASHBOARD_ENTER_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing))
-    }
-    return this.then(Modifier.graphicsLayer {
-        alpha = a.value
-        compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha     // (7.7) bez bufora pośredniego
-        translationY = (1f - a.value) * 16.dp.toPx()
-    })
-}
-
-const val DASHBOARD_ENTER_MS = 260

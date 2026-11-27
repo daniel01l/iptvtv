@@ -4,6 +4,7 @@ import android.content.res.ColorStateList
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
+import pl.iptv.tv.data.Prefs
 
 /**
  * (7.20) Wspólne elementy okien z kartami (okna wyboru Ustawień [Dialogs.choiceCards], okno silnika w odtwarzaczu
@@ -50,22 +51,27 @@ object CardSheet {
     /** Kolory okna z aktywnego motywu (wywoływane przy każdym otwarciu – zmiana motywu działa od razu). */
     fun palette(): Palette {
         val O = pl.iptv.tv.ui.theme.ObsidianViews
+        // (v2) Nowoczesny v2 – „Obsidian Glass”: panel z kryciem wg „Przezroczystość UI”, niebieskie zaznaczenie z wyraźną ramką
+        if (ModernV2.active) { val G = pl.iptv.tv.ui.theme.ObsidianGlass
+            // (v2, ujednolicenie) V2GlassDialog #0C1426 78 %, karty – ciemne szkło #0E1629 65 %, fokus – tint 22 % + ramka #38BDF8
+            return Palette(G.DIALOG_FILL, G.TEXT, G.TEXT2, G.ACCENT, G.PILL_TINT, android.graphics.Color.WHITE,
+                G.PILL_REST, G.PILL_BORDER, G.FOCUS_RING) }
         return if (O.active) Palette(OBSIDIAN_PANEL, O.TEXT, O.TEXT2, O.ACCENT, O.ACCENT, android.graphics.Color.WHITE,
             0x0FFFFFFF, O.SPECULAR, 0x66FFFFFF)
         else Palette(withAlpha(Ui.panel, PANEL_ALPHA), Ui.text, Ui.text2, Ui.accent, Ui.focus, Ui.focusText,
             withAlpha(Ui.text, 0x0F), withAlpha(Ui.text, 0x29), withAlpha(Ui.focusText, 0x66))
     }
 
-    fun panelBg(p: Palette): Drawable = GradientDrawable().apply {
-        setColor(p.panel); cornerRadius = Ui.dp(PANEL_RADIUS_DP).toFloat(); setStroke(Ui.dp(1), p.specular)
-    }
+    fun panelBg(p: Palette): Drawable = if (ModernV2.active) pl.iptv.tv.ui.theme.ObsidianGlass.glassDialog()   // (v2) V2GlassDialog
+        else GradientDrawable().apply { setColor(p.panel); cornerRadius = Ui.dp(PANEL_RADIUS_DP).toFloat(); setStroke(Ui.dp(1), p.specular) }
 
     private fun round(fill: Int, radiusDp: Int, stroke: Int = 0, strokeColor: Int = 0) = GradientDrawable().apply {
         setColor(fill); cornerRadius = Ui.dp(radiusDp).toFloat(); if (stroke > 0) setStroke(stroke, strokeColor)
     }
 
     /** Tło karty: fokus – wypełnienie zaznaczenia motywu + obwódka; wybrana – akcent 18 % z obwódką; spoczynek – 6 %. */
-    fun cardBg(p: Palette): Drawable = StateListDrawable().apply {
+    fun cardBg(p: Palette): Drawable = if (ModernV2.active) pl.iptv.tv.ui.theme.ObsidianGlass.optionCard(16, Prefs.lowPerf)   // (v2) V2OptionRow
+        else StateListDrawable().apply {
         addState(intArrayOf(android.R.attr.state_focused), round(p.focusFill, CARD_RADIUS_DP, Ui.dp(2), p.focusRing))
         addState(intArrayOf(android.R.attr.state_pressed), round(p.focusFill, CARD_RADIUS_DP))
         addState(intArrayOf(android.R.attr.state_activated), round(p.chosenFill, CARD_RADIUS_DP, maxOf(2, Ui.dp(2) * 3 / 4), p.accent))
@@ -82,7 +88,9 @@ object CardSheet {
         text = label; textSize = 15f; gravity = android.view.Gravity.CENTER; isFocusable = true; isClickable = true
         id = android.view.View.generateViewId(); contentDescription = label
         setTypeface(typeface, android.graphics.Typeface.BOLD); setTextColor(textColors(p))
-        background = StateListDrawable().apply {
+        // (v2) V2GlowPillButton potwierdzający (Gotowe, Zastosuj…): gradient #2F80ED → #38BDF8 z poświatą, biały tekst
+        background = if (ModernV2.active) pl.iptv.tv.ui.theme.ObsidianGlass.button(true, 40, Prefs.lowPerf).also { setTextColor(android.graphics.Color.WHITE) }
+        else StateListDrawable().apply {
             addState(intArrayOf(android.R.attr.state_focused), round(p.focusFill, 40, Ui.dp(2), p.focusRing))
             addState(intArrayOf(android.R.attr.state_pressed), round(p.focusFill, 40))
             addState(intArrayOf(), round(withAlpha(p.text, 0x1F), 40))
@@ -110,6 +118,7 @@ object CardSheet {
         override fun draw(c: android.graphics.Canvas) {
             val b = bounds; val h = b.height().toFloat(); val rad = h / 2
             r.set(b.left.toFloat(), b.top.toFloat(), b.right.toFloat(), b.bottom.toFloat())
+            if (ModernV2.active) { pl.iptv.tv.ui.theme.ObsidianGlass.drawSwitch(c, b, on, paint, r); return }   // (v2) niebieska kapsuła
             paint.color = if (on) p.accent else withAlpha(p.text2, 0x33); c.drawRoundRect(r, rad, rad, paint)
             paint.color = if (on) android.graphics.Color.WHITE else withAlpha(p.text, 0xCC)
             c.drawCircle(if (on) b.right - rad else b.left + rad, b.top + rad, rad - Ui.dp(3), paint)
@@ -178,6 +187,8 @@ object CardSheet {
             w.addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND); w.setDimAmount(Dialogs.CHOICE_DIM)
             val dm = a.resources.displayMetrics
             w.setLayout(minOf(Ui.dp(maxWidthDp), (dm.widthPixels * 0.9f).toInt()), android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
+            // (v2) V2GlassDialog: okno nad klawiaturą ekranową (pola PIN, klucz TMDB, adres wtyczki)
+            if (ModernV2.active) w.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         }
     }
 }

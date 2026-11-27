@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <queries>
+        <!-- (7.17) wyszukiwanie głosowe (Uniwersalna wyszukiwarka) – sprawdzenie, czy urządzenie ma rozpoznawanie mowy -->
+        <intent><action android:name="android.speech.action.RECOGNIZE_SPEECH" /></intent>
+        <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent>
+        <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LEANBACK_LAUNCHER" /></intent>
+        <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.HOME" /></intent>
+        <!-- SmartTube (Android 11+: widoczność pakietów) – SmartTubeIntegrationHelper -->
+        <package android:name="com.liskovsoft.smarttubetv" />
+        <package android:name="com.liskovsoft.smarttubetv.beta" />
+        <intent><action android:name="com.liskovsoft.smarttubetv.action.SEARCH" /></intent>
+        <!-- dialog awaryjny odtwarzacza STube: „Odtwórz w YouTube” -->
+        <package android:name="com.google.android.youtube.tv" />
+        <package android:name="com.google.android.youtube" />
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="https" /></intent>
+    </queries>
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.wifi" android:required="false" />
+    <uses-feature android:name="android.hardware.screen.landscape" android:required="false" />
+    <uses-feature android:name="android.hardware.screen.portrait" android:required="false" />
+
+    <application
+        android:name=".IptvApp"
+        android:allowBackup="false" android:fullBackupContent="false" android:largeHeap="true"
+        android:banner="@drawable/banner"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:theme="@style/AppTheme"
+        android:requestLegacyExternalStorage="true"
+        android:usesCleartextTraffic="true">
+        <receiver android:name=".BootReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="pl.iptv.tv.BOOT_RETRY" />
+            </intent-filter>
+        </receiver>
+        <!-- Tryb launchera: domyślnie wyłączony, włączany w Ustawienia → Funkcje -->
+        <activity android:name=".HomeActivity" android:enabled="false" android:exported="true"
+            android:launchMode="singleTask" android:taskAffinity="" android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" android:noHistory="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".ui.MainActivity" android:exported="true" android:windowSoftInputMode="stateHidden"
+            android:screenOrientation="behind">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".ui.SettingsActivity" android:screenOrientation="behind"
+            android:windowSoftInputMode="adjustResize|stateHidden" />
+        <!-- (7.17) panel wyszukiwania STube: klawiatura ekranowa D-pad – bez systemowej klawiatury -->
+        <activity android:name=".ui.STubeSearchActivity" android:screenOrientation="behind"
+            android:windowSoftInputMode="stateAlwaysHidden" />
+        <receiver android:name=".update.InstallReceiver" android:exported="false" />
+        <receiver android:name=".update.UpdatedReceiver" android:exported="true">
+            <intent-filter><action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter>
+        </receiver>
+        <service android:name=".rec.RecordingService" android:exported="false" android:foregroundServiceType="dataSync" />
+        <!-- STube: odtwarzanie w tle (sesja multimediów; eksport wymagany dla kontrolerów multimediów systemu) -->
+        <service android:name=".ui.YtPlaybackService" android:exported="true" android:foregroundServiceType="mediaPlayback">
+            <intent-filter><action android:name="androidx.media3.session.MediaSessionService" /></intent-filter>
+        </service>
+        <activity android:name=".ui.RecordingPlayerActivity" android:theme="@style/PlayerTheme" android:screenOrientation="behind" />
+        <receiver android:name=".reminders.ReminderReceiver" android:exported="false" />
+        <activity android:name=".reminders.ReminderActivity" android:exported="false"
+            android:theme="@style/ReminderTheme" android:excludeFromRecents="true" android:taskAffinity="pl.iptv.tv.reminder"
+            android:launchMode="singleInstance" />
+        <activity android:name=".ui.GuideActivity" android:screenOrientation="behind" />
+        <!-- Stremio: tablica i wyszukiwarka, szczegóły ze źródłami, wtyczki, odtwarzacz -->
+        <activity android:name=".ui.StremioActivity" android:screenOrientation="behind" android:windowSoftInputMode="adjustResize|stateHidden" />
+        <activity android:name=".ui.StremioDetailActivity" android:screenOrientation="behind" />
+        <activity android:name=".ui.StremioAddonsActivity" android:screenOrientation="behind" />
+        <!-- (7.5) obraz w obrazie na telefonach / tabletach (pływające okno, film gra dalej) -->
+        <activity android:name=".ui.StremioPlayerActivity" android:theme="@style/PlayerTheme" android:screenOrientation="behind"
+            android:supportsPictureInPicture="true" android:resizeableActivity="true"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboard|keyboardHidden|navigation|uiMode" />
+        <!-- motyw X25: pulpit z kafelkami (Jetpack Compose), nad listą kanałów -->
+        <activity android:name=".ui.X25DashboardActivity" android:screenOrientation="behind" android:windowSoftInputMode="stateHidden" />
+        <!-- motyw PS5: ekran główny (zakładki, rząd aplikacji, karty), nad listą kanałów -->
+        <activity android:name=".ui.Ps5HomeActivity" android:screenOrientation="behind" android:windowSoftInputMode="stateHidden" />
+        <activity android:name=".ui.ModernHomeActivity" android:screenOrientation="behind" android:windowSoftInputMode="stateHidden" />
+        <!-- biblioteka aplikacji (tryb launchera, pulpity X25 / PS5) -->
+        <activity android:name=".ui.AppLibraryActivity" android:screenOrientation="behind" android:windowSoftInputMode="stateHidden" />
+        <activity android:name=".ui.STubeActivity" android:screenOrientation="behind"
+            android:windowSoftInputMode="adjustResize|stateHidden" />
+        <!-- odtwarzacz STube: jedna instancja (nowy film / pełny ekran z mini-playera – ta sama), obraz w obrazie (PiP – system przenosi okno do osobnego zadania, menu zostaje) -->
+        <activity android:name=".ui.YtPlayerActivity" android:theme="@style/PlayerTheme" android:screenOrientation="behind"
+            android:launchMode="singleTask" android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode" />
+        <activity android:name=".ui.GuideListActivity" />
+        <activity android:name=".ui.LockActivity" android:exported="false" android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|navigation" />
+        <activity android:name=".ui.SetupActivity" android:screenOrientation="behind"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|navigation"
+            android:windowSoftInputMode="adjustResize|stateHidden" />
+        <activity android:name=".ui.EpgSearchActivity" android:screenOrientation="behind"
+            android:windowSoftInputMode="adjustResize|stateHidden" />
+        <activity android:name=".ui.EditorActivity" android:screenOrientation="behind" />
+        <activity android:name=".ui.SearchActivity" android:screenOrientation="behind"
+            android:windowSoftInputMode="adjustResize|stateHidden" />
+        <activity android:name=".ui.PlayerActivity" android:supportsPictureInPicture="true" android:resizeableActivity="true" android:screenOrientation="behind"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize"
+            android:theme="@style/PlayerTheme" />
+        <!-- (7.25) Google Cast – przesyłanie na urządzenia w pobliżu (CastHub / GoogleCastBackend) -->
+        <meta-data android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME" android:value="pl.iptv.tv.ui.CastOptionsProvider"/>
+    </application>
+</manifest>

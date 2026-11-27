@@ -115,7 +115,7 @@ class GuideSetupTest {
     }
 
     @Test fun themedDialogsGradientsFonts() {
-        Ui.applyPreset("classic")
+        applyClassic()
         val c = Robolectric.buildActivity(MainActivity::class.java).setup(); idle()
         Dialogs.menu(c.get(), "Test", listOf("A" to {}, "B" to {})); idle()
         val d = ShadowDialog.getLatestDialog() as androidx.appcompat.app.AlertDialog
@@ -209,8 +209,8 @@ class GuideSetupTest {
         assertTrue(all(a.window.decorView).filterIsInstance<TextView>().any { it.text.contains("1/2") })   // 1 z 2 kanałów z archiwum
         btn("Dalej").performClick(); idle()
         assertTrue(header().contains("Wygląd"))
-        all(a.window.decorView).filterIsInstance<TextView>().first { it.text.toString() == "Klasyczny dekoder" }.let { (it.parent as View).performClick() }; idle()
-        assertEquals("classic", Ui.preset.id)
+        all(a.window.decorView).filterIsInstance<TextView>().first { it.text.toString() == ModernV2.NAME }.let { (it.parent as View).performClick() }; idle()
+        assertEquals(ModernV2.ID, Ui.preset.id)
         btn("Dalej").performClick(); idle()
         assertTrue(header().contains("Uruchamianie"))
         btn("✓ Zakończ").performClick(); idle()

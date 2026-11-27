@@ -71,6 +71,19 @@ object M3uVod {
         return null
     }
 
+    /**
+     * (v2) Pozycja jednoznacznie VOD – do usunięcia z listy Live TV: jawny `tvg-type` filmu / serialu, adres Xtream `/movie/…`
+     * / `/series/…` albo plik wideo (.mp4, .mkv…). Sama nazwa grupy („Filmy”, „Seriale”) i wzorzec odcinka NIE wystarczą –
+     * kanały na żywo w grupie „Filmy” (np. kanały filmowe) zostają na liście kanałów (w katalogu VOD nadal są wg [classify]).
+     */
+    fun isStrongVod(c: Channel): Boolean {
+        val type = c.tvgType.lowercase()
+        if (type in setOf("live", "stream", "channel")) return false
+        if (type in setOf("movie", "movies", "vod", "film", "series", "serial", "episode", "show", "tvshow")) return true
+        val url = c.url.substringBefore('|')
+        return XC_MOVIE.containsMatchIn(url) || XC_SERIES.containsMatchIn(url) || VIDEO_EXT.containsMatchIn(url)
+    }
+
     /** Rodzaj pozycji listy: kanał na żywo (domyślnie), film albo odcinek serialu. */
     fun classify(c: Channel): Kind {
         val type = c.tvgType.lowercase()

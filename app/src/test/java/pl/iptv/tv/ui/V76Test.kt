@@ -22,18 +22,11 @@ class V76Test {
         assertEquals(236.dp, ModernHomeActivity.Dims(compact = false, narrow = false).wideW)
     }
 
-    @Test fun ps5PortraitCardsFullWidthAndX25Grid() {
-        val p = Ps5HomeActivity.Dims(compact = false, narrow = true, portrait = true, availW = 379.dp)
-        assertEquals(379.dp, p.heroW); assertEquals(379.dp, p.midW); assertEquals(379.dp, p.serviceW)
-        assertEquals(380.dp, Ps5HomeActivity.Dims(compact = false, narrow = false).heroW)
-        assertTrue(X25DashboardActivity.Dims(compact = false, narrow = true, portrait = true).portrait)
-    }
-
+    // (7.27) test „ps5PortraitCardsFullWidthAndX25Grid” usunięty – dotyczył usuniętych motywów Klasyczny / Xbox / X25 / PS5 (kopia: docs/archiwum_motywy/)
     @Test fun fasterTabAndCategorySwitching() {
         assertTrue(SettingsActivity.TAB_FOCUS_DELAY_MS < 250)
         assertTrue(SettingsActivity.TAB_ANIM_MS in 100..250)
         assertTrue(MainActivity.GROUP_FOCUS_DELAY_MS < 250)
         assertTrue(ModernHomeActivity.SECTION_ANIM_MS in 150..300)
-        assertTrue(DASHBOARD_ENTER_MS in 150..350)
     }
 }

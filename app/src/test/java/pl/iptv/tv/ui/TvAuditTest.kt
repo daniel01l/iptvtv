@@ -106,7 +106,7 @@ class TvAuditTest {
         Ui.infoStyle = 4; assertNull(Ui.infoBarBg(false))
         Ui.infoStyle = 1; Ui.infoAlphaIndex = 2; assertEquals(70 * 255 / 100, Ui.infoBarBg(false)!!.alpha)
         assertTrue(Ui.infoFloating)
-        Ui.applyPreset("classic"); assertEquals(3, Ui.infoStyle)               // motyw klasyczny = pasek dekodera
+        applyClassic(); assertEquals(3, Ui.infoStyle)               // motyw klasyczny = pasek dekodera
         Ui.applyPreset("modern"); assertEquals(0, Ui.infoStyle)
         Prefs.remove("info_alpha")
         // ustawienia: sekcja paska w Wyglądzie

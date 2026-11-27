@@ -30,6 +30,13 @@ object StremioUi {
     val posterH: Int get() = if (pl.iptv.tv.ui.theme.ObsidianViews.active) POSTER_W * 3 / 2 else POSTER_H
     /** Skala zaznaczonego plakatu (warstwa GPU – animacja właściwości widoku, bez przebudowy układu). */
     const val POSTER_FOCUS_SCALE = 1.07f
+    /** (v2) Mniejsze powiększenie na TV (ramka mieści się w odstępie rzędu), telefon (dotyk) – bez powiększenia. */
+    const val POSTER_FOCUS_SCALE_V2 = 1.04f
+    fun posterScale(c: Context): Float = when {
+        !ModernV2.active -> POSTER_FOCUS_SCALE
+        MobilePortraitScaffold.active(c) -> 1f
+        else -> POSTER_FOCUS_SCALE_V2
+    }
 
     /** Odmiana liczebnika: 1 źródło, 2–4 źródła, 5+ źródeł (12–14 – „źródeł”). */
     fun plural(n: Int, one: String, few: String, many: String) = when {
@@ -40,7 +47,7 @@ object StremioUi {
 
     /** Przycisk w stylu motywu; [icon] – rysowana ikona ([PlayerIcon]) zamiast emoji, zmienia kolor wraz z zaznaczeniem. */
     fun button(c: Context, text: String, icon: String? = null, onClick: () -> Unit) = TextView(c).apply {
-        this.text = text; tag = "item"; isFocusable = true; isClickable = true; textSize = 16f; gravity = Gravity.CENTER
+        this.text = text; tag = if (ModernV2.active) "item nozoom" else "item"; isFocusable = true; isClickable = true; textSize = 16f; gravity = Gravity.CENTER
         setPadding(Ui.dp(16), Ui.dp(10), Ui.dp(16), Ui.dp(10)); setOnClickListener { onClick() }
         if (icon != null) {
             setCompoundDrawables(icon(icon, 20), null, null, null)
@@ -223,10 +230,11 @@ class StremioPosterAdapter(val items: MutableList<StremioTile> = mutableListOf()
         if (obsidian) {
             frame.isDuplicateParentStateEnabled = true
             if (android.os.Build.VERSION.SDK_INT >= 23) frame.foreground = android.graphics.drawable.StateListDrawable().apply {
-                addState(intArrayOf(android.R.attr.state_focused), GradientDrawable().apply { cornerRadius = radius; setStroke(Ui.dp(2), O.ACCENT) })
+                // (v2) Nowoczesny v2: wyraźna niebieska ramka 3 dp (#60A5FA), poświata w kolorze #2F80ED (cień)
+                addState(intArrayOf(android.R.attr.state_focused), GradientDrawable().apply { cornerRadius = radius; setStroke(Ui.dp(if (ModernV2.active) 3 else 2), if (ModernV2.active) pl.iptv.tv.ui.theme.ObsidianGlass.FOCUS_RING else O.ACCENT) })
                 addState(intArrayOf(), GradientDrawable().apply { cornerRadius = radius; setStroke(Ui.dp(1), O.SPECULAR) })
             }
-            if (android.os.Build.VERSION.SDK_INT >= 28) { frame.outlineSpotShadowColor = O.ACCENT; frame.outlineAmbientShadowColor = O.ACCENT }
+            if (android.os.Build.VERSION.SDK_INT >= 28) { val glow = if (ModernV2.active) pl.iptv.tv.ui.theme.ObsidianGlass.FOCUS else O.ACCENT; frame.outlineSpotShadowColor = glow; frame.outlineAmbientShadowColor = glow }
         }
         // dyskretna pigułka z oceną w prawym górnym rogu – (7.22) we wszystkich motywach, kolory z palety motywu
         rating = StremioUi.posterBadge(c, accentText = false, tag2 = StremioUi.RATING_TAG)
@@ -255,8 +263,10 @@ class StremioPosterAdapter(val items: MutableList<StremioTile> = mutableListOf()
             if (f) items.getOrNull(vh.bindingAdapterPosition)?.let(onFocus)
             if (obsidian) {
                 // skala i poświata tylko we właściwościach widoku (RenderNode – GPU), bez ponownego pomiaru rzędu
-                if (Ui.anim == 0) { val s = if (f) StremioUi.POSTER_FOCUS_SCALE else 1f; root.scaleX = s; root.scaleY = s } else Ui.focusZoom(root, f, StremioUi.POSTER_FOCUS_SCALE)
-                frame.elevation = if (f) Ui.dp(14).toFloat() else 0f
+                val zoom = StremioUi.posterScale(root.context)
+                if (Ui.anim == 0) { val s = if (f) zoom else 1f; root.scaleX = s; root.scaleY = s } else Ui.focusZoom(root, f, zoom)
+                // (v2) bez cienia uniesienia – cień prześwitywał przez szkło i ramka „wystawała” poza plakat
+                frame.elevation = if (f && !ModernV2.active) Ui.dp(14).toFloat() else 0f
             }
         }
         if (obsidian) root.pivotY = 0f
@@ -327,10 +337,10 @@ class StremioAddonAdapter(var items: List<Pair<StremioAddon, Boolean>>, private 
         val res = a.resourceNames.joinToString(", ") { when (it) { "stream" -> "źródła"; "subtitles" -> "napisy"; "catalog" -> "katalogi"; "meta" -> "metadane"; else -> it } }
         h.desc.text = listOfNotNull(res.ifBlank { null }, a.description.ifBlank { null }).joinToString("  ·  ")
         val obsidian = pl.iptv.tv.ui.theme.ObsidianViews.active
-        if (Ps5Theme.active || obsidian) {
-            // PS5: przełącznik „switch” po prawej (jak w ustawieniach konsoli)
+        if (obsidian) {
+            // przełącznik „switch” po prawej
             h.state.text = if (on) "Włączona" else "Wyłączona"
-            h.state.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, if (obsidian) pl.iptv.tv.ui.theme.ObsidianViews.Switch(on) else Ps5Switch(on), null)
+            h.state.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, pl.iptv.tv.ui.theme.ObsidianViews.Switch(on), null)
             h.state.compoundDrawablePadding = Ui.dp(12)
         } else {
             h.state.text = if (on) "✔ Włączona" else "✖ Wyłączona"

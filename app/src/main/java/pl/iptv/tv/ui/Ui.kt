@@ -28,7 +28,7 @@ data class ThemePreset(
     val text: Int, val text2: Int,
     val radius: Int, val font: Int, val focusStyle: FocusStyle,
     val anim: Int, val progress: Int, val infoPos: Int, val zoom: Boolean,
-    /** Faktura powierzchni: [Ui.S_FLAT], [Ui.S_GLASS] (szkło), [Ui.S_XBOX] (konsola). */
+    /** Faktura powierzchni: [Ui.S_FLAT], [Ui.S_GLASS] (szkło), [Ui.S_MODERN] (Nowoczesny). */
     val surface: Int = 0,
     /** Układ menu głównego narzucany przez motyw (-1 = bez zmiany, [Ui.LAYOUT_CARDS] = karty poziome). */
     val layout: Int = -1,
@@ -122,26 +122,15 @@ object Ui {
         // ekran główny z paskiem ikon, hero i rzędami kafelków (ModernHomeActivity); to samo id – dotychczasowi użytkownicy dostają nowy wygląd
         ThemePreset(ModernTheme.ID, "Nowoczesny", c("#080A0F"), c("#121722"), c("#3B82F6"), c("#3B82F6"), c("#FFFFFF"),
             c("#F8FAFC"), c("#94A3B8"), 16, 0, FocusStyle.FILL, 9, 2, 0, true, S_MODERN),
-        ThemePreset("classic", "Klasyczny dekoder", c("#06134A"), c("#0D2470"), c("#FFC400"), c("#FFB300"), c("#000000"),
-            c("#FFFFFF"), c("#B8C7F0"), 0, 2, FocusStyle.GRADIENT, 0, 3, 0, false),
-        // (6.5) zostają tylko: Nowoczesny, Klasyczny dekoder, Xbox, X25 i PS5 – pozostałe w [REMOVED_THEMES]
-        ThemePreset("xbox", "Xbox Series X – konsola", c("#0B0B0B"), c("#1C1C1C"), c("#107C10"), c("#107C10"), c("#FFFFFF"),
-            c("#F2F2F2"), c("#9A9A9A"), 2, 2, FocusStyle.OUTLINE, 8, 1, 0, true, S_XBOX, LAYOUT_CARDS),
-        // X25: grafit i czerń z neonową zielenią, akrylowe panele, pulpit z kafelkami (X25DashboardActivity)
-        ThemePreset(X25Theme.ID, "X25 Dashboard (rocznicowy, zielony neon)", c("#050806"), c("#121815"), c("#3CF26A"), c("#3CF26A"), c("#FFFFFF"),
-            c("#FFFFFF"), c("#9DB3A3"), 10, 4, FocusStyle.OUTLINE, 8, 2, 0, true, S_X25),
-        // PS5: głęboki granat i czerń, świetliste błękity, tło „blueprint”, biało-błękitna obwódka, ekran główny (Ps5HomeActivity)
-        ThemePreset(Ps5Theme.ID, "PS5 (granat, blueprint)", c("#050A1E"), c("#0E1736"), c("#3D8BFF"), c("#EAF4FF"), c("#FFFFFF"),
-            c("#FFFFFF"), c("#A9B8DA"), 12, 3, FocusStyle.OUTLINE, 3, 2, 0, true, S_PS5),
+        // (po 7.26) Nowoczesny v2 – „Obsidian Glass”: ta sama faktura i funkcje co Nowoczesny, oprawa z tokenów ObsidianGlass (ModernV2)
+        ThemePreset(ModernV2.ID, ModernV2.NAME, c("#050811"), c("#10192E"), c("#2F80ED"), c("#2F80ED"), c("#FFFFFF"),
+            c("#F1F5F9"), c("#9FB0C8"), 18, 0, FocusStyle.FILL, 9, 2, 0, true, S_MODERN),
+        // (7.27) Klasyczny dekoder, Xbox Series X, X25 Dashboard i PS5 usunięte (kopia: docs/archiwum_motywy/) –
+        // zapisane id tych motywów → Nowoczesny ([REMOVED_THEMES], [migrateRemovedThemes])
     )
 
     const val S_FLAT = 0
     const val S_GLASS = 2
-    const val S_XBOX = 5
-    /** Motyw X25: akryl (półprzezroczyste panele), neonowa ramka zaznaczenia z poświatą, tło [X25Backdrop]. */
-    const val S_X25 = 6
-    /** Motyw PS5: granatowe panele, biało-błękitna obwódka zaznaczenia, tło [Ps5Backdrop]. */
-    const val S_PS5 = 7
     /** Motyw Nowoczesny (7.0): czarne tło z poświatą, półprzezroczyste panele, niebieskie zaznaczenie z jasną obwódką, tło [ModernBackdrop]. */
     const val S_MODERN = 8
     /** Układ menu głównego „karty poziome” (konsole). */
@@ -160,9 +149,6 @@ object Ui {
 
     val geo: Geometry get() = when (surface) {
         S_GLASS -> Geometry(zoomMax = 0.05f, headerScale = 1.35f, zoomMs = 170, overshoot = 1.4f, titleCenter = true, iconRound = true, blur = 28)
-        S_XBOX -> Geometry(zoomMax = 0.05f, headerScale = 1.1f, zoomMs = 80, topBar = true, focusStroke = 3)
-        S_X25 -> Geometry(zoomMax = 0.04f, headerScale = 1.15f, zoomMs = 90, topBar = true, glow = true, focusStroke = 3)
-        S_PS5 -> Geometry(zoomMax = 0.05f, headerScale = 1.2f, zoomMs = 90, glow = true, focusStroke = 2)
         // Nowoczesny: wyraźne powiększenie, półprzezroczyste okna z rozmyciem tła (gdy urządzenie obsługuje)
         S_MODERN -> Geometry(zoomMax = 0.06f, headerScale = 1.15f, zoomMs = 120, blur = 24, focusStroke = 2)
         else -> Geometry()
@@ -198,7 +184,10 @@ object Ui {
     val INFO_POS = listOf("Na dole", "Na górze")
     val INFO_TIMEOUTS = listOf(3, 5, 8, 12)
     val INFO_STYLES = listOf("Gradient (nowoczesny)", "Pływający panel", "Szkło (przezroczyste)", "Klasyczny dekoder", "Minimalny (sam tekst)",
-        "Pływająca karta", "iOS – szklana kapsuła", "Panel z paskiem akcentu", "Pasek z poświatą", "Xbox – ostry pasek")
+        "Pływająca karta", "iOS – szklana kapsuła", "Panel z paskiem akcentu", "Pasek z poświatą", "Xbox – ostry pasek",
+        /* (v2) */ "Obsidian Glass – kompaktowa karta (Nowoczesny v2)")
+    /** (v2) Styl paska informacji „Obsidian Glass” – domyślny w motywie Nowoczesny v2 (kompaktowa karta z pigułką parametrów strumienia). */
+    const val INFO_GLASS = 10
     val INFO_ALPHAS = listOf(100, 85, 70, 55, 40)
     val INFO_SIZES = listOf(0.85f to "Mały", 1f to "Normalny", 1.2f to "Duży")
     val ARCHIVE_TIMEOUTS = listOf(1, 2, 3, 5)
@@ -230,10 +219,32 @@ object Ui {
 
     /**
      * Usunięte motywy → najbliższy pozostały. 6.1: stary PS5 → Xbox, MagicOS / Windows 11 → Nowoczesny;
-     * 6.5: iOS, AMOLED, Jasny, Neon, Kino, Leśny → Nowoczesny (nowy motyw PS5 z 6.5 ma id [Ps5Theme.ID]).
+     * 6.5: iOS, AMOLED, Jasny, Neon, Kino, Leśny → Nowoczesny (7.27: Klasyczny, Xbox, X25 i PS5 → Nowoczesny).
      */
-    val REMOVED_THEMES = mapOf("ps5" to "xbox", "magic" to "modern", "win11" to "modern", "ios" to "modern", "amoled" to "modern",
-        "light" to "modern", "neon" to "modern", "cinema" to "modern", "forest" to "modern")
+    val REMOVED_THEMES = mapOf("ps5" to "modern", "magic" to "modern", "win11" to "modern", "ios" to "modern", "amoled" to "modern",
+        "light" to "modern", "neon" to "modern", "cinema" to "modern", "forest" to "modern",
+        // (7.27) motywy przeniesione do docs/archiwum_motywy/
+        "classic" to "modern", "xbox" to "modern", "x25" to "modern", "ps5dash" to "modern")
+
+    /**
+     * (7.27) Jednorazowo przy starcie: zapisany motyw usunięty z aplikacji (Klasyczny dekoder, Xbox, X25, PS5 i starsze) → Nowoczesny.
+     * Zmienia wyłącznie klucz motywu, układ menu narzucony przez Xbox (karty poziome) i – dla X25 / PS5 z pulpitem jako ekranem
+     * startowym – włącza ekran główny Nowoczesny. Kolory / czcionka / animacje dawnego motywu ([PRESET_KEYS]) wracają do wartości
+     * Nowoczesnego, jak przy każdej zmianie motywu (wcześniej zapisane jako własny motyw – [CustomThemes]). Listy M3U, EPG, profil
+     * silnika i pozostałe ustawienia bez zmian. Zwraca true, gdy coś zmieniono.
+     */
+    fun migrateRemovedThemes(): Boolean {
+        val old = runCatching { Prefs.theme }.getOrNull() ?: return false
+        if (old.isBlank() || PRESETS.any { it.id == old } || testPreset?.id == old) return false
+        val dashboard = (old == "x25" && Prefs.x25Dashboard) || (old == "ps5dash" && Prefs.ps5Home)
+        val wasCards = old == "xbox" || old == "ps5"
+        runCatching { CustomThemes.autoSave() }
+        Prefs.theme = ModernTheme.ID; Prefs.remove(*PRESET_KEYS)
+        if (wasCards && Prefs.mainLayout == LAYOUT_CARDS) Prefs.mainLayout = 0
+        if (dashboard) Prefs.modernHome = true
+        themeEpoch++; changed()
+        return true
+    }
 
     /**
      * Pierwsze uruchomienie po instalacji (nie po aktualizacji) bez wybranego motywu – (7.7) motyw Nowoczesny z jego ekranem
@@ -247,7 +258,14 @@ object Ui {
         return true
     }
 
+    /**
+     * Wyłącznie testy jednostkowe: dodatkowy preset bez faktury „Obsidian” (dawny Klasyczny dekoder), aby sprawdzać ścieżki kodu
+     * poza motywami Nowoczesny / v2. W aplikacji zawsze null; zerowany przy wyborze innego motywu ([applyPreset]).
+     */
+    @Volatile var testPreset: ThemePreset? = null
+
     val preset: ThemePreset get() {
+        testPreset?.let { t -> if (runCatching { Prefs.theme }.getOrNull() == t.id) return t }
         val id = Prefs.theme.let { REMOVED_THEMES[it] ?: it }
         return PRESETS.firstOrNull { it.id == id } ?: PRESETS[0]
     }
@@ -260,20 +278,17 @@ object Ui {
     /** (7.8) Zmiana języka – ekrany przebudowywane jak po zmianie motywu. */
     fun languageChanged() { themeEpoch++; changed() }
 
-    /** [restoring] – powrót do poprzedniego motywu (wyłączenie X25 / PS5): jego zapamiętany „poprzedni” motyw zostaje bez zmian. */
+    /** [restoring] – dawniej powrót z motywu X25 / PS5 (usunięte w 7.27); parametr zostaje dla zgodności wywołań. */
     fun applyPreset(id: String, restoring: Boolean = false) {
         themeEpoch++
+        if (testPreset?.id != id) testPreset = null
         // (7.7) własne zmiany bieżącego motywu zapisane, zanim nowy motyw je wyzeruje ("Własny – <motyw>" w Ustawieniach)
         if (id != Prefs.theme) runCatching { CustomThemes.autoSave() }
         val old = preset
         Prefs.theme = id; Prefs.remove(*PRESET_KEYS)
-        // motywy konsolowe ustawiają też układ menu (karty poziome); powrót do zwykłego motywu przywraca układ klasyczny
-        // X25: zapamiętany poprzedni motyw (wyłączenie X25 wraca do niego), pulpit otwierany od razu
-        if (id == X25Theme.ID && old.id != X25Theme.ID) { if (!restoring) Prefs.x25PrevTheme = old.id; X25Theme.justEnabled = true }
-        // PS5: tak samo (poprzedni motyw może być X25 – swobodne przełączanie między motywami konsolowymi)
-        if (id == Ps5Theme.ID && old.id != Ps5Theme.ID) { if (!restoring) Prefs.ps5PrevTheme = old.id; X25Theme.justEnabled = true }
-        // Nowoczesny (np. powrót z X25 / PS5): lista kanałów otwiera jego ekran główny
-        if (id == ModernTheme.ID && old.id != ModernTheme.ID) X25Theme.justEnabled = true
+        // Nowoczesny: lista kanałów otwiera jego ekran główny
+        // (v2) Nowoczesny ↔ Nowoczesny v2 – ten sam ekran główny, bez ponownego otwierania
+        if (ModernV2.isModern(id) && !ModernV2.isModern(old.id)) X25Theme.justEnabled = true
         val p = preset
         if (p.layout >= 0) Prefs.mainLayout = p.layout
         else if (old.layout >= 0 && Prefs.mainLayout == old.layout) Prefs.mainLayout = 0
@@ -299,20 +314,15 @@ object Ui {
         return g
     }
 
-    /** Tło ekranu; motywy z fakturą: szkło (poświata akcentu), konsola Xbox (grafit z zielenią). */
+    /** Tło ekranu; motywy z fakturą: szkło (poświata akcentu), Nowoczesny ([ModernBackdrop]). */
     fun bgDrawable(): Drawable {
         if (color2("bg") != null || surface == S_FLAT) return fill("bg", radius = false).apply { setDither(true) }
         val b = bg
         return when (surface) {
             S_GLASS -> TexturedDrawable(blend(b, accent, 0.16f), b, 0f, noiseAlpha = 0x08, diagonal = true)
-            // Xbox: grafit z delikatną zielenią
-            S_XBOX -> TexturedDrawable(blend(b, accent, 0.07f), shade(b, -0.1f), 0f)
-            // X25: warstwowy ciemnozielony gradient z poświatą i znakiem „25” (rysowany – bez bitmap)
-            S_X25 -> X25Backdrop(b, accent)
-            // PS5: granat z siatką kreślarską i rysunkami technicznymi (bitmapa w połowie rozdzielczości, wspólna)
-            S_PS5 -> Ps5Backdrop(b, accent)
             // Nowoczesny: czerń z granatową górą i niebieską poświatą (same cieniowania, bez bitmapy)
-            S_MODERN -> ModernBackdrop(b, accent)
+            // Nowoczesny v2: GlassBackdrop (granat → czerń, poświata niebiesko-fioletowa); własny kolor tła – dawne tło z tym kolorem
+            S_MODERN -> if (ModernV2.active && b == preset.bg) pl.iptv.tv.ui.theme.GlassBackdrop() else ModernBackdrop(b, accent)
             else -> TexturedDrawable(shade(b, 0.03f), shade(b, -0.08f), 0f)
         }
     }
@@ -329,19 +339,11 @@ object Ui {
         return when (surface) {
             S_GLASS -> TexturedDrawable(withAlpha(shade(base, 0.10f), minOf(alpha, 0xD8)), withAlpha(base, minOf(alpha, 0xC4)), r,
                 stroke = withAlpha(Color.WHITE, 0x1E), strokeW = dp(1).toFloat(), noiseAlpha = 0x0A, highlight = withAlpha(Color.WHITE, 0x40))
-            // Xbox: jednolita, ostra powierzchnia
-            S_XBOX -> TexturedDrawable(withAlpha(base, alpha), withAlpha(shade(base, -0.05f), alpha), r,
-                stroke = withAlpha(Color.WHITE, 0x14), strokeW = dp(1).toFloat(), topBar = tb)
-            // X25: akryl – półprzezroczysty grafit z zielonkawym odcieniem, jasna górna krawędź, cienka ramka
-            S_X25 -> TexturedDrawable(withAlpha(blend(shade(base, 0.06f), accent, 0.05f), minOf(alpha, 0xDC)), withAlpha(shade(base, -0.25f), minOf(alpha, 0xE8)), r,
-                stroke = withAlpha(Color.WHITE, 0x1A), strokeW = dp(1).toFloat(), highlight = withAlpha(Color.WHITE, 0x30), topBar = tb)
-            // PS5: półprzezroczysty granat (blueprint prześwituje), delikatna jasna krawędź, bez paska akcentu
-            // (okna prawie nieprzezroczyste – tekst ekranu pod spodem nie prześwituje)
-            S_PS5 -> TexturedDrawable(withAlpha(blend(shade(base, 0.05f), accent, 0.06f), minOf(alpha, 0xF0)), withAlpha(shade(base, -0.35f), minOf(alpha, 0xF6)), r,
-                stroke = withAlpha(Color.WHITE, 0x16), strokeW = dp(1).toFloat(), highlight = withAlpha(Color.WHITE, 0x22))
             // Nowoczesny: półprzezroczysta grafitowa czerń (nakładka), cienka jasna krawędź
             // (7.17) „Obsidian Stream”: szkło SurfaceGlass → SurfaceElevated (krycie jak w motywie, najwyżej 85 % / 92 %), krawędź specular
-            S_MODERN -> TexturedDrawable(withAlpha(pl.iptv.tv.ui.theme.ObsidianViews.GLASS_TOP, minOf(alpha, 0xD9)), withAlpha(pl.iptv.tv.ui.theme.ObsidianViews.GLASS_BOTTOM, minOf(alpha, 0xEB)), r,
+            // Nowoczesny v2: szkło Obsidian Glass (krycie wg „Przezroczystość UI”), krawędź 1 dp
+            // (v2, ujednolicenie) V2GlassDialog: #0C1426 72 %, 24 dp, świetlista krawędź 1,5 dp #38BDF8 → biel (panele Live TV, Ustawień, menu ikon)
+            S_MODERN -> if (ModernV2.active) pl.iptv.tv.ui.theme.ObsidianGlass.glassOverlay(if (radiusDp <= 0) 0 else pl.iptv.tv.ui.theme.ObsidianGlass.DIALOG_RADIUS_DP) else TexturedDrawable(withAlpha(pl.iptv.tv.ui.theme.ObsidianViews.GLASS_TOP, minOf(alpha, 0xD9)), withAlpha(pl.iptv.tv.ui.theme.ObsidianViews.GLASS_BOTTOM, minOf(alpha, 0xEB)), r,
                 stroke = pl.iptv.tv.ui.theme.ObsidianViews.SPECULAR, strokeW = dp(1).toFloat(), highlight = withAlpha(Color.WHITE, 0x18))
             else -> null
         }
@@ -374,7 +376,8 @@ object Ui {
 
     var fontIndex: Int get() = (Prefs.optInt("font") ?: preset.font).coerceIn(FONTS.indices); set(v) = Prefs.setOptInt("font", v)
     var fontScaleIndex: Int get() = Prefs.optInt("font_scale") ?: 1; set(v) = Prefs.setOptInt("font_scale", v)
-    var anim: Int get() = Prefs.optInt("anim") ?: preset.anim; set(v) = Prefs.setOptInt("anim", v)
+    /** (v2) „Animacje przejść: Wyłączone” w motywie Nowoczesny v2 – bez animacji ekranów i okien (zapisany wybór animacji zostaje). */
+    var anim: Int get() = if (ModernV2.animationsOff) 0 else Prefs.optInt("anim") ?: preset.anim; set(v) = Prefs.setOptInt("anim", v)
     var animSpeedIndex: Int get() = Prefs.optInt("anim_speed") ?: 1; set(v) = Prefs.setOptInt("anim_speed", v)
     var progressStyle: Int get() = Prefs.optInt("progress") ?: preset.progress; set(v) = Prefs.setOptInt("progress", v)
     var progressRemaining: Boolean get() = Prefs.optInt("progress_rem") == 1; set(v) = Prefs.setOptInt("progress_rem", if (v) 1 else 0)
@@ -383,7 +386,7 @@ object Ui {
     var zoom: Boolean get() = (Prefs.optInt("zoom") ?: if (preset.zoom) 1 else 0) == 1; set(v) = Prefs.setOptInt("zoom", if (v) 1 else 0)
     /** Styl paska informacji; domyślnie wg motywu (motywy systemowe i konsolowe mają własny pasek). */
     var infoStyle: Int get() = (Prefs.optInt("info_style") ?: when (surface) {
-        S_GLASS -> 6; S_XBOX -> 9; S_X25 -> 7; S_PS5 -> 1; S_MODERN -> 0
+        S_GLASS -> 6; S_MODERN -> if (ModernV2.active) INFO_GLASS else 0
         else -> if (preset.focusStyle == FocusStyle.GRADIENT) 3 else 0 }).coerceIn(INFO_STYLES.indices); set(v) = Prefs.setOptInt("info_style", v)
     var infoAlphaIndex: Int get() = (Prefs.optInt("info_alpha") ?: 0).coerceIn(INFO_ALPHAS.indices); set(v) = Prefs.setOptInt("info_alpha", v)
     var infoSizeIndex: Int get() = (Prefs.optInt("info_size") ?: 1).coerceIn(INFO_SIZES.indices); set(v) = Prefs.setOptInt("info_size", v)
@@ -393,7 +396,7 @@ object Ui {
     var archiveInfoIndex: Int get() = (Prefs.optInt("info_archive") ?: 1).coerceIn(ARCHIVE_TIMEOUTS.indices); set(v) = Prefs.setOptInt("info_archive", v)
     val archiveInfoMs get() = ARCHIVE_TIMEOUTS[archiveInfoIndex] * 1000L
     val infoScale get() = INFO_SIZES[infoSizeIndex].first
-    val infoFloating get() = infoStyle in intArrayOf(1, 2, 5, 6, 7)
+    val infoFloating get() = infoStyle in intArrayOf(1, 2, 5, 6, 7, INFO_GLASS)
 
     /** Tło paska informacji wg stylu i przezroczystości (null = bez tła). */
     fun infoBarBg(top: Boolean): Drawable? {
@@ -414,6 +417,8 @@ object Ui {
                 if (top) withAlpha(blend(bg, accent, 0.28f), 0x70) else withAlpha(shade(bg, -0.3f), 0xF4), 0f, noiseAlpha = 0x06,
                 topBar = if (top) 0 else withAlpha(accent, 0xC0))
             9 -> TexturedDrawable(withAlpha(shade(panel, -0.1f), 0xF0), withAlpha(shade(panel, -0.1f), 0xF0), 0f, topBar = focus)
+            // (v2) Obsidian Glass: szklana karta 20 dp (krycie wg „Przezroczystość UI”) z delikatną krawędzią
+            INFO_GLASS -> pl.iptv.tv.ui.theme.ObsidianGlass.glass(pl.iptv.tv.ui.theme.ObsidianGlass.RADIUS_PANEL_DP, panel = true)
             else -> GradientDrawable(if (top) GradientDrawable.Orientation.TOP_BOTTOM else GradientDrawable.Orientation.BOTTOM_TOP,
                 intArrayOf(withAlpha(shade(bg, -0.5f), 0xF0), withAlpha(bg, 0xB0), Color.TRANSPARENT))
         }
@@ -454,9 +459,6 @@ object Ui {
     private fun focusDrawable(): Drawable = when {
         // iOS: jasna karta z miękkim, świecącym pierścieniem
         preset.focusStyle == FocusStyle.FILL && surface == S_GLASS && color2("focus") == null -> glowFocus(Color.WHITE)
-        surface == S_XBOX -> xboxFocus()
-        surface == S_X25 -> x25Focus()
-        surface == S_PS5 -> ps5Focus()
         surface == S_MODERN && color2("focus") == null -> modernFocus()
         else -> focusDrawableClassic()
     }
@@ -466,39 +468,13 @@ object Ui {
      * tryb słabszych urządzeń – bez poświaty.
      */
     private fun modernFocus(): Drawable {
+        // Nowoczesny v2: niebieskie wypełnienie z wyraźną ramką i poświatą Obsidian Glass
+        if (ModernV2.active) return pl.iptv.tv.ui.theme.ObsidianGlass.focus(preset.radius, Prefs.lowPerf)
         val r = dp(preset.radius).toFloat()
         val core = GradientDrawable().apply { cornerRadius = maxOf(r - dp(2), 0f); setColor(focus); setStroke(dp(geo.focusStroke), ModernTheme.RING) }
         if (Prefs.lowPerf) return core
         val halo = GradientDrawable().apply { cornerRadius = r; setColor(Color.TRANSPARENT); setStroke(dp(2), withAlpha(ModernTheme.RING, 0x40)) }
         return android.graphics.drawable.LayerDrawable(arrayOf(halo, core)).apply { setLayerInset(1, dp(2), dp(2), dp(2), dp(2)) }
-    }
-
-    /**
-     * PS5: czysta biało-błękitna obwódka (biała linia + błękitna poświata na zewnątrz) i lekko rozjaśnione wnętrze;
-     * powiększenie daje [geo]. Tryb słabszych urządzeń – sama obwódka.
-     */
-    private fun ps5Focus(): Drawable {
-        val r = dp(preset.radius).toFloat()
-        fun ring(rad: Float, w: Int, c: Int, fill: Int = Color.TRANSPARENT) = GradientDrawable().apply { cornerRadius = rad; setColor(fill); setStroke(dp(w), c) }
-        val core = ring(maxOf(r - dp(3), 0f), geo.focusStroke, focus, withAlpha(Color.WHITE, 0x1C))
-        if (Prefs.lowPerf) return core
-        return android.graphics.drawable.LayerDrawable(arrayOf(ring(r, 3, withAlpha(Ps5Theme.GLOW, 0x50)), ring(maxOf(r - dp(1), 0f), 2, withAlpha(Ps5Theme.GLOW, 0x90)), core)).apply {
-            setLayerInset(1, dp(1), dp(1), dp(1), dp(1)); setLayerInset(2, dp(3), dp(3), dp(3), dp(3))
-        }
-    }
-
-    /**
-     * X25: pogrubiona, zaokrąglona ramka w neonowej zieleni z poświatą (dwa półprzezroczyste pierścienie – bez rozmycia,
-     * tanie w rysowaniu) i lekko zielone wypełnienie; tryb słabszych urządzeń – sama ramka.
-     */
-    private fun x25Focus(): Drawable {
-        val r = dp(preset.radius).toFloat()
-        fun ring(rad: Float, w: Int, c: Int, fill: Int = Color.TRANSPARENT) = GradientDrawable().apply { cornerRadius = rad; setColor(fill); setStroke(dp(w), c) }
-        val core = ring(maxOf(r - dp(3), 0f), geo.focusStroke, focus, withAlpha(focus, 0x26))
-        if (Prefs.lowPerf) return core
-        return android.graphics.drawable.LayerDrawable(arrayOf(ring(r, 3, withAlpha(focus, 0x30)), ring(maxOf(r - dp(1), 0f), 2, withAlpha(focus, 0x60)), core)).apply {
-            setLayerInset(1, dp(1), dp(1), dp(1), dp(1)); setLayerInset(2, dp(3), dp(3), dp(3), dp(3))
-        }
     }
 
     /** Zaznaczenie z poświatą: dwa półprzezroczyste pierścienie w kolorze akcentu wokół jasnej karty. */
@@ -509,15 +485,6 @@ object Ui {
         val inner = GradientDrawable().apply { cornerRadius = maxOf(r - dp(4), 0f); setColor(focus); setStroke(dp(1), withAlpha(Color.WHITE, 0xFF)) }
         return android.graphics.drawable.LayerDrawable(arrayOf(ring(r, 3, withAlpha(accent, 0x40)), ring(maxOf(r - dp(2), 0f), 2, withAlpha(accent, 0xA0)), inner)).apply {
             setLayerInset(1, dp(2), dp(2), dp(2), dp(2)); setLayerInset(2, dp(4), dp(4), dp(4), dp(4))
-        }
-    }
-
-    /** Xbox: ostra ramka limonki (#107C10) o dużym kontraście – wewnętrzna jasna linia oddziela ją od ciemnego tła. */
-    private fun xboxFocus(): Drawable {
-        val outer = shape(withAlpha(focus, 0x30), geo.focusStroke, focus)
-        val inner = GradientDrawable().apply { setColor(Color.TRANSPARENT); setStroke(dp(1), withAlpha(Color.WHITE, 0xD0)) }
-        return android.graphics.drawable.LayerDrawable(arrayOf(outer, inner)).apply {
-            val i = dp(geo.focusStroke); setLayerInset(1, i, i, i, i)
         }
     }
 
@@ -533,25 +500,26 @@ object Ui {
     private val itemBgCache = HashMap<Boolean, Pair<Int, Drawable.ConstantState?>>()
 
     fun itemBg(border: Boolean = true): Drawable {
-        val key = java.util.Objects.hash(version, Prefs.theme, focus, text, accent, color2("focus"), anim)
+        val key = java.util.Objects.hash(version, Prefs.theme, focus, text, accent, color2("focus"), anim, Prefs.mv2Opacity)
         itemBgCache[border]?.let { (v, st) -> if (v == key && st != null) return st.newDrawable() }
         val d = createItemBg(border)
         itemBgCache[border] = key to d.constantState
         return d
     }
 
-    private fun createItemBg(border: Boolean): Drawable = StateListDrawable().apply {
+    private fun createItemBg(border: Boolean): Drawable =
+        // (v2) Nowoczesny v2: wiersze list, komórki siatki EPG, kafelki menu – szkło Obsidian Glass (fokus z ramką i poświatą,
+        // aktywny – akcent 22 % z ramką, spoczynek – delikatna powierzchnia z krawędzią) i stała długość przenikania stanów
+        if (ModernV2.active && color2("focus") == null) (pl.iptv.tv.ui.theme.ObsidianGlass.item(pl.iptv.tv.ui.theme.ObsidianGlass.RADIUS_CARD_DP, Prefs.lowPerf) as StateListDrawable).apply {
+            // bez przenikania stanów: tło startowe rysowane od razu (z przenikaniem część wierszy po zmianie motywu na żywo zostawała bez tła)
+            setEnterFadeDuration(0); setExitFadeDuration(0)
+        } else StateListDrawable().apply {
         addState(intArrayOf(android.R.attr.state_focused), focusDrawable())
         addState(intArrayOf(android.R.attr.state_pressed), focusDrawable())
         addState(intArrayOf(android.R.attr.state_selected), focusDrawable())
         addState(intArrayOf(android.R.attr.state_activated), shape(withAlpha(accent, 0x45), if (border) 1 else 0, withAlpha(accent, 0x90)))
         addState(intArrayOf(), when (surface) {
             S_GLASS -> shape(withAlpha(Color.WHITE, 0x0E), if (border) 1 else 0, withAlpha(Color.WHITE, 0x14))
-            S_XBOX -> shape(withAlpha(Color.WHITE, 0x0A))
-            // X25: ciemne kafelki (akryl) z delikatną krawędzią
-            S_X25 -> shape(withAlpha(shade(panel, 0.04f), 0xB8), if (border) 1 else 0, withAlpha(Color.WHITE, 0x12))
-            // PS5: prawie przezroczyste wiersze (jak lista ustawień konsoli) – tło daje panel
-            S_PS5 -> shape(withAlpha(Color.WHITE, 0x06), if (border) 1 else 0, withAlpha(Color.WHITE, 0x0E))
             // Nowoczesny: ledwie widoczne, szare wiersze (jak kapsuły ekranu głównego)
             S_MODERN -> shape(withAlpha(Color.WHITE, 0x09), if (border) 1 else 0, withAlpha(Color.WHITE, 0x0C))
             else -> if (border) shape(Color.TRANSPARENT, 1, withAlpha(text, 0x1C)) else shape(Color.TRANSPARENT)
@@ -559,8 +527,21 @@ object Ui {
         setEnterFadeDuration(if (anim == 0) 0 else 90); setExitFadeDuration(if (anim == 0) 0 else 90)
     }
 
+    private val glassCellCache = HashMap<Int, Pair<Int, Drawable.ConstantState?>>()
+
     /** Tło komórki przewodnika: 0 kafelki, 1 linie, 2 kompakt, 3 klasyczny. */
     fun cellBg(style: Int): Drawable {
+        // (v2) siatka EPG „Obsidian Glass”: komórki – szkło z zaokrągleniem 10 dp (6 dp w stylu „Kompaktowy”), trwający program –
+        // akcent z ramką, fokus – niebieska ramka z poświatą; styl „Linie (siatka)” / „Klasyczny” – jak dotąd w kolorach motywu
+        if (ModernV2.active && color2("focus") == null) {
+            // jedno tło na wersję wyglądu – każda komórka dostaje kopię (przewijanie siatki bez tworzenia obiektów rysowania)
+            val key = java.util.Objects.hash(version, Prefs.mv2Opacity, Prefs.lowPerf, style)
+            glassCellCache[style]?.let { (v, st) -> if (v == key && st != null) return st.newDrawable() }
+            // (v2) komórka EPG: kursor ≠ trwający program, bez poświaty zabierającej miejsce wąskim komórkom (wszystkie style siatki)
+            val d = pl.iptv.tv.ui.theme.ObsidianGlass.epgCell(when (style) { 1 -> 4; 2 -> 6; else -> 9 })
+            glassCellCache[style] = key to d.constantState
+            return d
+        }
         if (style == 0 || style == 2) return itemBg()
         fun sq(fill: Int, sw: Int, sc: Int) = GradientDrawable().apply { setColor(fill); if (sw > 0) setStroke(dp(sw), sc) }
         val normal = if (style == 1) sq(Color.TRANSPARENT, 1, withAlpha(text, 0x30))
@@ -576,7 +557,8 @@ object Ui {
     }
 
     /** Kafelek nad obrazem (lista kanałów po OK): ciemny jak pasek informacji, zaznaczenie w kolorze motywu. */
-    fun tileBg(): Drawable = StateListDrawable().apply {
+    fun tileBg(): Drawable = if (ModernV2.active && color2("focus") == null) pl.iptv.tv.ui.theme.ObsidianGlass.tile(Prefs.lowPerf)   // (v2) szklany kafelek
+    else StateListDrawable().apply {
         addState(intArrayOf(android.R.attr.state_focused), focusDrawable())
         addState(intArrayOf(android.R.attr.state_pressed), focusDrawable())
         addState(intArrayOf(android.R.attr.state_activated), surfaceClassic(0xF0, maxOf(preset.radius, 12)).apply { setStroke(dp(2), withAlpha(accent, 0xC0)) })
@@ -592,8 +574,8 @@ object Ui {
         v.clipToOutline = true
     }
 
-    /** Promień zaokrąglenia logo kanałów wg motywu (ostre w Xbox, łagodne w pozostałych). */
-    val logoRadius get() = dp(if (surface == S_XBOX) 1 else minOf(maxOf(preset.radius, 4), 10)).toFloat()
+    /** Promień zaokrąglenia logo kanałów wg motywu. */
+    val logoRadius get() = dp(minOf(maxOf(preset.radius, 4), 10)).toFloat()
 
     /** Tło kafelka logo w pasku informacji wg stylu paska (null = logo bez kafelka). */
     fun infoLogoBg(): Drawable? {
@@ -601,12 +583,15 @@ object Ui {
         return when (infoStyle) {
             5 -> tile(16, withAlpha(text, 0x10)); 6 -> tile(18, withAlpha(Color.WHITE, 0x1A), 1, withAlpha(Color.WHITE, 0x22))
             7 -> tile(6, withAlpha(Color.WHITE, 0x0C), 1, withAlpha(Color.WHITE, 0x14)); 8 -> tile(12, withAlpha(Color.WHITE, 0x14), 1, withAlpha(accent, 0x90))
-            9 -> tile(0, withAlpha(Color.WHITE, 0x0A), 2, withAlpha(focus, 0xC0)); else -> null
+            9 -> tile(0, withAlpha(Color.WHITE, 0x0A), 2, withAlpha(focus, 0xC0))
+            INFO_GLASS -> tile(14, withAlpha(Color.WHITE, 0x12), 1, pl.iptv.tv.ui.theme.ObsidianGlass.BORDER)   // (v2)
+            else -> null
         }
     }
 
     /** Tło kafelka ikony (szybkie menu): koło w motywach z okrągłymi ikonami, w pozostałych tło elementu listy. */
     fun iconBoxBg(): Drawable {
+        if (ModernV2.active && color2("focus") == null) return pl.iptv.tv.ui.theme.ObsidianGlass.pillTab(18, Prefs.lowPerf)   // (v2) kafelki ikon: V2PillTab
         if (!geo.iconRound) return itemBg()
         fun oval(fill: Int, sw: Int = 0, sc: Int = 0) = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(fill); if (sw > 0) setStroke(dp(sw), sc) }
         val f = oval(focus, if (geo.glow) 3 else 0, withAlpha(accent, 0xB0))
@@ -702,7 +687,8 @@ object Ui {
     /** (7.17) Powiększenie elementu z własnym słuchaczem fokusu – ta sama krzywa i czas co w [style]; bez animacji przy lowPerf. */
     fun focusZoom(v: View, focused: Boolean, scale: Float) {
         val s = if (focused) scale else 1f
-        if (Prefs.lowPerf) { v.scaleX = s; v.scaleY = s; return }
+        if (Prefs.lowPerf || ModernV2.animationsOff) {      // (v2) „Animacje przejść: Wyłączone” – zaznaczenie bez animacji
+            v.scaleX = s; v.scaleY = s; return }
         v.animate().scaleX(s).scaleY(s).setDuration(FOCUS_ANIM_MS).setInterpolator(focusInterpolator).start()
     }
 
@@ -716,11 +702,9 @@ object Ui {
             // (7.17) jedna krzywa we wszystkich motywach: 140 ms FastOutSlowIn, bez odbicia (przy przytrzymanej strzałce zaznaczenie
             // nadąża za kursorem; animator stanu startuje z bieżącej skali – bez skoku)
             .apply { interpolator = focusInterpolator }
-        // PS5: cień elewacji prześwitywał przez półprzezroczyste wypełnienie (ciemne obrzeże, jaśniejszy prostokąt w środku) –
-        // (7.17) od API 28 uniesienie bez cienia (zaznaczony element nad sąsiadami), starsze – bez uniesienia
-        val ps5 = surface == S_PS5
-        if (android.os.Build.VERSION.SDK_INT >= 28) { val sh = if (ps5) Color.TRANSPARENT else Color.BLACK; v.outlineSpotShadowColor = sh; v.outlineAmbientShadowColor = sh }
-        val lift = if (!ps5) dp(4).toFloat() else if (android.os.Build.VERSION.SDK_INT >= 28) dp(1).toFloat() else 0f
+        if (android.os.Build.VERSION.SDK_INT >= 28) { v.outlineSpotShadowColor = Color.BLACK; v.outlineAmbientShadowColor = Color.BLACK }
+        // (v2) bez uniesienia: cień spod półprzezroczystego szkła prześwitywał jako ciemny pasek w zaznaczonym wierszu (poświata v2 zastępuje cień)
+        val lift = if (ModernV2.active) 0f else dp(4).toFloat()
         return StateListAnimator().apply {
             addState(intArrayOf(android.R.attr.state_focused), a(s, lift))
             addState(intArrayOf(), a(1f, 0f))
@@ -905,19 +889,18 @@ object Ui {
         }
 
     fun dialogBg(): Drawable {
-        // ramka okna wg motywu: ostra (Xbox), duże zaokrąglenia (iOS)
-        val r = when (surface) { S_XBOX -> 2; S_GLASS -> 22; S_X25 -> 6; S_PS5 -> 14; S_MODERN -> 16; else -> maxOf(preset.radius, 14) }
+        // ramka okna wg motywu: duże zaokrąglenia (szkło)
+        val r = when (surface) { S_GLASS -> 22; S_MODERN -> 16; else -> maxOf(preset.radius, 14) }
         if (color2("panel") != null) return fill("panel").apply { setStroke(dp(1), withAlpha(accent, 0x90)); cornerRadius = dp(r).toFloat() }
         // (7.17) „Obsidian Stream” (Nowoczesny): ciemny panel #0F141F 92 % z krawędzią specular
-        if (surface == S_MODERN) return pl.iptv.tv.ui.theme.ObsidianViews.dialogPanel()
+        if (surface == S_MODERN) return if (ModernV2.active) pl.iptv.tv.ui.theme.ObsidianGlass.dialogPanel() else pl.iptv.tv.ui.theme.ObsidianViews.dialogPanel()
         // szkło: okno półprzezroczyste (rozmycie tła pod oknem, gdy system je obsługuje)
-        return texturedSurface(panel, if (geo.blur > 0 && surface != S_XBOX) 0xE4 else 0xFA, r, frame = true)
+        return texturedSurface(panel, if (geo.blur > 0) 0xE4 else 0xFA, r, frame = true)
             ?: surfaceClassic(0xF6, r).apply { cornerRadius = dp(r).toFloat() }
     }
 
     private fun pillBg(primary: Boolean): Drawable = StateListDrawable().apply {
-        // X25: prostokątne przyciski akcji (lekko zaokrąglone), zaznaczony – pełna neonowa zieleń
-        val r = dp(if (surface == S_X25) 4 else 22).toFloat()
+        val r = dp(22).toFloat()
         addState(intArrayOf(android.R.attr.state_focused), GradientDrawable().apply { cornerRadius = r; setColor(focus) })
         addState(intArrayOf(android.R.attr.state_pressed), GradientDrawable().apply { cornerRadius = r; setColor(focus) })
         addState(intArrayOf(), GradientDrawable().apply {
@@ -930,21 +913,16 @@ object Ui {
         I18n.attach(w)                                   // (7.8) tytuł, treść, pozycje i przyciski okna w wybranym języku
         val dm = d.context.resources.displayMetrics
         val wide = dm.widthPixels / dm.density >= 900
-        // X25: menu i listy wyboru wysuwają się z lewej jako panel boczny (Guide) na całą wysokość ekranu
-        // PS5: menu jako panel ustawień konsoli (pionowa lista przy lewej krawędzi) – ten sam układ co panel X25, inny wygląd
-        val ps5 = Ps5Theme.isPanel(d)
         // Nowoczesny: menu jako półprzezroczysty panel nakładkowy przy prawej krawędzi
         val overlay = ModernTheme.isOverlay(d)
-        val guide = X25Theme.isGuide(d) || ps5 || overlay
-        w.setBackgroundDrawable(if (ps5) Ps5Theme.panelBg() else if (overlay) ModernTheme.overlayBg() else if (guide) X25Theme.guideBg() else dialogBg())
+        val guide = overlay
+        w.setBackgroundDrawable(if (overlay) ModernTheme.overlayBg() else dialogBg())
         // TV: 46% szerokości; telefon/tablet: do 92%, ale nie szerzej niż 560 dp (w poziomie okno nie rozciąga się na cały ekran)
-        if (ps5) Ps5Theme.layoutPanel(w, wide)
-        else if (overlay) ModernTheme.layoutOverlay(w, wide)
-        else if (guide) X25Theme.layoutGuide(w, wide)
+        if (overlay) ModernTheme.layoutOverlay(w, wide)
         else w.setLayout(if (wide) (dm.widthPixels * 0.46f).toInt() else minOf((dm.widthPixels * 0.92f).toInt(), dp(560)), ViewGroup.LayoutParams.WRAP_CONTENT)
         // (7.17) Nowoczesny („Obsidian Stream”): scrim 75 % pod każdym oknem i panelem
         w.setDimAmount(if (surface == S_MODERN) pl.iptv.tv.ui.theme.ObsidianViews.DIALOG_DIM else if (guide) 0.45f else 0.7f)
-        if (anim != 0) w.setWindowAnimations(if (overlay) R.style.ModernOverlayAnim else if (guide) R.style.X25GuideAnim else R.style.DialogAnim)
+        if (anim != 0) w.setWindowAnimations(if (overlay) R.style.ModernOverlayAnim else R.style.DialogAnim)
         // szkło: rozmyte tło pod oknem (Android 12+, gdy urządzenie obsługuje rozmycie między oknami)
         if (geo.blur > 0 && android.os.Build.VERSION.SDK_INT >= 31 &&
             (d.context.getSystemService(android.content.Context.WINDOW_SERVICE) as? android.view.WindowManager)?.isCrossWindowBlurEnabled == true) {
@@ -977,12 +955,14 @@ object Ui {
             d.getButton(which)?.apply {
                 val primary = which == android.content.DialogInterface.BUTTON_POSITIVE
                 isAllCaps = false
-                setTextColor(when (surface) { S_X25 -> X25Theme.buttonText(primary); S_PS5 -> Ps5Theme.buttonText(primary)
+                setTextColor(when (surface) {
                     S_MODERN -> ModernTheme.textColors(); else -> textColors(if (primary) Ui.accent else Ui.text) })
                 typeface = Ui.typeface(Typeface.BOLD)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f * fontScale)
                 // Nowoczesny: szare kapsuły, zaznaczona – niebieska (jak „Odtwórz” na ekranie głównym)
-                background = if (surface == S_MODERN) ModernTheme.pill(focus) else pillBg(primary)
+                // (v2, ujednolicenie) V2GlowPillButton: potwierdzający – gradient #2F80ED → #38BDF8 z poświatą, pozostałe – ciemne szkło z ramką
+                background = if (surface == S_MODERN && ModernV2.active) pl.iptv.tv.ui.theme.ObsidianGlass.button(primary, 40, Prefs.lowPerf)
+                    else if (surface == S_MODERN) ModernTheme.pill(focus) else pillBg(primary)
                 setPadding(dp(22), dp(10), dp(22), dp(10))
                 (layoutParams as? ViewGroup.MarginLayoutParams)?.let { it.marginStart = dp(8); layoutParams = it }
             }
@@ -995,8 +975,6 @@ object Ui {
                 (g.getChildAt(0) as? ViewGroup)?.let { bar -> bar.clipChildren = false; bar.clipToPadding = false } }
         }
         fixDialogScrollers(w.decorView)
-        // PS5: podpowiedzi przycisków na dole okna (✕ Wybierz · ○ Wstecz · ▲▼ Nawiguj)
-        if (surface == S_PS5) Ps5Theme.addDialogHints(d)
         // początkowy kursor: pole tekstowe → lista (pierwsza pozycja) → „OK”
         w.decorView.post {
             val edit = findFirst(w.decorView) { it is EditText && it.isShown } as EditText?
@@ -1027,7 +1005,11 @@ object Ui {
                 if (b - t > maxH && w.attributes.height != maxH) v.post { w.setLayout(w.attributes.width, maxH) }
             }
         }
+        dialogHook?.invoke(d)
     }
+
+    /** (v2) Dodatkowe stylowanie okien ustawiane przez bieżący ekran (np. odtwarzacz Stremio w Nowoczesnym v2); null – brak. */
+    @Volatile var dialogHook: ((androidx.appcompat.app.AlertDialog) -> Unit)? = null
 
     /**
      * Przewijana treść okna: pasek przewijania rysowany poza treścią (w zarezerwowanym odstępie), a nie na niej –
@@ -1199,7 +1181,7 @@ object Ui {
         v.alpha = if (anim == 2) 1f else 0f
         // krótsza droga i hamowanie na końcu – płynniej na słabszych urządzeniach
         // szkło (iOS): sprężyste dojście do miejsca; pozostałe – hamowanie na końcu
-        val interp = if (geo.overshoot > 0f) android.view.animation.OvershootInterpolator(geo.overshoot * 0.5f) else android.view.animation.DecelerateInterpolator(if (surface == S_XBOX) 2.4f else 1.6f)
+        val interp = if (geo.overshoot > 0f) android.view.animation.OvershootInterpolator(geo.overshoot * 0.5f) else android.view.animation.DecelerateInterpolator(1.6f)
         v.animate().translationX(0f).alpha(1f).setDuration(animDuration).setInterpolator(interp).withLayer().start()
     }
 

@@ -28,8 +28,12 @@ import kotlin.math.abs
  * Okno czasowe przesuwa się pilotem (◄ ► na brzegu siatki), przyciskami lub gestem.
  */
 class GuideActivity : BaseActivity() {
+    /** (v2, ujednolicenie) Górna belka modułu (V2TopModuleBar) – nazwa sekcji. */
+    override val v2ModuleTitle: String? get() = "Program TV"
     override val x25Root = true
     companion object {
+        /** (v2) Odstęp pionowy między wierszami siatki (dp) – karty sąsiednich kanałów nie stykają się. */
+        const val GUIDE_ROW_GAP_DP = 2
         const val EXTRA_CHANNEL = "ch"
         const val EXTRA_FROM_PLAYER = "from_player"
         private const val MIN = 60_000L
@@ -396,6 +400,9 @@ class GuideActivity : BaseActivity() {
 
         override fun onCreateViewHolder(p: ViewGroup, t: Int): VH {
             val v = layoutInflater.inflate(R.layout.item_guide_row, p, false); Ui.style(v)
+            // (v2) kolumna kanałów – te same karty co komórki programów (promień 9 dp, bez przycięcia do kapsuły), odstęp między wierszami
+            if (ModernV2.active) v.findViewById<View>(R.id.chCell)?.let { c -> c.background = Ui.cellBg(Prefs.guideStyle); c.outlineProvider = android.view.ViewOutlineProvider.BACKGROUND; c.clipToOutline = false }
+            if (ModernV2.active) v.setPadding(v.paddingLeft, Ui.dp(GUIDE_ROW_GAP_DP), v.paddingRight, Ui.dp(GUIDE_ROW_GAP_DP))
             return VH(v)
         }
         override fun getItemCount() = items.size
@@ -508,6 +515,8 @@ class GuideActivity : BaseActivity() {
                 tv.textSize = 13f; tv.setTag(R.id.ui_size, null)
                 Ui.style(tv)
                 tv.background = Ui.cellBg(Prefs.guideStyle)
+                // (v2) kształt komórki z jej tła (Ui.style przycinał do promienia motywu – wąskie komórki wyglądały jak kapsuły)
+                if (ModernV2.active) { tv.outlineProvider = android.view.ViewOutlineProvider.BACKGROUND; tv.clipToOutline = false }
                 tv.setTag(R.id.zoom_listener, Prefs.guideStyle)
             }
             tv.maxLines = if (Prefs.guideStyle == 2) 1 else 2

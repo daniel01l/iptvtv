@@ -69,6 +69,6 @@ object CustomThemes {
             }
             parsed?.let { k to it }
         }.toMap()
-        Saved(o.optString("name"), o.optString("base", "modern"), values, o.optBoolean("auto"))
+        Saved(o.optString("name"), o.optString("base", "modern").let { Ui.REMOVED_THEMES[it] ?: it }, values, o.optBoolean("auto"))   // (7.27) zapis z usuniętego motywu → Nowoczesny
     }
 }

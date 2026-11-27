@@ -47,22 +47,17 @@ open class BaseActivity : AppCompatActivity() {
         TvResolution.fullscreen(this, keepScreenOn = this is MainActivity)
         // tło okna od razu w kolorze motywu: zanim ekran się narysuje, widać tło motywu, nie stały ciemny kolor (mignięcie „czarnego ekranu”)
         if (!isPlayerScreen) window.setBackgroundDrawable(Ui.bgDrawable())
-        // X25: dźwięk przy przejściu fokusu pilotem (motyw sprawdzany przy każdym zdarzeniu – działa też po zmianie motywu)
-        if (!isPlayerScreen) X25Theme.attachSounds(this)
-        // ekrany główne: WSTECZ (wyjście) – przy pulpicie X25 prosto na pulpit; obsługa ekranu (własne wywołania zwrotne) ma pierwszeństwo
+        // ekrany główne: WSTECZ (wyjście) – przy ekranie głównym Nowoczesny prosto na niego; obsługa ekranu (własne wywołania zwrotne) ma pierwszeństwo
         if (x25Root) onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
             override fun handleOnBackPressed() = leaveScreen()
         })
         createdEpoch = Ui.themeEpoch
     }
 
-    /** Ekran w stylu ustawień konsoli: przy motywie PS5 pasek podpowiedzi przycisków (✕ Wybierz · ○ Wstecz · ▲▼ Nawiguj). */
-    protected open val ps5Hints = false
-
-    /** Ekran główny otwierany z pulpitu X25 (odtwarzacz, STube, Stremio, przewodnik, wyszukiwarka). */
+    /** Ekran główny otwierany z pulpitu (odtwarzacz, STube, Stremio, przewodnik, wyszukiwarka). */
     protected open val x25Root = false
 
-    /** Wyjście z ekranu: przy pulpicie X25 – na pulpit (nie na listę kanałów pod spodem). */
+    /** Wyjście z ekranu: przy włączonym ekranie głównym – na niego (nie na listę kanałów pod spodem). */
     fun leaveScreen() {
         if (x25Root && X25Theme.dashboardOn) X25Theme.openDashboard(this)
         finish()
@@ -104,8 +99,6 @@ open class BaseActivity : AppCompatActivity() {
 
     /** ▼ z najniższego elementu – pasek „Teraz odtwarzane”. */
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
-        // PS5: podpowiedzi przycisków wg ostatnio użytego urządzenia (pilot / pad)
-        Ps5Input.onKey(event)
         if (event.action == android.view.KeyEvent.ACTION_DOWN && event.keyCode in NAV_KEYS) KeyActivity.lastUserKeyAt = event.eventTime
         if (throttledRepeat(event)) return true
         if (miniBar?.handleKey(event) == true) return true
@@ -129,12 +122,6 @@ open class BaseActivity : AppCompatActivity() {
         if (now - lastNavRepeat < navRepeatMs) { navRepeatsDropped++; return true }
         lastNavRepeat = now
         return false
-    }
-
-    /** Dotknięcie ekranu (nie mysz) – podpowiedzi przycisków PS5 ukryte. */
-    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
-        if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN && ev.isFromSource(android.view.InputDevice.SOURCE_TOUCHSCREEN)) Ps5Input.onTouch()
-        return super.dispatchTouchEvent(ev)
     }
 
     override fun onResume() {
@@ -195,6 +182,31 @@ open class BaseActivity : AppCompatActivity() {
     /** Ponowny wybór zakładki bieżącego ekranu (np. Stremio ↔ Do obejrzenia). */
     open fun onPortraitTab(t: MobilePortraitScaffold.Tab) {}
 
+    /**
+     * (v2, ujednolicenie) Nazwa sekcji w górnej belce modułu ([pl.iptv.tv.ui.theme.V2TopModuleBar]) – tylko w motywie Nowoczesny v2;
+     * null – ekran bez belki (odtwarzacze, okna, pulpit).
+     */
+    protected open val v2ModuleTitle: String? = null
+    /** Belka modułu (testy). */
+    var v2TopBar: View? = null; private set
+    /** Ikona profilu w belce: ekran główny START z otwartym panelem „Profil i opcje”. */
+    protected open fun onV2Profile() {
+        startActivity(Intent(this, ModernHomeActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            .putExtra(ModernHomeActivity.EXTRA_OPTIONS, true))
+    }
+
+    private val belowBar = ArrayList<Pair<View, Int>>()
+    /** (v2) Element dodany wprost do [rootFrame] (np. pływający pasek nawigacji) – zawsze pod belką modułu (górny margines + wysokość belki). */
+    protected fun keepBelowV2Bar(v: View) {
+        val bar = v2TopBar ?: return
+        val base = (v.layoutParams as? ViewGroup.MarginLayoutParams)?.topMargin ?: 0
+        belowBar += v to base
+        placeBelow(v, base, bar.height)
+    }
+    private fun placeBelow(v: View, base: Int, h: Int) {
+        (v.layoutParams as? ViewGroup.MarginLayoutParams)?.let { lp -> if (lp.topMargin != base + h) { lp.topMargin = base + h; v.layoutParams = lp } }
+    }
+
     protected fun setThemedContent(layout: Int) =
         setThemedContent(layoutInflater.inflate(layout, FrameLayout(this), false))
 
@@ -216,6 +228,19 @@ open class BaseActivity : AppCompatActivity() {
         rootFrame.addView(dim, FrameLayout.LayoutParams(mp, mp))
         rootFrame.addView(view, FrameLayout.LayoutParams(mp, mp))
         content = view
+        // (v2, ujednolicenie) V2TopModuleBar: logo, nazwa sekcji, zegar i profil u góry ekranów modułowych; treść pod belką
+        // (górny margines = wysokość belki, także po obrocie i zmianie wstawek)
+        val section = if (ModernV2.active) v2ModuleTitle else null
+        if (section != null) {
+            val bar = pl.iptv.tv.ui.theme.V2TopModuleBar.create(this, section) { onV2Profile() }
+            rootFrame.addView(bar, FrameLayout.LayoutParams(mp, ViewGroup.LayoutParams.WRAP_CONTENT, android.view.Gravity.TOP))
+            bar.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
+                val h = bottom - top
+                (view.layoutParams as? FrameLayout.LayoutParams)?.let { lp -> if (lp.topMargin != h) { lp.topMargin = h; view.layoutParams = lp } }
+                belowBar.forEach { (v, base) -> placeBelow(v, base, h) }
+            }
+            v2TopBar = bar
+        }
         if (miniPlayer) miniBar = MiniPlayerBar(this).also { bar ->
             bar.attachTo(rootFrame)
             // (7.17) kapsuła pływa nad treścią – ekran się nie zmniejsza; tylko przewijane listy dostają dolny odstęp,
@@ -256,12 +281,10 @@ open class BaseActivity : AppCompatActivity() {
     open fun applyTheme() {
         appliedVersion = Ui.version
         // tło rysuje okno (jedna warstwa zamiast dwóch – mniej przerysowań całego ekranu na słabszych urządzeniach)
-        // odtwarzacz: obraz zasłania tło – X25 bez rysowanego tła (pełnoekranowa grafika pod wideo w każdej klatce = przycięcia)
+        // odtwarzacz: obraz zasłania tło – bez rysowanego tła (pełnoekranowa grafika pod wideo w każdej klatce = przycięcia)
         // (7.1) każdy motyw: jednolity kolor – tło Nowoczesnego (cieniowania na cały ekran) pod obrazem też zacinało kanał
         if (isPlayerScreen) rootFrame.background = android.graphics.drawable.ColorDrawable(Ui.bg)
         else { rootFrame.background = null; window.setBackgroundDrawable(Ui.bgDrawable()) }
-        // PS5: podpowiedzi przycisków na dole ekranów w stylu ustawień konsoli (inny motyw – pasek usuwany)
-        if (ps5Hints) Ps5Theme.attachScreenHints(rootFrame)
         window.statusBarColor = Ui.bg
         window.navigationBarColor = Ui.bg
         val f = Repository.bgImageFile

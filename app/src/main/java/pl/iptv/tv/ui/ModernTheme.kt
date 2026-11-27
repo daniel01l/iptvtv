@@ -38,6 +38,8 @@ object ModernTheme {
     val RING = Color.parseColor("#D8E8FF")
     /** Czerwona kropka nagłówków i znacznik „na żywo”. */
     val LIVE = Color.parseColor("#EF4444")
+    /** Obwódka zaznaczenia bieżącego wariantu: Nowoczesny – [RING], Nowoczesny v2 – wyraźna niebieska ramka Obsidian Glass. */
+    val ring: Int get() = if (ModernV2.active) pl.iptv.tv.ui.theme.ObsidianGlass.FOCUS_RING else RING
 
     val active: Boolean get() = runCatching { Ui.surface == Ui.S_MODERN }.getOrDefault(false)
 
@@ -64,7 +66,7 @@ object ModernTheme {
     }
 
     /** (7.17) „Obsidian Stream”: panel `#0F141F` 92 % z krawędzią specular (bez zaokrągleń – przylega do prawej krawędzi). */
-    fun overlayBg(): Drawable = TexturedDrawable(pl.iptv.tv.ui.theme.ObsidianViews.PANEL_92, pl.iptv.tv.ui.theme.ObsidianViews.PANEL_92, 0f,
+    fun overlayBg(): Drawable = if (ModernV2.active) pl.iptv.tv.ui.theme.ObsidianGlass.edgePanel() else TexturedDrawable(pl.iptv.tv.ui.theme.ObsidianViews.PANEL_92, pl.iptv.tv.ui.theme.ObsidianViews.PANEL_92, 0f,
         stroke = pl.iptv.tv.ui.theme.ObsidianViews.SPECULAR, strokeW = Ui.dp(1).toFloat())
 
     /** Panel przy prawej krawędzi: TV – 36% szerokości, telefon – do 88% (najwyżej 440 dp). */
@@ -76,19 +78,27 @@ object ModernTheme {
     }
 
     /** Przyciski okien jak kapsuły ekranu głównego: szare, zaznaczony – niebieski z białym tekstem. */
-    fun pill(focusedFill: Int): Drawable = android.graphics.drawable.StateListDrawable().apply {
+    fun pill(focusedFill: Int): Drawable = if (ModernV2.active) glassPill() else android.graphics.drawable.StateListDrawable().apply {
         val r = Ui.dp(22).toFloat()
         fun pill(c: Int, stroke: Int = 0) = android.graphics.drawable.GradientDrawable().apply { cornerRadius = r; setColor(c); if (stroke != 0) setStroke(Ui.dp(2), stroke) }
-        addState(intArrayOf(android.R.attr.state_focused), pill(focusedFill, Ui.withAlpha(RING, 0xC0)))
+        addState(intArrayOf(android.R.attr.state_focused), pill(focusedFill, Ui.withAlpha(ring, 0xC0)))
         addState(intArrayOf(android.R.attr.state_pressed), pill(focusedFill))
         addState(intArrayOf(), pill(Ui.withAlpha(Color.WHITE, 0x22)))
+    }
+
+    /** (v2) Przyciski okien (ZAPISZ, ANULUJ, Gotowe…): fokus – gradient #2F80ED → #1D4ED8 z błękitną ramką i poświatą, spoczynek – szkło z obramowaniem. */
+    private fun glassPill(): Drawable = android.graphics.drawable.StateListDrawable().apply {
+        val G = pl.iptv.tv.ui.theme.ObsidianGlass; val low = runCatching { Prefs.lowPerf }.getOrDefault(false)
+        // (v2, ujednolicenie) V2GlowPillButton: fokus – gradient #2F80ED → #38BDF8 z białą ramką i poświatą, spoczynek – ciemne szkło z ramką 1 dp 18 %
+        addState(intArrayOf(android.R.attr.state_focused), G.confirm(40, true, low))
+        addState(intArrayOf(android.R.attr.state_pressed), G.confirm(40, true, true))
+        addState(intArrayOf(), G.button(false, 40, low))
     }
 
     fun textColors() = android.content.res.ColorStateList(
         arrayOf(intArrayOf(android.R.attr.state_focused), intArrayOf(android.R.attr.state_pressed), intArrayOf()),
         intArrayOf(Color.WHITE, Color.WHITE, Ui.withAlpha(Color.WHITE, 0xE0)))
 
-    fun navSound(c: Context) = X25Theme.navSound(c)
 }
 
 /**

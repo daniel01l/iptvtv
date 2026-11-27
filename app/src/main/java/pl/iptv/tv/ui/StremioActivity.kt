@@ -34,6 +34,8 @@ import pl.iptv.tv.data.StremioStore
  * katalogi włączonych wtyczek, wyszukiwarka (plakaty filmów i seriali w osobnych rzędach, opis zaznaczonego tytułu u góry).
  */
 class StremioActivity : BaseActivity() {
+    /** (v2, ujednolicenie) Górna belka modułu (V2TopModuleBar) – nazwa sekcji. */
+    override val v2ModuleTitle: String? get() = if (vodOnly) "VOD" else "Stremio"
     /** (7.22) Telefon pionowo: „Stremio” albo „Do obejrzenia” (Biblioteka) w dolnym pasku. */
     override val portraitTab get() = if (filter == FILTER_LIBRARY) MobilePortraitScaffold.Tab.WATCHLIST else MobilePortraitScaffold.Tab.STREMIO
     override val pausesLiveTv = true
@@ -45,7 +47,18 @@ class StremioActivity : BaseActivity() {
         const val EXTRA_QUERY = "query"
         /** (7.22) Zakładka startowa ([FILTER_ALL]…[FILTER_LIBRARY]) – dolny pasek telefonu w pionie. */
         const val EXTRA_FILTER = "filter"
+        /** (v2) Moduł VOD (zakładka „VOD” pulpitu START Nowoczesnego v2): tylko filmy i seriale z list M3U, bez konta Stremio. */
+        const val EXTRA_VOD = "vod_only"
+        /** (v2) Wysokość karty wyróżnionego tytułu na tablicy. */
+        const val V2_HERO_DP = 150
+        const val VOD_EMPTY = "Na Twoich listach M3U nie ma filmów ani seriali."
+        fun vodIntent(c: android.content.Context): Intent = Intent(c, StremioActivity::class.java).putExtra(EXTRA_VOD, true)
         const val IN_CINEMAS = "Obecnie w kinach"
+        /** (v2) Nazwy rzędów katalogów Cinemety wg identyfikatora katalogu (top – „Popularne”, imdbRating, year). */
+        const val CINEMETA_POPULAR = "Popularne"
+        const val CINEMETA_TOP_RATED = "Najwyżej oceniane"
+        const val CINEMETA_NEW = "Nowości"
+        fun cinemetaPrefix(catalogId: String) = when (catalogId) { "imdbRating" -> CINEMETA_TOP_RATED; "year" -> CINEMETA_NEW; else -> CINEMETA_POPULAR }
         /** (7.22) Pionowa karta wyróżnionego tytułu (tag) i jej przyciski. */
         const val HERO_TAG = "portrait_hero"
         const val HERO_PLAY = "Odtwórz"
@@ -115,6 +128,8 @@ class StremioActivity : BaseActivity() {
 
     /** Filtr tablicy: [FILTER_MOVIES] Filmy, [FILTER_SERIES] Seriale, [FILTER_ALL] Odkrywaj (wszystkie katalogi), [FILTER_LIBRARY] Biblioteka. */
     var filter = FILTER_ALL; private set
+    /** (v2) Moduł VOD ([EXTRA_VOD]) – same pozycje z list M3U. */
+    val vodOnly by lazy { intent?.getBooleanExtra(EXTRA_VOD, false) == true }
     /** (7.22) Telefon pionowo (9:16): nagłówek kompaktowy, karta wyróżnionego tytułu, pigułki filtrów w każdym motywie. */
     private val portrait by lazy { portraitPhone }
     /** „Obsidian Stream” w poziomie / na TV (w pionie telefonu – wspólny układ pionowy z kolorami motywu). */
@@ -150,7 +165,7 @@ class StremioActivity : BaseActivity() {
     /** Pigułki filtrów w pionie telefonu – kolory aktywnego motywu ([MobilePortraitScaffold.chip]). */
     private fun buildPortraitFilters(): LinearLayout {
         val bar = LinearLayout(this).apply { gravity = android.view.Gravity.CENTER_VERTICAL; clipChildren = false; clipToPadding = false; setPadding(0, Ui.dp(6), 0, Ui.dp(6)) }
-        FILTER_NAMES.forEachIndexed { i, name ->
+        FILTER_NAMES.forEachIndexed { i, name -> if (vodOnly && i == FILTER_LIBRARY) return@forEachIndexed   // (v2) moduł VOD – bez Biblioteki Stremio
             val p = MobilePortraitScaffold.chip(this, name, i == filter) { setFilter(i) }
             filterPills += p
             bar.addView(p, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = Ui.dp(8) })
@@ -162,9 +177,9 @@ class StremioActivity : BaseActivity() {
     private fun buildFilterBar(): LinearLayout {
         val O = pl.iptv.tv.ui.theme.ObsidianViews
         val bar = LinearLayout(this).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
-        FILTER_NAMES.forEachIndexed { i, name ->
+        FILTER_NAMES.forEachIndexed { i, name -> if (vodOnly && i == FILTER_LIBRARY) return@forEachIndexed   // (v2) moduł VOD – bez Biblioteki Stremio
             val p = TextView(this).apply {
-                text = name; textSize = 15f; tag = "keepcolor nozoom"; isFocusable = true; isClickable = true; gravity = android.view.Gravity.CENTER
+                text = name; textSize = 15f; maxLines = 1; isSingleLine = true; tag = "keepcolor nozoom"; isFocusable = true; isClickable = true; gravity = android.view.Gravity.CENTER
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
                 setPadding(Ui.dp(20), Ui.dp(9), Ui.dp(20), Ui.dp(9))
                 background = O.pill(rest = 0x1FFFFFFF); setTextColor(O.pillText()); isSelected = i == filter
@@ -180,14 +195,76 @@ class StremioActivity : BaseActivity() {
      * Wspólny pasek nawigacji nad treścią (72 → 240 dp ze scrimem): konto, szukaj, wtyczki, odśwież, zamknij – te same przyciski,
      * co dawniej w nagłówku (podpisy w opisie dostępności, widoczne po rozwinięciu paska).
      */
+    // ---------------- (v2) Nowoczesny v2: górny pasek z ikonami i karta wyróżnionego tytułu ----------------
+
+    /** Obraz tła karty wyróżnionego tytułu (null – inne motywy). */
+    private var v2Backdrop: android.widget.ImageView? = null
+
+    /**
+     * (v2) Ikony dawnego paska bocznego (konto, szukaj, wtyczki, odśwież, klucz TMDB, zamknij) w górnym pasku obok zakładek i
+     * wyszukiwarki – okrągłe szklane pigułki V2PillTab (jak ikony pulpitu START); kolejność i akcje bez zmian.
+     */
+    private fun v2Dock(header: LinearLayout) {
+        val G = pl.iptv.tv.ui.theme.ObsidianGlass
+        for (i in 0 until railBox.childCount) {
+            val b = railBox.getChildAt(i)
+            if (b !is TextView) { b.layoutParams = LinearLayout.LayoutParams(Ui.dp(6), 1); continue }      // dawny odstęp przed „Zamknij”
+            b.text = ""; b.minWidth = 0; b.minHeight = 0; b.tag = "keepcolor nozoom"
+            val pd = Ui.dp(9); b.setPadding(pd, pd, pd, pd); b.gravity = android.view.Gravity.CENTER
+            if (b.contentDescription == "Szukaj") { b.visibility = View.GONE; continue }      // wyszukiwarka jest obok (pole) – bez powtórzonej ikony
+            b.background = G.pillTab(24, Prefs.lowPerf)
+            b.layoutParams = LinearLayout.LayoutParams(Ui.dp(40), Ui.dp(40)).apply { marginStart = Ui.dp(6) }
+        }
+        header.addView(railBox, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
+    }
+
+    /** (v2) Karta wyróżnionego tytułu: szkło 24 dp, tło – kadr / plakat zaznaczonego tytułu z prawej, wygaszony ku tekstowi. */
+    private fun v2Hero(info: LinearLayout): View {
+        val G = pl.iptv.tv.ui.theme.ObsidianGlass
+        val card = android.widget.FrameLayout(this).apply { background = G.glassDialog(24, G.OVERLAY_FILL); clipToOutline = true }
+        val img = android.widget.ImageView(this).apply { scaleType = android.widget.ImageView.ScaleType.CENTER_CROP; alpha = 0.85f }
+        card.addView(img, android.widget.FrameLayout.LayoutParams((resources.displayMetrics.widthPixels * 0.5f).toInt(), -1, android.view.Gravity.END))
+        card.addView(View(this).apply { background = android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
+            intArrayOf(0xF20A1020.toInt(), 0xD90A1020.toInt(), 0x400A1020)) }, android.widget.FrameLayout.LayoutParams(-1, -1))
+        info.setPadding(Ui.dp(24), Ui.dp(16), Ui.dp(24), Ui.dp(16))
+        card.addView(info, android.widget.FrameLayout.LayoutParams((resources.displayMetrics.widthPixels * 0.55f).toInt(), -2, android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL))
+        v2Backdrop = img
+        return card
+    }
+
+    /** (v2) Górny pasek ikon: ◄► po ikonach (na krańcach zostaje), ▼ – wybrana zakładka; ◄ z pierwszego plakatu / zakładki – zostaje. */
+    private fun v2DockKey(event: KeyEvent): Boolean {
+        if (!ModernV2.active || !obsidian || !::railBox.isInitialized) return false
+        val f = window.decorView.findFocus() ?: return false
+        val down = event.action == KeyEvent.ACTION_DOWN
+        val items = railItems()
+        if (inRail(f)) {
+            val i = items.indexOf(f)
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_DPAD_LEFT -> { if (down) (items.getOrNull(i - 1) ?: query).requestFocus(); return true }
+                KeyEvent.KEYCODE_DPAD_RIGHT -> { if (down) items.getOrNull(i + 1)?.requestFocus(); return true }
+                KeyEvent.KEYCODE_DPAD_DOWN -> { if (down) (rows.firstOrNull { it.adapter.items.isNotEmpty() }?.let { rowRv(it).getChildAt(0) } ?: filterPills.getOrNull(filter))?.requestFocus(); return true }
+                KeyEvent.KEYCODE_DPAD_UP -> return true
+            }
+            return false
+        }
+        if (event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && f === query && items.isNotEmpty()) { if (down) items.first().requestFocus(); return true }
+        if (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+            val firstPoster = rows.any { r -> rowRv(r).findContainingViewHolder(f)?.bindingAdapterPosition == 0 }
+            if (firstPoster || f === filterPills.firstOrNull()) return true
+        }
+        return false
+    }
+
     private fun installRail() {
         val scrim = View(this)
         val at = rootFrame.childCount
         rootFrame.addView(scrim, at, android.widget.FrameLayout.LayoutParams(-1, -1))
         railBox.background = android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
-            intArrayOf(0xF5080A0F.toInt(), 0xE0121722.toInt()))
+            intArrayOf(0xF5080A0F.toInt(), 0xE0121722.toInt())).let { d -> if (ModernV2.active) pl.iptv.tv.ui.theme.ObsidianGlass.island() else d }   // (v2) pływająca wyspa (Konto, Szukaj, Wtyczki, Odśwież, Klucz TMDB)
         railBox.setPadding(Ui.dp(12), Ui.dp(18), Ui.dp(12), Ui.dp(18))
-        rootFrame.addView(railBox, at + 1, android.widget.FrameLayout.LayoutParams(Ui.dp(72), -1))
+        rootFrame.addView(railBox, at + 1, android.widget.FrameLayout.LayoutParams(Ui.dp(72), -1).apply { if (ModernV2.active) Ui.dp(pl.iptv.tv.ui.theme.ObsidianGlass.ISLAND_MARGIN_DP).let { m -> setMargins(m, m, m, m) } })   // (v2) odsunięta od krawędzi
+        keepBelowV2Bar(railBox); keepBelowV2Bar(scrim)      // (v2) pasek nawigacji pod belką modułu (V2TopModuleBar)
         navRail = pl.iptv.tv.ui.theme.AppNavigationRailViews(railBox, scrim,
             items = { (0 until railBox.childCount).mapNotNull { railBox.getChildAt(it) as? TextView } },
             label = { (it.contentDescription ?: "").toString() }, lowPerf = { Prefs.lowPerf }).also { it.attach() }
@@ -201,12 +278,12 @@ class StremioActivity : BaseActivity() {
         // (7.22) zakładka z dolnego paska telefonu (Stremio / Do obejrzenia)
         intent.getIntExtra(EXTRA_FILTER, -1).takeIf { it in FILTER_ALL..FILTER_LIBRARY }?.let { filter = it }
         setThemedContent(build())
-        if (obsidian) installRail()
+        if (obsidian && !ModernV2.active) installRail()      // (v2) ikony w górnym pasku (zamiast bocznego)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() { if (searchQuery != null) { query.setText(""); search("") } else leaveScreen() }
         })
         // (7.23) filmy i seriale z listy M3U – dostępne bez konta: ekran logowania nie blokuje tablicy, gdy lista ma treści VOD
-        if (!StremioAccount.loggedIn && !Prefs.stremioGuest && !pl.iptv.tv.data.VodLibrary.hasContent) {
+        if (!vodOnly && !StremioAccount.loggedIn && !Prefs.stremioGuest && !pl.iptv.tv.data.VodLibrary.hasContent) {   // (v2) moduł VOD – zawsze bez logowania
             showLogin()
             lifecycleScope.launch { if (!pl.iptv.tv.data.VodLibrary.current().isEmpty && loginShown && !StremioAccount.loggedIn) showBoard() }
         } else {
@@ -265,7 +342,7 @@ class StremioActivity : BaseActivity() {
         infoBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
         infoTitle = StremioUi.text(this, "", 18f, bold = true, lines = 1); infoMeta = StremioUi.text(this, "", 13f, "accent", lines = 1); infoDesc = StremioUi.text(this, "", 13f, "text2", lines = 2)
         infoBox.addView(infoTitle); infoBox.addView(infoMeta); infoBox.addView(infoDesc)
-        root.addView(infoBox)
+        if (ModernV2.active && obsidian) root.addView(v2Hero(infoBox), LinearLayout.LayoutParams(-1, Ui.dp(V2_HERO_DP)).apply { topMargin = Ui.dp(10); bottomMargin = Ui.dp(4) }) else root.addView(infoBox)
         scroll = RowsScroll(this).apply { isFillViewport = true; isVerticalScrollBarEnabled = false }
         rowsBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, Ui.dp(6), 0, Ui.dp(16)) }
         scroll.addView(rowsBox)
@@ -302,12 +379,25 @@ class StremioActivity : BaseActivity() {
      * filtrowane typem) – do [HERO_MAX] pozycji w karuzeli. Odkrywaj – tylko „Kontynuuj oglądanie” ([showContinueHero]).
      */
     private fun showPortraitHero(t: StremioTile, more: List<StremioTile> = listOf(t)) {
+        primeInfo(listOf(t) + more)
         if (!heroAllowed || filter == FILTER_ALL || heroItems.isNotEmpty()) return
         val type = typeFilter
         val picks = (listOf(t) + more).distinctBy { it.meta.id }.filter { type == null || it.meta.type == type }.take(HERO_MAX)
         if (picks.isEmpty()) return
         showHero(picks.map { HeroItem(it.copy(rank = 0, badge = "")) })
     }
+
+    /**
+     * (v2) Górny opis tablicy (TV / poziomo) przed pierwszym ruchem pilotem: pierwszy tytuł typu bieżącej zakładki – w „Serialach”
+     * zawsze serial, w „Filmach” film (dawniej opis zostawał z poprzedniej zakładki albo pokazywał tytuł innego typu).
+     */
+    private fun primeInfo(tiles: List<StremioTile>) {
+        if (portrait || !::infoTitle.isInitialized || infoId.isNotEmpty() || userMoved || searchQuery != null) return
+        val type = typeFilter
+        tiles.firstOrNull { type == null || it.meta.type == type }?.let { showInfo(it) }
+    }
+    /** (v2) Identyfikator tytułu w górnym opisie (testy). */
+    val infoTitleId: String get() = infoId
 
     /** (7.23) Odkrywaj: karta banerowa = „Kontynuuj oglądanie” (najnowsze pierwsze); pusta lista – karty nie ma (bez losowego tytułu). */
     private suspend fun showContinueHero() {
@@ -452,11 +542,11 @@ class StremioActivity : BaseActivity() {
         if (obsidian) {
             // (7.17) „Obsidian Stream”: przyciski nagłówka w pasku nawigacji (nad treścią), u góry pigułki filtrów i wyszukiwarka
             val O = pl.iptv.tv.ui.theme.ObsidianViews
-            root.setPadding(Ui.dp(96), Ui.dp(22), Ui.dp(40), Ui.dp(8))
+            root.setPadding(Ui.dp(if (ModernV2.active) 36 else 96), Ui.dp(if (ModernV2.active) 12 else 22), Ui.dp(if (ModernV2.active) 36 else 40), Ui.dp(8))   // (v2) bez bocznego paska – ikony w górnym pasku
             header.removeAllViews()
             val buttons = (0 until searchBar.childCount).map { searchBar.getChildAt(it) }.filter { it !== query }
             buttons.forEach { searchBar.removeView(it) }
-            railBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            railBox = LinearLayout(this).apply { orientation = if (ModernV2.active) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL; gravity = android.view.Gravity.CENTER_VERTICAL }
             account.contentDescription = "Konto"
             railBox.addView(account, LinearLayout.LayoutParams(-1, -2))
             railBox.addView(StremioUi.button(this, "", PlayerIcon.SEARCH) { query.requestFocus(); showKeyboard() }.apply { contentDescription = "Szukaj" }, LinearLayout.LayoutParams(-1, -2))
@@ -474,7 +564,8 @@ class StremioActivity : BaseActivity() {
                 addState(intArrayOf(), f(O.SPECULAR, O.SURFACE_GLASS, 1))
             }
             query.setPadding(Ui.dp(20), Ui.dp(10), Ui.dp(20), Ui.dp(10))
-            header.addView(searchBar, LinearLayout.LayoutParams(Ui.dp(360), -2).apply { marginStart = Ui.dp(12) })
+            header.addView(searchBar, LinearLayout.LayoutParams(Ui.dp(if (ModernV2.active) 220 else 360), -2).apply { marginStart = Ui.dp(12) })
+            if (ModernV2.active) v2Dock(header)
         } else {
             header.addView(searchBar, LinearLayout.LayoutParams(0, -2, 1f))
             header.addView(account, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
@@ -488,7 +579,7 @@ class StremioActivity : BaseActivity() {
         infoMeta = StremioUi.text(this, "", 14f, "accent", lines = 1).apply { setLines(1) }
         infoDesc = StremioUi.text(this, "", 14f, "text2", lines = 3).apply { setLines(3) }
         infoBox.addView(infoTitle); infoBox.addView(infoMeta); infoBox.addView(infoDesc)
-        root.addView(infoBox)
+        if (ModernV2.active && obsidian) root.addView(v2Hero(infoBox), LinearLayout.LayoutParams(-1, Ui.dp(V2_HERO_DP)).apply { topMargin = Ui.dp(10); bottomMargin = Ui.dp(4) }) else root.addView(infoBox)
         scroll = RowsScroll(this).apply { isFillViewport = true; isVerticalScrollBarEnabled = false }
         rowsBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         scroll.addView(rowsBox)
@@ -755,6 +846,7 @@ class StremioActivity : BaseActivity() {
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.action == KeyEvent.ACTION_DOWN && event.keyCode in DPAD_KEYS) userMoved = true
+        if (v2DockKey(event)) return true      // (v2) ikony w górnym pasku
         if (railKey(event)) return true
         if (!loginShown && rowsVerticalKey(event)) return true
         return super.dispatchKeyEvent(event)
@@ -767,11 +859,21 @@ class StremioActivity : BaseActivity() {
         scrolledTo = null
         rowsBox.removeAllViews(); rows.clear(); rowTitles.clear(); heroItems = emptyList(); heroIndex = 0; heroCard = null
         userMoved = false
+        // (v2) górny opis z poprzedniej zakładki (np. film po przejściu na „Seriale”) – czyszczony; pierwszy wczytany tytuł
+        // pasującego typu trafia do opisu od razu ([primeInfo])
+        if (::infoTitle.isInitialized) { infoTitle.text = ""; infoMeta.text = ""; infoDesc.text = ""; infoId = "" }
         var first = true
         // (7.17) filtr tablicy: Filmy / Seriale – tylko katalogi i rzędy tego typu, Biblioteka – rzędy z urządzenia (bez katalogów)
         val f = filter
         val type = typeFilter
         jobs += lifecycleScope.launch {
+            // (v2) moduł VOD z pulpitu START (zakładka „VOD”): wyłącznie filmy i seriale z list M3U (Filmy / Seriale, pigułki gatunków,
+            // serial → sezony → odcinki) – bez katalogów wtyczek, Top 10 i konta Stremio
+            if (vodOnly) {
+                addM3uRows(q, type)
+                if (!m3uRowsShown) rowsBox.addView(StremioUi.text(this@StremioActivity, VOD_EMPTY, 16f, "text2").apply { setPadding(Ui.dp(6), Ui.dp(20), 0, 0) })
+                return@launch
+            }
             // (7.17) historia i postęp tylko w Bibliotece: Odkrywaj / Filmy / Seriale zaczynają się od katalogów
             if (q == null && f == FILTER_LIBRARY) {
                 fillContinue(addRow(CONTINUE_ROW))
@@ -818,6 +920,7 @@ class StremioActivity : BaseActivity() {
             }
             for ((a, c) in catalogs) {
                 val title = rowTitle(a, c, q != null)
+                if (title in rowTitles) continue                    // (v2) ten sam tytuł rzędu drugi raz (np. zdublowany katalog) – pomijany
                 val r = addRow(title)
                 jobs += lifecycleScope.launch {
                     val res = runCatching { StremioApi.catalog(a, c, q) }
@@ -882,6 +985,7 @@ class StremioActivity : BaseActivity() {
     private fun fillTop10(r: Row, list: List<StremioMetaPreview>) {
         val tiles = list.take(pl.iptv.tv.data.StremioTop10.SIZE).mapIndexed { i, m -> StremioTile(m, rank = i + 1) }
         if (tiles == r.adapter.items) return
+        primeInfo(tiles)
         val old = r.adapter.items.size
         r.adapter.items.clear(); r.adapter.items += tiles
         when {
@@ -912,7 +1016,9 @@ class StremioActivity : BaseActivity() {
 
     private fun rowTitle(a: StremioAddon, c: StremioAddon.Catalog, search: Boolean): String {
         val t = StremioUi.typeName(c.type).let { if (c.type == "movie") "Filmy" else if (c.type == "series") "Seriale" else it }
-        return if (a.transportUrl == StremioApi.CINEMETA) (if (search) t else "Popularne – " + t.lowercase()) else "${a.name} · ${c.name.ifBlank { t }}" + if (search) " ($t)" else ""
+        // (v2) Cinemeta ma kilka katalogów tego samego typu (top, imdbRating, year) – dawniej każdy nazywał się „Popularne – seriale”
+        // (zdublowany rząd w zakładce Seriale); teraz nazwa wg katalogu ([cinemetaPrefix]), a powtórzony tytuł jest pomijany w [build]
+        return if (a.transportUrl == StremioApi.CINEMETA) (if (search) t else cinemetaPrefix(c.id) + " – " + t.lowercase()) else "${a.name} · ${c.name.ifBlank { t }}" + if (search) " ($t)" else ""
     }
 
     private fun rowIcon(title: String): String = when {
@@ -920,7 +1026,7 @@ class StremioActivity : BaseActivity() {
         title == "Kontynuuj oglądanie" -> PlayerIcon.PLAY
         title == "Obejrzane" -> PlayerIcon.CHECK
         title == IN_CINEMAS -> PlayerIcon.CINEMA
-        title.startsWith("Popularne") -> PlayerIcon.STAR
+        title.startsWith("Popularne") || title.startsWith(CINEMETA_TOP_RATED) -> PlayerIcon.STAR
         title.contains("Seriale", true) || title.contains("serial", true) -> PlayerIcon.TVSET
         title.contains("Filmy", true) || title.contains("film", true) -> PlayerIcon.FILM
         else -> PlayerIcon.TRENDING
@@ -995,17 +1101,8 @@ class StremioActivity : BaseActivity() {
     }
 
     /** Pozycja z listy: film – od razu odtwarzacz; serial – wybór odcinka (sezon, odcinek), potem odtwarzacz. */
-    private fun openM3u(t: StremioTile) = lifecycleScope.launch {
-        val cat = pl.iptv.tv.data.VodLibrary.current()
-        val id = t.meta.id
-        cat.movie(id)?.let { m -> startActivity(M3uVodUi.playIntent(this@StremioActivity, m)); return@launch }
-        val show = cat.show(id) ?: cat.showOf(id)
-        if (show == null) { I18n.makeToast(this@StremioActivity, "Tej pozycji nie ma już na liście", Toast.LENGTH_SHORT).show(); return@launch }
-        if (isFinishing || isDestroyed) return@launch
-        Dialogs.menu(this@StremioActivity, show.title, show.episodes.map { e ->
-            pl.iptv.tv.data.M3uVod.episodeLabel(e) to { startActivity(M3uVodUi.playIntent(this@StremioActivity, show, e)) }
-        })
-    }
+    // (v2) wspólne z pulpitem START: serial – Sezony → Odcinki ([M3uVodUi.chooseEpisode])
+    private fun openM3u(t: StremioTile) = M3uVodUi.open(this, t.meta.id)
 
     private fun addRow(title: String): Row {
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, Ui.dp(6), 0, 0) }
@@ -1013,6 +1110,9 @@ class StremioActivity : BaseActivity() {
         box.addView(StremioUi.text(this, title, 18f * Ui.geo.headerScale, "accent", bold = true).apply {
             setPadding(Ui.dp(4), 0, 0, Ui.dp(2)); compoundDrawablePadding = Ui.dp(8); gravity = android.view.Gravity.CENTER_VERTICAL
             setCompoundDrawables(StremioUi.icon(rowIcon(title), 20, accent = true), null, null, null)
+            // (v2) nagłówek jak na pulpicie START: niebieska kropka, wersaliki
+            if (ModernV2.active && obsidian) { text = title.uppercase(); textSize = 15f; letterSpacing = 0.06f; tag = "keepcolor"; setTextColor(pl.iptv.tv.ui.theme.ObsidianGlass.TEXT); compoundDrawablePadding = Ui.dp(10)
+                setCompoundDrawables(android.graphics.drawable.GradientDrawable().apply { shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(pl.iptv.tv.ui.theme.ObsidianGlass.FOCUS_RING); setBounds(0, 0, Ui.dp(8), Ui.dp(8)) }, null, null, null) }
         })
         val status = StremioUi.text(this, "Wczytywanie…", 14f, "text2").apply { setPadding(Ui.dp(4), Ui.dp(4), 0, Ui.dp(4)) }
         box.addView(status)
@@ -1158,6 +1258,8 @@ class StremioActivity : BaseActivity() {
         infoMeta.text = StremioUi.metaLine(m.type, m.releaseInfo, m.imdbRating, m.genres) + (t.progress?.let { p -> "   ·   ▶ " + listOfNotNull(p.videoLabel.ifBlank { null }, StremioUi.fmt(p.positionMs)).joinToString(" ") } ?: "")
         infoDesc.text = m.description
         infoId = m.id
+        v2Backdrop?.let { iv -> val url = if (m.id.startsWith("tt")) "https://images.metahub.space/background/medium/${m.id.substringBefore(':')}/img" else m.poster
+            if (iv.tag != url) { iv.tag = url; coil.util.CoilUtils.dispose(iv); iv.setImageDrawable(null); if (url.isNotBlank()) iv.load(url) { crossfade(true); size(960, 540); listener(onError = { _, _ -> if (m.poster.isNotBlank() && url != m.poster) iv.load(m.poster) { size(480, 720) } }) } } }
         focusJob?.cancel()
         // (7.20) aplikacja po polsku (z kluczem TMDB): opis, tytuł i gatunki z metadanych pl-PL zamiast angielskich z katalogu
         val polish = pl.iptv.tv.data.StremioTmdb.polishWanted && pl.iptv.tv.data.StremioTmdb.available

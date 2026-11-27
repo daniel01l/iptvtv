@@ -12,7 +12,42 @@ object KeyMap {
         QUICK_MENU("Menu funkcji"), INFO("Pasek informacji"), GUIDE("Program TV (przewodnik)"),
         LAST("Powrót do poprzedniego kanału"), FAV("Dodaj/usuń z ulubionych"), RECORD("Nagrywanie"),
         AUDIO("Ścieżka audio"), SUBS("Napisy"), ASPECT("Proporcje obrazu"), SKIP_AD("Pomiń reklamę (archiwum)"),
+        // (v2) nowe akcje – domyślnie bez klawiszy (presety bez zmian); systemowe działają, jeśli urządzenie je obsługuje
+        MUTE("Wyciszenie dźwięku"), PIP("Obraz w obrazie (PiP)"), EPG_SEARCH("Szukaj w programie"),
+        SYS_HOME("System: ekran główny"), SYS_SETTINGS("System: ustawienia Androida / TV"), SYS_INPUTS("System: wejścia / źródła TV"),
     }
+
+    /** (v2) Rodzaj naciśnięcia: pojedyncze ([map] – dotychczasowe przypisania), podwójne, przytrzymanie. */
+    enum class Press(val label: String) { SINGLE("Pojedyncze kliknięcie"), DOUBLE("Podwójne kliknięcie"), LONG("Przytrzymanie") }
+
+    /** (v2) Okno drugiego kliknięcia (podwójne) i czas przytrzymania. */
+    const val DOUBLE_MS = 320L
+    const val LONG_MS = 650L
+
+    /**
+     * (v2) Przypisania podwójnego kliknięcia i przytrzymania: klawisz → akcja (JSON `{kod: nazwa}` w `Prefs.keyMapDoubleJson` /
+     * `Prefs.keyMapLongJson`). Puste – brak (klawisz działa jak dotąd, bez opóźnienia pojedynczego kliknięcia).
+     */
+    fun gestures(p: Press): Map<Int, Action> {
+        val j = when (p) { Press.DOUBLE -> Prefs.keyMapDoubleJson; Press.LONG -> Prefs.keyMapLongJson; Press.SINGLE -> return emptyMap() }
+        if (j.isBlank()) return emptyMap()
+        return runCatching {
+            val o = JSONObject(j)
+            o.keys().asSequence().mapNotNull { k -> val a = runCatching { Action.valueOf(o.getString(k)) }.getOrNull(); k.toIntOrNull()?.let { c -> a?.let { c to it } } }.toMap()
+        }.getOrDefault(emptyMap())
+    }
+
+    fun gestureFor(p: Press, key: Int): Action? = if (p == Press.SINGLE) actionFor(key) else gestures(p)[key]
+
+    /** (v2) Przypisanie [a] (null – usunięcie) do klawisza [key] dla podwójnego kliknięcia / przytrzymania. */
+    fun setGesture(p: Press, key: Int, a: Action?) {
+        if (p == Press.SINGLE) { if (a != null) assign(a, key); return }
+        val m = gestures(p).toMutableMap(); if (a == null) m.remove(key) else m[key] = a
+        val s = JSONObject().apply { m.forEach { (k, v) -> put(k.toString(), v.name) } }.toString()
+        if (p == Press.DOUBLE) Prefs.keyMapDoubleJson = s else Prefs.keyMapLongJson = s
+    }
+
+    fun clearGestures() { Prefs.keyMapDoubleJson = ""; Prefs.keyMapLongJson = "" }
 
     val PRESETS = listOf(
         "Standard: ▲▼ kanały, ◄ ► panele" to mapOf(

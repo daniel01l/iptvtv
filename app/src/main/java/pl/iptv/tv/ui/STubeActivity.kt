@@ -33,14 +33,20 @@ import pl.iptv.tv.data.StubeQueue
  * ▼ z wyszukiwarki do pierwszego rzędu, ▲ z pierwszego rzędu do wyszukiwarki.
  */
 class STubeActivity : BaseActivity() {
+    /** (v2, ujednolicenie) Górna belka modułu (V2TopModuleBar) – nazwa sekcji. */
+    override val v2ModuleTitle: String? get() = "STube"
     /** (7.22) Telefon pionowo: zakładka „STube” dolnego paska. */
     override val portraitTab get() = MobilePortraitScaffold.Tab.STUBE
     override val pausesLiveTv = true
     /** Wąski ekran (telefon w pionie) – zwarty pasek u góry. */
-    private val narrowHeader get() = resources.configuration.screenWidthDp < 600
+    // (v2) Nowoczesny v2: pasek ikon zawsze u góry (szklana stacja dokująca pod belką modułu) – także na TV; nawigacja jak w układzie poziomym
+    private val narrowHeader get() = resources.configuration.screenWidthDp < 600 || ModernV2.active
+    /** (v2) Stacja dokująca na szerokim ekranie (TV / poziomo) – większe ikony i marginesy. */
+    private val wideDock get() = ModernV2.active && resources.configuration.screenWidthDp >= 600
     override val x25Root = true
     override val miniPlayer = true
-    /** Wygląd, z którym zbudowano ekran (zmiana motywu STube w Ustawieniach → przebudowa). */
+    /** (v2) Przytrzymana strzałka przesuwa kursor w równym tempie (bez kolejki powtórzeń, która „przeskakiwała” kafelki). */
+    override val navRepeatMs get() = if (ModernV2.active) NAV_REPEAT_MS else 0L    /** Wygląd, z którym zbudowano ekran (zmiana motywu STube w Ustawieniach → przebudowa). */
     private var builtLook = ""
 
     override fun onPause() { super.onPause(); StubeTheme.exit(); if (StubeImportUi.current == null) StubeImport.onPending = null }
@@ -50,6 +56,8 @@ class STubeActivity : BaseActivity() {
         const val EXTRA_QUERY = "query"
         /** Zwłoka podglądu kategorii / podkategorii przy najechaniu (ms). */
         const val LIVE_PREVIEW_MS = 200L
+        /** (v2) Tempo przytrzymanej strzałki w menu STube (ms). */
+        const val NAV_REPEAT_MS = 90L
         /** Zwłoka po ostatniej wpisanej literze przed zapytaniem o podpowiedzi na żywo; maksymalna liczba podpowiedzi. */
         const val SUGGEST_DEBOUNCE_MS = 220L; const val SUGGEST_MAX = 8
         /** Pulpit X25: rząd do zaznaczenia od razu (id z [STubeScreen], np. „library”, „subs”). */
@@ -103,20 +111,39 @@ class STubeActivity : BaseActivity() {
             run {   // 16 ikon nie mieści się w szerokości – pasek przewijany poziomo
                 val vs = findViewById<android.view.ViewGroup>(R.id.stRailScroll); vs.removeView(rail); root.removeView(vs)
                 val hs = RailHorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; isFillViewport = true; overScrollMode = View.OVER_SCROLL_NEVER; isFocusable = false; clipChildren = false; addView(rail, android.widget.FrameLayout.LayoutParams(-2, -2)) }
-                root.addView(hs, 0, LinearLayout.LayoutParams(-1, -2))
+                root.addView(hs, 0, LinearLayout.LayoutParams(-1, -2).apply { if (ModernV2.active) setMargins(Ui.dp(if (wideDock) 24 else 10), Ui.dp(6), Ui.dp(if (wideDock) 24 else 10), Ui.dp(4)) })
+                // (v2) stacja dokująca: szklana kapsuła z ikonami-pigułkami (jak zakładki pulpitu START)
+                if (ModernV2.active) {
+                    hs.background = pl.iptv.tv.ui.theme.ObsidianGlass.glassDialog(30, pl.iptv.tv.ui.theme.ObsidianGlass.OVERLAY_FILL); hs.setPadding(Ui.dp(10), Ui.dp(8), Ui.dp(10), Ui.dp(8)); hs.clipToPadding = false
+                    // (v2) ikony wyśrodkowane w pionie (bez górnego odstępu paska – dawniej wystawały w dół) i dopasowane do szerokości
+                    rail.setPadding(0, 0, 0, 0); rail.gravity = Gravity.CENTER_VERTICAL
+                    (rail.layoutParams as android.widget.FrameLayout.LayoutParams).gravity = Gravity.CENTER
+                    dock = hs
+                    hs.addOnLayoutChangeListener { _, l, _, r, _, ol, _, or, _ -> if (r - l != or - ol) fitDock() }
+                }
             }
             findViewById<View>(R.id.stMain).let { it.layoutParams = LinearLayout.LayoutParams(-1, 0, 1f); it.setPadding(Ui.dp(10), Ui.dp(6), Ui.dp(10), Ui.dp(8)) }
             findViewById<View>(R.id.stTitle).visibility = View.GONE
             findViewById<View>(R.id.stRailSpace).layoutParams = LinearLayout.LayoutParams(0, 0, 1f)
             for (i in 0 until rail.childCount) rail.getChildAt(i).let { b ->
                 if (b.id == R.id.stRailSpace) return@let
-                b.layoutParams = LinearLayout.LayoutParams(Ui.dp(44), Ui.dp(44)).apply { marginStart = Ui.dp(2); marginEnd = Ui.dp(2) }
+                b.layoutParams = LinearLayout.LayoutParams(Ui.dp(if (wideDock) 52 else 44), Ui.dp(if (wideDock) 52 else 44)).apply { marginStart = Ui.dp(if (wideDock) 5 else 2); marginEnd = Ui.dp(if (wideDock) 5 else 2) }
+                if (ModernV2.active) b.background = pl.iptv.tv.ui.theme.ObsidianGlass.pillTab(26, pl.iptv.tv.data.Prefs.lowPerf)
             }
             findViewById<View>(R.id.stSearch).let { (it.layoutParams as LinearLayout.LayoutParams).topMargin = 0 }
         }
 
         applyRailLayout()
         if (obsidianRail) installObsidianRail()
+        if (ModernV2.active) {      // (v2) wyszukiwarka – szklana kapsuła V2PillTab (fokus: tint, ramka #38BDF8, poświata)
+            val G = pl.iptv.tv.ui.theme.ObsidianGlass
+            query.tag = "keepcolor"; query.setTextColor(G.TEXT); query.setHintTextColor(G.TEXT2)
+            query.background = android.graphics.drawable.StateListDrawable().apply { addState(intArrayOf(android.R.attr.state_focused), G.tintRing(28, pl.iptv.tv.data.Prefs.lowPerf)); addState(intArrayOf(), G.pillRest(28)) }
+            query.setPadding(Ui.dp(24), Ui.dp(12), Ui.dp(24), Ui.dp(12))
+        }
+        if (ModernV2.active) findViewById<View>(R.id.stTitle).visibility = View.GONE      // (v2) nazwa sekcji w belce modułu
+        // (v2) bez pola wyszukiwania pod stacją dokującą – wyszukiwanie z ikony lupy (telefon w pionie – pole z klawiaturą systemową zostaje)
+        if (noSearchField) query.visibility = View.GONE
         findViewById<View>(R.id.stEdit).setOnClickListener { editRail() }
         findViewById<View>(R.id.stClose).setOnClickListener { finish() }
         findViewById<View>(R.id.stRefresh).setOnClickListener { YouTubeRepository.clearCache(); pl.iptv.tv.data.YtKeyless.clearCache(); build(force = true) }
@@ -126,7 +153,7 @@ class STubeActivity : BaseActivity() {
             now.setOnClickListener { startActivity(YtPlayerActivity.resumeIntent(this)) }
             miniBar?.let { b ->
                 val prev = b.onVisibilityChanged
-                b.onVisibilityChanged = { on -> prev?.invoke(on); now.visibility = if (on) View.VISIBLE else View.GONE }
+                b.onVisibilityChanged = { on -> prev?.invoke(on); now.visibility = if (on) View.VISIBLE else View.GONE; dock?.post { fitDock() } }
                 if (b.shown) now.visibility = View.VISIBLE
             }
         }
@@ -390,7 +417,7 @@ class STubeActivity : BaseActivity() {
         val cellW = if (categoryRow?.square == true) STubeScreen.squareSide(lay) + 12 else lay.tileW
         val cell = Ui.dp(cellW) + Ui.dp(lay.gap)
         val w = grid.width - grid.paddingLeft - grid.paddingRight
-        if (w > 0) (grid.layoutManager as androidx.recyclerview.widget.GridLayoutManager).spanCount = maxOf(1, w / cell)
+        if (w > 0) (grid.layoutManager as androidx.recyclerview.widget.GridLayoutManager).spanCount = if (portraitPhone && categoryRow?.adapter?.feed == true) 1 else maxOf(1, w / cell)
     }
 
     private fun setupCategories() {
@@ -463,6 +490,8 @@ class STubeActivity : BaseActivity() {
         val row = STubeScreen.categoryRow(c, sub)
         categoryRow = row
         row.square = false
+        // telefon pionowo: filmy kategorii jako karty feedu na całą szerokość (dawniej kafelek TV w jednej kolumnie – pół ekranu puste)
+        if (portraitPhone) row.adapter.feed = true
         updateSpan()
         row.adapter.onClick = { t -> onTile(row, t) }
         row.adapter.onLongClick = { t -> tileMenu(row, t) }
@@ -562,6 +591,7 @@ class STubeActivity : BaseActivity() {
         }
         // „Teraz odtwarzane” widoczne tylko, gdy coś gra
         if (miniBar?.shown != true) views.getValue("now").visibility = View.GONE
+        dock?.post { fitDock() }
         val cur = category
         categoryIds.forEachIndexed { i, id -> findViewById<View>(id).isSelected = cur != null && STubeScreen.CATEGORIES[i].id == cur.id }
     }
@@ -596,7 +626,7 @@ class STubeActivity : BaseActivity() {
         grid.adapter = null
         scroll.visibility = View.VISIBLE
         buildChips()   // pigułki biblioteki w miejsce podkategorii
-        findViewById<TextView>(R.id.stTitle).apply { text = "STube"; if (narrowHeader) visibility = View.GONE }
+        findViewById<TextView>(R.id.stTitle).apply { text = "STube"; if (narrowHeader || ModernV2.active) visibility = View.GONE }
         categoryIds.forEach { findViewById<View>(it).isSelected = false }
         return true
     }
@@ -611,9 +641,9 @@ class STubeActivity : BaseActivity() {
         val down = event.action == KeyEvent.ACTION_DOWN
         fun act(b: () -> Unit): Boolean { if (down) b(); return true }
         return when (event.keyCode) {
-            KeyEvent.KEYCODE_DPAD_LEFT -> if (pos % span == 0) act { if (!narrowHeader) categoryIcon().requestFocus() } else false
+            KeyEvent.KEYCODE_DPAD_LEFT -> if (pos % span == 0) act { if (!narrowHeader || dock != null) categoryIcon().requestFocus() } else false
             KeyEvent.KEYCODE_DPAD_RIGHT -> pos % span == span - 1 || pos == n - 1
-            KeyEvent.KEYCODE_DPAD_UP -> if (pos < span) act { selectedSubChip()?.requestFocus() ?: query.requestFocus() } else false
+            KeyEvent.KEYCODE_DPAD_UP -> if (pos < span) act { selectedSubChip()?.requestFocus() ?: focusTop() } else false
             KeyEvent.KEYCODE_DPAD_DOWN -> if (pos / span >= (n - 1) / span) act { if (miniBar?.shown == true) miniBar?.focusBar() } else false
             else -> false
         }
@@ -666,13 +696,14 @@ class STubeActivity : BaseActivity() {
         val vs = findViewById<android.view.ViewGroup>(R.id.stRailScroll)
         val root = findViewById<LinearLayout>(R.id.stRoot)
         root.removeView(vs)
-        root.addView(View(this), 0, LinearLayout.LayoutParams(Ui.dp(72), -1))
+        root.addView(View(this), 0, LinearLayout.LayoutParams(Ui.dp(72), -1).apply { if (ModernV2.active) marginStart = Ui.dp(pl.iptv.tv.ui.theme.ObsidianGlass.ISLAND_MARGIN_DP * 2) })
         val at = rootFrame.indexOfChild(root) + 1
         val scrim = View(this)
         rootFrame.addView(scrim, at, android.widget.FrameLayout.LayoutParams(-1, -1))
-        rootFrame.addView(vs, at + 1, android.widget.FrameLayout.LayoutParams(Ui.dp(72), -1))
+        rootFrame.addView(vs, at + 1, android.widget.FrameLayout.LayoutParams(Ui.dp(72), -1).apply { if (ModernV2.active) Ui.dp(pl.iptv.tv.ui.theme.ObsidianGlass.ISLAND_MARGIN_DP).let { m -> setMargins(m, m, m, m) } })   // (v2) odsunięta od krawędzi
+        keepBelowV2Bar(vs); keepBelowV2Bar(scrim)      // (v2) pasek nawigacji pod belką modułu (V2TopModuleBar)
         vs.background = android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
-            intArrayOf(0xF5080A0F.toInt(), 0xE0121722.toInt()))
+            intArrayOf(0xF5080A0F.toInt(), 0xE0121722.toInt())).let { d -> if (ModernV2.active) pl.iptv.tv.ui.theme.ObsidianGlass.island() else d }   // (v2) pływająca wyspa nawigacji
         rail.layoutParams = android.widget.FrameLayout.LayoutParams(-1, -2)
         rail.setPadding(Ui.dp(12), Ui.dp(16), Ui.dp(12), Ui.dp(16))
         val accountLabel = { (account.contentDescription ?: "Konto").toString() }
@@ -745,7 +776,7 @@ class STubeActivity : BaseActivity() {
     }
 
     /** Początek ekranu: pierwszy rząd, widok na górze. */
-    private fun goStart() { closeCategory(); scroll.smoothScrollTo(0, 0); rows.indices.firstOrNull { rows[it].tiles.isNotEmpty() }?.let { focusRow(it) } ?: query.requestFocus() }
+    private fun goStart() { closeCategory(); scroll.smoothScrollTo(0, 0); rows.indices.firstOrNull { rows[it].tiles.isNotEmpty() }?.let { focusRow(it) } ?: focusTop() }
 
     /** Przejście do rzędu [id] (jeśli jest na ekranie). */
     private fun jumpTo(id: String) { closeCategory(); rows.indexOfFirst { it.id == id }.takeIf { it >= 0 }?.let { focusRow(it) } }
@@ -762,12 +793,16 @@ class STubeActivity : BaseActivity() {
 
     private fun rowView(r: STubeRow, index: Int, at: Int = -1): View {
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, Ui.dp(if (index == 0) 2 else 8), 0, 0) }
-        box.addView(TextView(this).apply { text = r.title; textSize = 22f * Ui.geo.headerScale; setTypeface(typeface, 1); setTextColor(Ui.text); setPadding(Ui.dp(4), Ui.dp(4), 0, Ui.dp(4)) })
+        box.addView(TextView(this).apply { text = r.title; textSize = 22f * Ui.geo.headerScale; setTypeface(typeface, 1); setTextColor(Ui.text); setPadding(Ui.dp(4), Ui.dp(4), 0, Ui.dp(4))
+            // (v2) nagłówek jak na pulpicie START: niebieska kropka, wersaliki, mniejszy i rozstrzelony
+            if (ModernV2.active) { text = r.title.uppercase(); textSize = 15f; letterSpacing = 0.06f; tag = "keepcolor"; setTextColor(pl.iptv.tv.ui.theme.ObsidianGlass.TEXT)
+                setCompoundDrawables(android.graphics.drawable.GradientDrawable().apply { shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(pl.iptv.tv.ui.theme.ObsidianGlass.FOCUS_RING); setBounds(0, 0, Ui.dp(8), Ui.dp(8)) }, null, null, null); compoundDrawablePadding = Ui.dp(10) } })
         val status = TextView(this).apply { tag = "text2"; textSize = 14f; setPadding(Ui.dp(4), Ui.dp(4), 0, Ui.dp(4)); text = "Wczytywanie…"; setTag(R.id.row_key, "status") }
         box.addView(status)
         val rv = HRowRecycler(this).apply {
-            layoutManager = LinearLayoutManager(this@STubeActivity, LinearLayoutManager.HORIZONTAL, false)
+            layoutManager = LinearLayoutManager(this@STubeActivity, LinearLayoutManager.HORIZONTAL, false).apply { initialPrefetchItemCount = 6 }
             adapter = r.adapter; itemAnimator = null; setHasFixedSize(false)
+            setItemViewCacheSize(6)
             isFocusable = false; descendantFocusability = android.view.ViewGroup.FOCUS_AFTER_DESCENDANTS
             // miejsce na powiększony kafelek (zaznaczenie nie jest ucinane przy krawędzi rzędu)
             setPadding(Ui.dp(6), Ui.dp(8), Ui.dp(40), Ui.dp(10)); clipToPadding = false
@@ -785,7 +820,8 @@ class STubeActivity : BaseActivity() {
             // ostatnie kafelki zaznaczone → następna strona
             if (pos >= r.tiles.size - 4 && r.next != null && !r.loading) load(r, r.next, false)
             // zaznaczony rząd w całości na ekranie (tytuł nad kafelkami też)
-            scroll.post { scroll.smoothScrollTo(0, (box.top - Ui.dp(6)).coerceAtLeast(0)) }
+            // przewinięcie tylko przy zmianie rzędu – ◄► w tym samym rzędzie nie uruchamiają animacji ScrollView
+            scroll.post { val y = (box.top - Ui.dp(6)).coerceAtLeast(0); if (scroll.scrollY != y) scroll.smoothScrollTo(0, y) }
         }
         box.addView(rv, LinearLayout.LayoutParams(-1, -2))
         if (at < 0) rowViews += rv else rowViews.add(at, rv)
@@ -899,7 +935,7 @@ class STubeActivity : BaseActivity() {
         when {
             r.tiles.isNotEmpty() -> rowViews[ri].focusPosition(pos.coerceIn(0, r.tiles.size - 1))
             r === playlistRow -> closePlaylist()
-            else -> rows.indices.firstOrNull { rows[it].tiles.isNotEmpty() }?.let { focusRow(it) } ?: query.requestFocus()
+            else -> rows.indices.firstOrNull { rows[it].tiles.isNotEmpty() }?.let { focusRow(it) } ?: focusTop()
         }
     }
 
@@ -1072,9 +1108,20 @@ class STubeActivity : BaseActivity() {
         }
         // pasek „Teraz odtwarzane”: ▲ wraca do ostatnio zaznaczonego rzędu, ◄► między przyciskami paska
         window.decorView.findFocus()?.let { f -> if (miniBar?.isInside(f) == true && event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-            rows.indices.lastOrNull { rows[it].tiles.isNotEmpty() }?.let { focusRow(it) } ?: query.requestFocus(); return true } }
+            rows.indices.lastOrNull { rows[it].tiles.isNotEmpty() }?.let { focusRow(it) } ?: focusTop(); return true } }
         // pilot: INFO / „Teraz odtwarzane” z dowolnego miejsca ekranu otwiera odtwarzacz (gdy coś gra)
         if (event.keyCode == KeyEvent.KEYCODE_INFO && miniBar?.shown == true) { if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) miniBar?.open(); return true }
+        // (v2) stacja dokująca: ◄► ikona po ikonie (kursor nie ucieka na krawędziach), ▼ – pigułki / siatka / rząd, ▲ – zostaje
+        if (dock != null && event.action == KeyEvent.ACTION_DOWN) window.decorView.findFocus()?.takeIf { inside(it, R.id.stRail) }?.let { f ->
+            val icons = (0 until rail.childCount).map(rail::getChildAt).filter { it.isFocusable && it.visibility == View.VISIBLE }
+            val i = icons.indexOf(f)
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_DPAD_DOWN -> { dockDown(); return true }
+                KeyEvent.KEYCODE_DPAD_UP -> return true
+                KeyEvent.KEYCODE_DPAD_LEFT -> { if (i > 0) icons[i - 1].requestFocus(); return true }
+                KeyEvent.KEYCODE_DPAD_RIGHT -> { if (i >= 0 && i < icons.size - 1) icons[i + 1].requestFocus(); return true }
+            }
+        }
         // kategoria otwarta: WSTECZ wraca do zwykłego ekranu (potem kolejne WSTECZ zamyka STube); siatka – własna obsługa krawędzi
         if (categoryRow != null) {
             if (event.keyCode == KeyEvent.KEYCODE_BACK && !query.isPopupShowing) {
@@ -1109,7 +1156,7 @@ class STubeActivity : BaseActivity() {
                 when (event.keyCode) {
                     // ◄► kafelek po kafelku; na końcach rzędu fokus zostaje (nie skacze do innego rzędu ani przycisków)
                     // ◄ na początku rzędu – pasek ikon po lewej (tylko układ poziomy; na wąskim ekranie fokus zostaje)
-                    KeyEvent.KEYCODE_DPAD_LEFT -> { if (pos > 0) rv.focusPosition(pos - 1) else if (!narrowHeader) focusRail(); return true }
+                    KeyEvent.KEYCODE_DPAD_LEFT -> { if (pos > 0) rv.focusPosition(pos - 1) else if (!narrowHeader) focusRail() else if (dock != null) focusTop(); return true }
                     KeyEvent.KEYCODE_DPAD_RIGHT -> { if (pos >= 0 && pos < rows[ri].tiles.size - 1) rv.focusPosition(pos + 1); return true }
                     KeyEvent.KEYCODE_DPAD_DOWN -> {
                         val next = (ri + 1 until rows.size).firstOrNull { rows[it].tiles.isNotEmpty() }
@@ -1125,16 +1172,16 @@ class STubeActivity : BaseActivity() {
                 }
             } else if (f != null && inside(f, R.id.stChips)) {
                 when (event.keyCode) {
-                    KeyEvent.KEYCODE_DPAD_UP -> { query.requestFocus(); return true }
+                    KeyEvent.KEYCODE_DPAD_UP -> { focusTop(); return true }
                     KeyEvent.KEYCODE_DPAD_DOWN -> { if (categoryRow != null) focusGridWhenReady() else goStart(); return true }
-                    KeyEvent.KEYCODE_DPAD_LEFT -> if (f === chips.getChildAt(0) && !narrowHeader) { if (categoryRow != null) categoryIcon().requestFocus() else focusRail(); return true }
+                    KeyEvent.KEYCODE_DPAD_LEFT -> if (f === chips.getChildAt(0) && (!narrowHeader || dock != null)) { if (categoryRow != null) categoryIcon().requestFocus() else if (narrowHeader) focusTop() else focusRail(); return true }
                     // krawędź pigułek: kursor nie ucieka poza pasek
                     KeyEvent.KEYCODE_DPAD_RIGHT -> if (f === chips.getChildAt(chips.childCount - 1)) return true
                 }
             } else if (f != null && inside(f, R.id.stRail) && !narrowHeader) {
                 if (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT) return true   // lewa krawędź ekranu
                 if (event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                    rows.indices.firstOrNull { rows[it].tiles.isNotEmpty() }?.let { focusRow(lastRow.takeIf { i -> rows.getOrNull(i)?.tiles?.isNotEmpty() == true } ?: it) } ?: query.requestFocus()
+                    rows.indices.firstOrNull { rows[it].tiles.isNotEmpty() }?.let { focusRow(lastRow.takeIf { i -> rows.getOrNull(i)?.tiles?.isNotEmpty() == true } ?: it) } ?: focusTop()
                     return true
                 }
             } else if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && f != null && inside(f, R.id.stSearchRow) &&
@@ -1149,6 +1196,46 @@ class STubeActivity : BaseActivity() {
     /** Rząd, w którym ostatnio był fokus (powrót z paska ikon). */
     private var lastRow = 0
 
+    /** (v2) Bez pola wyszukiwania pod stacją dokującą (TV / poziomo) – wyszukiwanie z ikony lupy. */
+    private val noSearchField get() = ModernV2.active && !portraitPhone
+
+    /** (v2) Szklana stacja dokująca z ikonami (null poza v2). */
+    private var dock: android.view.ViewGroup? = null
+
+    /** (v2) Rozmiar ikon stacji dokującej dopasowany do szerokości: wszystkie widoczne ikony mieszczą się bez przewijania (od 34 do 52 dp). */
+    fun fitDock() {
+        val hs = dock ?: return
+        val avail = hs.width - hs.paddingLeft - hs.paddingRight
+        if (avail <= 0) return
+        val icons = (0 until rail.childCount).map(rail::getChildAt).filter { it.id != R.id.stRailSpace && it.visibility == View.VISIBLE }
+        if (icons.isEmpty()) return
+        val per = avail / icons.size
+        val margin = (per / 10).coerceIn(Ui.dp(2), Ui.dp(5))
+        val size = (per - 2 * margin).coerceIn(Ui.dp(34), Ui.dp(52))
+        for (b in icons) {
+            val lp = b.layoutParams as LinearLayout.LayoutParams
+            if (lp.width != size || lp.marginStart != margin) { lp.width = size; lp.height = size; lp.marginStart = margin; lp.marginEnd = margin; b.layoutParams = lp }
+        }
+        dockIconPx = size
+    }
+    /** Rozmiar ikony stacji dokującej po dopasowaniu (testy). */
+    var dockIconPx = 0; private set
+
+    /** Górny element ekranu: pole wyszukiwania, a w v2 (bez pola) – ikona stacji dokującej (kategorii albo Start). */
+    private fun focusTop() {
+        if (query.visibility == View.VISIBLE) { query.requestFocus(); return }
+        (if (categoryRow != null) categoryIcon() else if (searchQuery != null) findViewById<View>(R.id.stSearch) else railEntry()).requestFocus()
+    }
+
+    /** (v2) ▼ ze stacji dokującej: pigułki, siatka kategorii albo ostatni rząd. */
+    private fun dockDown() {
+        when {
+            chipScroll.visibility == View.VISIBLE && chips.childCount > 0 -> (selectedSubChip() ?: chips.getChildAt(0)).requestFocus()
+            categoryRow != null -> focusGridWhenReady()
+            else -> rows.indices.firstOrNull { rows[it].tiles.isNotEmpty() }?.let { focusRow(lastRow.takeIf { i -> rows.getOrNull(i)?.tiles?.isNotEmpty() == true } ?: it) }
+        }
+    }
+
     /** Pasek ikon po lewej (Start; z konta – pierwszy element). */
     private fun focusRail() { (if (searchQuery != null) findViewById<View>(R.id.stSearch) else railEntry()).requestFocus() }
 
@@ -1158,7 +1245,7 @@ class STubeActivity : BaseActivity() {
     private fun focusChipsOrGrid() { selectedSubChip()?.requestFocus() ?: focusGridWhenReady() }
 
     private fun focusChipsOrQuery() {
-        if (chipScroll.visibility == View.VISIBLE && chips.childCount > 0) chips.getChildAt(0).requestFocus() else query.requestFocus()
+        if (chipScroll.visibility == View.VISIBLE && chips.childCount > 0) chips.getChildAt(0).requestFocus() else focusTop()
     }
 
     private fun inside(v: View, parentId: Int): Boolean {
