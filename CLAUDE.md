@@ -5,7 +5,7 @@
 - Kod: `IptvTv-source.tar.gz` (Gradle 8.14.3, AGP 8.7.3, Kotlin 2.0.21, Media3 1.5.0 + FFmpeg (Jellyfin), compileSdk 35, OkHttp, Coil 2.7, Robolectric 4.13).
 - Moduły: `:app` (pl.iptv.tv), `:admin` (pl.iptv.admin); wspólny kod `shared/pl/iptv/shared/` (RelayCrypto.kt, ActivationFormat.kt).
 - Flavory app: `full` (pl.iptv.tv, plik D-iptv-Player.apk, iptvtv.json, repo github daniel01l/iptvtv) i `secure` (pl.iptv.dplayer, wersja TEST, DPlayer.apk, dplayer.json, repo daniel01l/dplayer). Zmiany robimy tylko w `full`.
-- Aktualna wersja: Player 7.27 (versionCode 87, wydana na GitHubie 27.11.2026; poprzednia 7.26 / 86), Admin 2.4 (versionCode 10), TEST 1.2 (versionCode 3).
+- Aktualna wersja: Player 7.28 (versionCode 88, wydana na GitHubie 28.11.2026; poprzednia 7.27 / 87). Od 7.28 wydanie z R8 (`app/proguard-rules.pro`) – 607 testów przechodzi, test dymny na emulatorze TV (START, STube z odtwarzaniem, Stremio, Live TV, menu boczne, WSTECZ → START) bez awarii, Admin 2.4 (versionCode 10), TEST 1.2 (versionCode 3).
 - Zależności YouTube (6.2): NewPipeExtractor v0.27.1 z JitPack (repo ograniczone do grupy com.github.TeamNewPipe w `settings.gradle.kts`, licencja GPLv3; YouTube często psuje ekstrakcję – przy problemach podbić wersję), desugaring `desugar_jdk_libs_nio`, `security-crypto` 1.1.0-alpha06. Klient OAuth/klucz API: `keystore/youtube_oauth.properties` (client_id, client_secret, api_key) – opcjonalnie, poza repo.
 
 ## Podpis i aktywacja
