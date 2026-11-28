@@ -44,7 +44,7 @@ data class Ps5Colors(
     companion object {
         // poświata: błękit PS5, przy innych motywach (ekran główny trybu launchera, biblioteka aplikacji) – akcent motywu
         fun fromUi() = Ps5Colors(Color(Ui.bg), Color(Ui.panel), Color(Ui.accent), Color(Ui.focus), Color(Ui.accent), Color(Ui.text), Color(Ui.text2),
-            Color(Ui.panel).copy(alpha = 0.78f), runCatching { Prefs.lowPerf }.getOrDefault(false))
+            Color(Ui.panel).copy(alpha = 0.78f), pl.iptv.tv.ui.DevicePerformanceProfile.uiLow)
     }
 }
 
@@ -162,7 +162,15 @@ const val SCROLL_STIFFNESS = 450f
  * (7.12) Wspólna sprężyna fokusu (skala, obwódka) na wszystkich pulpitach: przejmuje prędkość przerwanej animacji, więc przy
  * szybkim wciskaniu strzałek kursor płynie od elementu do elementu zamiast zaczynać każdą animację od zera (tween).
  */
-fun <T> focusSpring() = androidx.compose.animation.core.spring<T>(dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy, stiffness = FOCUS_STIFFNESS)
+fun <T> focusSpring(): androidx.compose.animation.core.FiniteAnimationSpec<T> =
+    if (DevicePerformanceProfile.lite) androidx.compose.animation.core.snap()   // (7.28) tryb szybki – fokus natychmiast
+    else androidx.compose.animation.core.tween(FOCUS_TWEEN_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+
+/**
+ * (7.28) Animacja fokusu: krótki tween zamiast sprężyny – na Cortex-A55 (np. Realtek RTD1325, Google TV 12) sprężyny uruchamiane
+ * naraz na wielu kafelkach (zaznaczany + odznaczany) liczyły fizykę co klatkę i opóźniały reakcję D-pada. Skala – tylko w `graphicsLayer`.
+ */
+const val FOCUS_TWEEN_MS = 90
 
 /** (7.17) Sztywność sprężyny fokusu we wszystkich motywach – bez odbicia, kursor nadąża przy przytrzymanej strzałce. */
 const val FOCUS_STIFFNESS = 500f

@@ -103,6 +103,14 @@
 
 Kanał trafia do „ostatnio oglądanych” po co najmniej 1 minucie odtwarzania.
 
+**v7.28** (28.11.2026):
+- **Płynniej na telewizorach, boxach i projektorach**: Ustawienia → Wygląd → „Tryb wydajności interfejsu” (Automatyczny / Tryb szybki / Pełne efekty) – w trybie szybkim natychmiastowy fokus, bez poświat i fal w tle, kryjące kafelki; krótsze animacje fokusu we wszystkich motywach; mniejsze zużycie pamięci przez obrazy; wydanie zoptymalizowane (R8).
+- **Kreator pierwszego uruchomienia**: domyślny program TV `https://epg.ovh/plar.xml`, EPG wczytuje się w tle – od razu można przejść dalej i na pulpit; duże listy M3U wczytywane strumieniowo (mniej pamięci, bez zawieszania).
+- **Live TV**: WSTECZ w Nowoczesnym v2 wraca prosto na pulpit START; w menu bocznym (◄◄) pozycja „Pulpit” i ikony w kolorach motywu; **„Silnik kanału”** (okno silnika po przytrzymaniu OK i menu ikon) – własne ustawienia silnika i akceleracji dla jednego kanału (pierwszeństwo przed globalnymi, „Przywróć domyślne”), bez spowalniania przełączania kanałów.
+- **Przesyłanie (Cast / DLNA)**: obsługa telewizorów DLNA obok Google Cast, lokalny serwer pośredniczący (przekierowania, nagłówki listy, typ strumienia .ts, HLS z dźwiękiem AAC), pilot na telefonie (przewijanie, głośność, audio / napisy, następny kanał / odcinek / wideo z kolejki, lista), przesyłanie trwa po wygaszeniu ekranu; podpowiedź „Przełącz na tryb DLNA” przy braku dźwięku na kanale .ts.
+- **STube**: wyniki, podpowiedzi, Główna i Odkrywaj po polsku (region PL) – Ustawienia → „Region i język treści STube”; w pionie pasek ikon v2 przycinany w kapsule.
+- **Pulpit START v2 na telefonie**: pierwsze stuknięcie zakładki ją wybiera, drugie otwiera (jak w Nowoczesnym).
+
 **v7.27** (27.11.2026):
 - **Nowy motyw „Nowoczesny v2” (Obsidian Glass)** – Ustawienia → Wygląd → Motyw (Nowoczesny zostaje bez zmian; dawne motywy Klasyczny, Xbox, X25 i PS5 zastąpione Nowoczesnym, pozostałe ustawienia bez zmian): szkło z obramowaniem i poświatą, falowane tło, pływające panele i okna, przezroczystość UI i animacje do wyboru (sekcja „Nowoczesny v2”). Pulpit START z górnym paskiem (Start / Telewizja / STube / Stremio / VOD), banerem i rzędami Top 10, kin, VOD i kanałów; ▲ z rzędów wraca na cały baner.
 - **STube w v2**: pasek ikon u góry dopasowany do szerokości (wyszukiwanie z lupy), ◄ z początku rzędu – na pasek; odtwarzacz z panelem (czas, pasek postępu, ⏮ ⏯ ⏭, „Opcje wideo”, kolejka, ikony funkcji), tryb muzyczny z kartą teledysku / plakatu (domyślnie plakat), tekstem karaoke i kolejką; telefon w pionie – sterowanie i pasek postępu na obrazie, pod tytułem ikony: kolejka, tekst, tryb muzyczny, tylko dźwięk, autoodtwarzanie; „Otwórz w oknie” obok Cast.

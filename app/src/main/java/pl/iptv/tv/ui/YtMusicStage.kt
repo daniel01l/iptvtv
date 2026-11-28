@@ -304,13 +304,13 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
     private fun v2Pill(b: TextView, label: String, icon: String?) {
         b.text = label; b.textSize = 15f; b.minWidth = 0; b.minHeight = 0; b.compoundDrawablePadding = dp(8)
         b.setPadding(dp(16), dp(9), dp(18), dp(9)); b.typeface = Ui.typeface(android.graphics.Typeface.BOLD)
-        b.background = G.pillTab(40, Prefs.lowPerf); b.setTextColor(pl.iptv.tv.ui.theme.ObsidianViews.pillText())
+        b.background = G.pillTab(40, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow); b.setTextColor(pl.iptv.tv.ui.theme.ObsidianViews.pillText())
         if (icon != null) setIcon(b, icon) else b.setCompoundDrawables(null, null, null, null)
         b.setOnFocusChangeListener { v, f -> Ui.focusZoom(v, f, 1.04f) }
     }
 
     /** Okrągły przycisk transportu v2: ⏯ – niebieski gradient z poświatą, pozostałe – ciemne szkło (fokus – ramka `#38BDF8`). */
-    private fun v2Round(b: TextView, primary: Boolean) { b.background = if (primary) G.button(true, 60, Prefs.lowPerf) else G.pillTab(60, Prefs.lowPerf) }
+    private fun v2Round(b: TextView, primary: Boolean) { b.background = if (primary) G.button(true, 60, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow) else G.pillTab(60, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow) }
 
     private fun v2Icon(kind: String, desc: String, onClick: () -> Unit) = round(kind, desc, 40) { onClick() }.also { v2Round(it, false) }
 
@@ -335,7 +335,7 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
             clipChildren = true; clipToPadding = true; outlineProvider = android.view.ViewOutlineProvider.BOUNDS; clipToOutline = true
             onFocusChangeListener = View.OnFocusChangeListener { _, _ -> refreshSyncHint() }
             background = StateListDrawable().apply {
-                addState(intArrayOf(android.R.attr.state_focused), G.focus(20, Prefs.lowPerf)); addState(intArrayOf(), android.graphics.drawable.ColorDrawable(0)) }
+                addState(intArrayOf(android.R.attr.state_focused), G.focus(20, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow)); addState(intArrayOf(), android.graphics.drawable.ColorDrawable(0)) }
             isClickable = true; setOnClickListener { toggleSync() } }
         list.apply { adapter = this@YtMusicStage.adapter; itemAnimator = null; clipToPadding = false; overScrollMode = OVER_SCROLL_NEVER
             isFocusable = false; descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
@@ -354,7 +354,7 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
         timeBar.apply { setPlayedColor(G.FOCUS_RING); setScrubberColor(G.FOCUS_RING); setUnplayedColor(Ui.withAlpha(Color.WHITE, 0x30)); setBufferedColor(Ui.withAlpha(Color.WHITE, 0x50)) }
         val sync = TextView(c).apply {
             text = SYNC_LABEL; textSize = 15f; gravity = Gravity.CENTER; isFocusable = true; isClickable = true; tag = "keepcolor nozoom"
-            setPadding(dp(20), dp(9), dp(20), dp(9)); background = G.button(false, 40, Prefs.lowPerf); setTextColor(pl.iptv.tv.ui.theme.ObsidianViews.pillText())
+            setPadding(dp(20), dp(9), dp(20), dp(9)); background = G.button(false, 40, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow); setTextColor(pl.iptv.tv.ui.theme.ObsidianViews.pillText())
             setCompoundDrawables(PlayerIcon(PlayerIcon.REPEAT, ColorStateList.valueOf(G.FOCUS_RING)).apply { setBounds(0, 0, dp(18), dp(18)) }, null, null, null); compoundDrawablePadding = dp(8)
             setOnClickListener { if (lyricLines.isEmpty()) { lyricsState = 1; showLyricsStatus("Szukanie tekstu…"); host.wantLyrics() } else { toggleSync(); lyricsScroll.requestFocus() } }
             setOnFocusChangeListener { v, f -> Ui.focusZoom(v, f, 1.04f) }
@@ -429,7 +429,7 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
         val p = dp(4); media.setPadding(p, p, p, p)
         media.isFocusable = true; media.isClickable = true; media.contentDescription = POSTER_ON
         if (android.os.Build.VERSION.SDK_INT >= 23) media.foreground = StateListDrawable().apply {
-            addState(intArrayOf(android.R.attr.state_focused), G.focus(24, Prefs.lowPerf)); addState(intArrayOf(), android.graphics.drawable.ColorDrawable(0)) }
+            addState(intArrayOf(android.R.attr.state_focused), G.focus(24, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow)); addState(intArrayOf(), android.graphics.drawable.ColorDrawable(0)) }
         val hint = TextView(c).apply {
             textSize = 15f; setTextColor(Color.WHITE); typeface = Ui.typeface(android.graphics.Typeface.BOLD); tag = "keepcolor"; visibility = View.GONE
             setPadding(dp(18), dp(9), dp(18), dp(9)); background = G.glassDialog(20, G.OVERLAY_FILL); gravity = Gravity.CENTER
@@ -447,7 +447,7 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
         val qTitle = TextView(c).apply { textSize = 17f; setTextColor(G.TEXT); typeface = Ui.typeface(android.graphics.Typeface.BOLD); tag = "keepcolor" }
         val add = TextView(c).apply {
             text = QUEUE_ADD_LABEL; textSize = 14f; isFocusable = true; isClickable = true; tag = "keepcolor nozoom"; gravity = Gravity.CENTER
-            setPadding(dp(14), dp(7), dp(14), dp(7)); background = G.pillTab(40, Prefs.lowPerf); setTextColor(pl.iptv.tv.ui.theme.ObsidianViews.pillText())
+            setPadding(dp(14), dp(7), dp(14), dp(7)); background = G.pillTab(40, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow); setTextColor(pl.iptv.tv.ui.theme.ObsidianViews.pillText())
             setCompoundDrawables(PlayerIcon(PlayerIcon.PLUS, ColorStateList.valueOf(G.FOCUS_RING)).apply { setBounds(0, 0, dp(16), dp(16)) }, null, null, null); compoundDrawablePadding = dp(6)
             setOnClickListener { setSearchMode(!searchMode) }
         }
@@ -457,7 +457,7 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
         val field = android.widget.EditText(c).apply {
             hint = SEARCH_HINT; textSize = 16f; setSingleLine(); setTextColor(G.TEXT); setHintTextColor(G.TEXT2); tag = "keepcolor"; visibility = View.GONE
             imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
-            background = G.pillTab(40, Prefs.lowPerf); setPadding(dp(18), dp(10), dp(18), dp(10))
+            background = G.pillTab(40, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow); setPadding(dp(18), dp(10), dp(18), dp(10))
             addTextChangedListener(object : android.text.TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
                 override fun onTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
@@ -515,7 +515,7 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
             val c = parent.context
             val root = LinearLayout(c).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; isFocusable = true; isClickable = true; tag = "keepcolor nozoom"
-                setPadding(dp(8), dp(6), dp(12), dp(6)); background = G.optionCard(14, Prefs.lowPerf); layoutParams = RecyclerView.LayoutParams(-1, -2).apply { bottomMargin = dp(6) } }
+                setPadding(dp(8), dp(6), dp(12), dp(6)); background = G.optionCard(14, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow); layoutParams = RecyclerView.LayoutParams(-1, -2).apply { bottomMargin = dp(6) } }
             val img = ImageView(c).apply { scaleType = ImageView.ScaleType.CENTER_CROP }; Ui.roundClip(img, dp(8).toFloat())
             root.addView(img, LinearLayout.LayoutParams(dp(80), dp(45)))
             val col = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL }
@@ -815,7 +815,7 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
             // okładka w pełnej rozdzielczości (1280×720 z kadrowaniem do kwadratu); brak dużej wersji – miniatura z listy
             cover.load(hi) { crossfade(false); size(1024, 1024); allowHardware(false); listener(onError = { _, _ -> cover.load(thumb) { size(1024, 1024); allowHardware(false) } }) }
             // tło: większa miniatura rozmyta sprzętowo (Android 12+), starsze – powiększona mała (gładkie przejścia)
-            val blur = android.os.Build.VERSION.SDK_INT >= 31
+            val blur = android.os.Build.VERSION.SDK_INT >= 31 && !DevicePerformanceProfile.uiLow   // (7.28) tryb szybki – bez RenderEffect
             if (blur) back.setRenderEffect(android.graphics.RenderEffect.createBlurEffect(40f, 40f, android.graphics.Shader.TileMode.CLAMP))
             back.scaleX = 1.25f; back.scaleY = 1.25f
             val bs = if (blur) 480 else 96
@@ -1081,7 +1081,7 @@ class YtMusicStage(c: Context, private val host: Host) : FrameLayout(c) {
         t.setTextColor(if (on) G.FOCUS_RING else Ui.withAlpha(G.TEXT, 0x70))
         if (on) t.setShadowLayer(dp(8).toFloat(), 0f, 0f, G.withAlpha(G.FOCUS_RING, 0xB0)) else t.setShadowLayer(0f, 0f, 0f, 0)
         val s = if (on) LINE_SCALE else 1f
-        if (Prefs.lowPerf || ModernV2.animationsOff) { t.scaleX = s; t.scaleY = s } else t.animate().scaleX(s).scaleY(s).setDuration(220).start()
+        if (pl.iptv.tv.ui.DevicePerformanceProfile.uiLow || ModernV2.animationsOff) { t.scaleX = s; t.scaleY = s } else t.animate().scaleX(s).scaleY(s).setDuration(220).start()
     }
 
     fun selectTab(t: Int) {

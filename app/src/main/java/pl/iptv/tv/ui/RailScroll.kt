@@ -33,7 +33,7 @@ class RailScrollView(c: Context, a: android.util.AttributeSet? = null) : ScrollV
     private fun scrollSmooth(y: Int) {
         anim?.cancel()
         anim = ObjectAnimator.ofInt(this, "scrollY", scrollY, y).apply {
-            duration = if (pl.iptv.tv.data.Prefs.lowPerf) 0 else 240; interpolator = DecelerateInterpolator(1.6f); start()
+            duration = if (pl.iptv.tv.ui.DevicePerformanceProfile.uiLow) 0 else 240; interpolator = DecelerateInterpolator(1.6f); start()
         }
     }
 }
@@ -55,7 +55,7 @@ class RailHorizontalScrollView(c: Context) : HorizontalScrollView(c) {
         if (target != scrollX) {
             anim?.cancel()
             anim = ObjectAnimator.ofInt(this, "scrollX", scrollX, target).apply {
-                duration = if (pl.iptv.tv.data.Prefs.lowPerf) 0 else 240; interpolator = DecelerateInterpolator(1.6f); start()
+                duration = if (pl.iptv.tv.ui.DevicePerformanceProfile.uiLow) 0 else 240; interpolator = DecelerateInterpolator(1.6f); start()
             }
         }
         return true

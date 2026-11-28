@@ -212,7 +212,7 @@ class StremioActivity : BaseActivity() {
             b.text = ""; b.minWidth = 0; b.minHeight = 0; b.tag = "keepcolor nozoom"
             val pd = Ui.dp(9); b.setPadding(pd, pd, pd, pd); b.gravity = android.view.Gravity.CENTER
             if (b.contentDescription == "Szukaj") { b.visibility = View.GONE; continue }      // wyszukiwarka jest obok (pole) – bez powtórzonej ikony
-            b.background = G.pillTab(24, Prefs.lowPerf)
+            b.background = G.pillTab(24, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow)
             b.layoutParams = LinearLayout.LayoutParams(Ui.dp(40), Ui.dp(40)).apply { marginStart = Ui.dp(6) }
         }
         header.addView(railBox, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) })
@@ -267,7 +267,7 @@ class StremioActivity : BaseActivity() {
         keepBelowV2Bar(railBox); keepBelowV2Bar(scrim)      // (v2) pasek nawigacji pod belką modułu (V2TopModuleBar)
         navRail = pl.iptv.tv.ui.theme.AppNavigationRailViews(railBox, scrim,
             items = { (0 until railBox.childCount).mapNotNull { railBox.getChildAt(it) as? TextView } },
-            label = { (it.contentDescription ?: "").toString() }, lowPerf = { Prefs.lowPerf }).also { it.attach() }
+            label = { (it.contentDescription ?: "").toString() }, lowPerf = { pl.iptv.tv.ui.DevicePerformanceProfile.uiLow }).also { it.attach() }
     }
 
     override fun onDestroy() { navRail?.detach(); super.onDestroy() }

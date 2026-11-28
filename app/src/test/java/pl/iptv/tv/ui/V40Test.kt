@@ -130,7 +130,7 @@ class V40Test {
         a.dispatchKeyEvent(KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_CENTER, 1))
         a.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_CENTER)); idle()
         val icons = a.findViewById<LinearLayout>(R.id.miniIcons)
-        assertEquals(8, icons.childCount)                       // + kafelek „Silnik i akceleracja”
+        assertEquals(9, icons.childCount)                       // + kafelek „Silnik i akceleracja”
         for (i in 0 until icons.childCount) {
             val box = icons.getChildAt(i) as FrameLayout
             val child = box.getChildAt(0)
@@ -178,7 +178,7 @@ class V40Test {
         assertTrue(texts().any { it.contains("D-iptv Admin") })
         click("Pomiń krok")
         assertEquals(SetupActivity.DEFAULT_EPG, Prefs.epgUrl)
-        assertTrue(texts().any { it.contains("https://epg.ovh/plar.xml") && it.contains("https://epg.ovh/pltv.xml") })
+        assertTrue(texts().any { it.contains("https://epg.ovh/plar.xml") && !it.contains("pltv") })
         click("Pomiń krok"); click("Pomiń krok")
         // krok wyglądu: lista motywów przewija się pod przyciskami (nie nachodzi na nie)
         val scroll = all(a.window.decorView).first { it is android.widget.ScrollView }

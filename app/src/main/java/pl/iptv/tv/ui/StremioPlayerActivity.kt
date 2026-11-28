@@ -397,7 +397,7 @@ class StremioPlayerActivity : AppCompatActivity() {
      * pozostałe – kapsuły V2PillTab (fokus: ramka 2 dp `#38BDF8` + poświata). Telefon w pionie: rząd przycisków przewijany w poziomie.
      */
     private fun styleV2Controls() {
-        val G = pl.iptv.tv.ui.theme.ObsidianGlass; val low = Prefs.lowPerf
+        val G = pl.iptv.tv.ui.theme.ObsidianGlass; val low = pl.iptv.tv.ui.DevicePerformanceProfile.uiLow
         controls.background = StubeV2Controls.ProgressBorder().also { v2Border = it }
         controls.setPadding(Ui.dp(18), Ui.dp(8), Ui.dp(18), Ui.dp(8))      // smukły panel
         (timeBar.layoutParams as? LinearLayout.LayoutParams)?.let { it.height = Ui.dp(20); timeBar.layoutParams = it }
@@ -708,7 +708,9 @@ class StremioPlayerActivity : AppCompatActivity() {
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) { if (checkVideo(tracks)) return; warnUnsupportedAudio(tracks); autoLanguage(p, tracks) }
         })
         if (atMs > 0) p.seekTo(atMs)
-        p.prepare(); p.playWhenReady = true
+        // (7.28) trwa przesyłanie: nowy odcinek / źródło od razu na odbiorniku (ta sama sesja), lokalnie bez pobierania drugiego strumienia
+        if (CastHub.isCasting(CastHub.Kind.STREMIO)) { p.playWhenReady = false; castMedia()?.let { CastHub.switchMedia(it) } }
+        else { p.prepare(); p.playWhenReady = true }
         lifecycleScope.launch {
             val saved = StremioStore.progressOf(metaId)?.takeIf { it.videoId == videoId }
             if (saved?.pastNextThreshold == true) nextReached = true         // (7.8) okienko dla tego odcinka już się pojawiło (trwale w Room)
@@ -837,8 +839,21 @@ class StremioPlayerActivity : AppCompatActivity() {
     // ---------------- (7.25) przesyłanie (Cast) ----------------
 
     val castLocal = object : CastHub.Local {
-        override fun pause() { player?.pause() }
-        override fun resume(positionMs: Long) { player?.let { p -> if (positionMs > 0) p.seekTo(positionMs); if (!isFinishing && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) p.play() } }
+        // (7.28) przesyłanie: lokalny odtwarzacz zatrzymany (bez pobierania strumienia w tle), wznowienie – prepare od pozycji z odbiornika
+        override fun pause() { player?.let { p -> p.pause(); p.stop() } }
+        override fun resume(positionMs: Long) { player?.let { p -> if (positionMs > 0) p.seekTo(positionMs); if (p.playbackState == Player.STATE_IDLE) p.prepare()
+            if (!isFinishing && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) p.play() } }
+        // (7.28) pilot Cast: następny odcinek i odcinki sezonu w tej samej sesji
+        override fun next(): Boolean { if (nextVideo == null) return false; playNext(); return true }
+        override val itemsTitle: String get() = if (type == "series") "Odcinki" else "Inne części"
+        override fun items(): List<CastHub.Item> {
+            if (type != "series") return emptyList()
+            val m = StremioMetas.cached(type, metaId) ?: return emptyList()
+            val cur = m.videos.firstOrNull { it.id == videoId }
+            return m.episodes(cur?.season ?: m.seasons.firstOrNull() ?: 1).map { e ->
+                CastHub.Item("${e.episode}. " + e.title.ifBlank { "Odcinek ${e.episode}" }, e.id == videoId) { if (e.id != videoId) playEpisode(e) }
+            }
+        }
     }
 
     /** Bieżące źródło: adres, nagłówki wtyczki, tytuł z etykietą odcinka, plakat, pozycja. */

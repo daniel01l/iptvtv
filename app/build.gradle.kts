@@ -16,8 +16,8 @@ android {
         applicationId = "pl.iptv.tv"
         minSdk = 21
         targetSdk = 34
-        versionCode = 87
-        versionName = "7.27"
+        versionCode = 88
+        versionName = "7.28"
         // konto YouTube (OAuth 2.0 Device Flow): klient typu „TV i urządzenia z ograniczonym wejściem” z Google Cloud Console.
         // Plik keystore/youtube_oauth.properties (poza repozytorium): client_id=…, client_secret=…, api_key=… (klucz – trendy bez logowania).
         val yt = Properties().apply { rootProject.file("keystore/youtube_oauth.properties").takeIf { it.exists() }?.reader()?.use { load(it) } }
@@ -36,7 +36,10 @@ android {
     }
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // (7.28) R8 – optymalizacja kodu Compose / Media3 / Coil (szybszy start i rekompozycja na Cortex-A55, Android 12 32-bit);
+            // bez zaciemniania i z zachowaniem kodu aplikacji oraz bibliotek z refleksją (proguard-rules.pro)
+            isMinifyEnabled = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // podpis kluczem debug, aby APK dało się od razu zainstalować
             signingConfig = signingConfigs.getByName("iptvtv")
         }

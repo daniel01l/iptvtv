@@ -148,7 +148,7 @@ class V41Test {
         val icons = a.findViewById<LinearLayout>(R.id.miniIcons)
         assertEquals(LinearLayout.VERTICAL, icons.orientation)                   // kilka rzędów
         val boxes = (0 until icons.childCount).flatMap { r -> (icons.getChildAt(r) as LinearLayout).let { row -> (0 until row.childCount).map { row.getChildAt(it) } } }
-        assertEquals(7, boxes.size)
+        assertEquals(8, boxes.size)
         boxes.forEach { b -> val loc = IntArray(2); b.getLocationInWindow(loc); assertTrue(loc[0] >= 0 && loc[0] + b.width <= a.resources.displayMetrics.widthPixels) }
         c.pause().stop().destroy()
     }

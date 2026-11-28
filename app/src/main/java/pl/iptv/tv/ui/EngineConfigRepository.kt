@@ -43,6 +43,10 @@ data class PlayerEngineConfig(
     val channelKey: String? = null, val channel: ChannelEngine? = null,
     /** (7.22) Limit rozdzielczości obrazu (ustawiany w locie na odtwarzaczu – bez przebudowy, poza [playerKey]). */
     val maxVideoResolution: VideoResolutionLimit = VideoResolutionLimit.AUTO,
+    /** (7.28) Ręczne ustawienia silnika bieżącego kanału (okno „Silnik kanału”); pola wyżej są już efektywne (nadpisanie albo globalne). */
+    val channelOverride: pl.iptv.tv.data.ChannelEngineConfig? = null,
+    /** (7.28) Same ustawienia globalne, gdy kanał ma nadpisanie ([global]). */
+    val globalBase: PlayerEngineConfig? = null,
 ) {
     /** Profil kanału (null – brak albo kanał oznaczony jako niedziałający). */
     val channelProfile: EngineProfile? get() = channel?.profile
@@ -69,7 +73,7 @@ data class PlayerEngineConfig(
     val hasChannelOverride: Boolean get() = channel != null
 
     /** Same ustawienia globalne (Ustawienia obserwują tylko je – zmiana kanału w tle nie przebudowuje ekranu). */
-    val global: PlayerEngineConfig get() = copy(channelKey = null, channel = null)
+    val global: PlayerEngineConfig get() = (globalBase ?: this).copy(channelKey = null, channel = null, channelOverride = null, globalBase = null)
 
     /**
      * Parametry, z których powstaje odtwarzacz (dekodery, renderery, kolejka, bufor, tunelowanie) – ich zmiana wymaga nowego
@@ -100,6 +104,7 @@ object EngineConfigRepository {
     init {
         Prefs.onEngineChanged = { refresh() }
         ChannelEngines.onChanged = { refresh() }
+        pl.iptv.tv.data.ChannelEngineOverrides.onChanged = { refresh() }      // (7.28) zapis / usunięcie ustawień kanału – zastosowanie w locie
         // (7.22) przy starcie: kanały HD bez automatycznie zapisanego dekodera programowego (pełna płynność sprzętowa).
         // Odczyt Prefs + zapis bazy poza wątkiem UI (Dispatchers.IO, try-catch) – błąd I/O nie blokuje ani nie kończy startu;
         // w Robolectric od razu (deterministyczne testy)
@@ -114,9 +119,16 @@ object EngineConfigRepository {
     }
 
     private fun read(key: String?) = runCatching {
-        PlayerEngineConfig(Prefs.playerEngine.coerceIn(0, 2), Prefs.hwAccel, Prefs.asyncDecoder.coerceIn(0, 2), Prefs.surfaceMode.coerceIn(0, 2),
+        val base = PlayerEngineConfig(Prefs.playerEngine.coerceIn(0, 2), Prefs.hwAccel, Prefs.asyncDecoder.coerceIn(0, 2), Prefs.surfaceMode.coerceIn(0, 2),
             Prefs.autoFrameRate, Prefs.bufMinS, Prefs.lowLatency, Prefs.loudnessLeveling, Prefs.lowPerf, Prefs.decoderFallback, Prefs.dropWatchdog,
             key, key?.let { ChannelEngines.get(it) }, VideoResolutionLimit.of(Prefs.maxVideoRes))
+        // (7.28) priorytet: ręczne ustawienia kanału ([pl.iptv.tv.data.ChannelEngineOverrides]) → globalne → automatyczny dobór
+        // (profil [ChannelEngines] dalej działa w obrębie silnika); AFR zawsze globalny (bez zmiany trybu HDMI przy zmianie kanału)
+        val o = if (key != null) pl.iptv.tv.data.ChannelEngineOverrides.active else null
+        if (o == null) base else base.copy(engine = o.engine, hwAccel = o.hwAccel, asyncDecoder = o.asyncDecoder, surfaceMode = o.surfaceMode,
+            bufMinS = o.bufMinS, lowLatency = o.lowLatency, loudness = o.loudness, decoderFallback = o.decoderFallback,
+            autoStutterCorrectionEnabled = o.autoStutter, maxVideoResolution = VideoResolutionLimit.of(o.maxVideoRes),
+            channelOverride = o, globalBase = base)
     }.getOrElse { PlayerEngineConfig(0, true, 0, 0, false, 0, false, false, false, true, true, key, null) }   // Prefs przed init (testy JVM)
 
     /** Ponowny odczyt (po zapisie ustawień lub profilu kanału). */

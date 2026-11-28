@@ -204,9 +204,11 @@ const val TV_FOCUS_STIFFNESS = pl.iptv.tv.ui.FOCUS_STIFFNESS
  */
 @Composable
 fun Modifier.tvFocusScale(isFocused: Boolean, targetScale: Float = TV_FOCUS_SCALE): Modifier {
+    // (7.28) tryb szybki: bez animacji, warstwa GPU tylko na jednym (zaznaczonym) elemencie
+    if (pl.iptv.tv.ui.DevicePerformanceProfile.lite) return if (isFocused) this.graphicsLayer { scaleX = targetScale; scaleY = targetScale } else this
     val scale by animateFloatAsState(
         targetValue = if (isFocused) targetScale else 1f,
-        animationSpec = spring(dampingRatio = TV_FOCUS_DAMPING, stiffness = TV_FOCUS_STIFFNESS),
+        animationSpec = pl.iptv.tv.ui.focusSpring(),   // (7.28) tween 90 ms zamiast sprężyny
         label = "tvFocusScale",
     )
     return this.graphicsLayer { scaleX = scale; scaleY = scale }

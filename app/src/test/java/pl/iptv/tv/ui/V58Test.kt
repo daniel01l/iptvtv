@@ -79,8 +79,8 @@ class V58Test {
         down(a, KeyEvent.KEYCODE_DPAD_CENTER); down(a, KeyEvent.KEYCODE_DPAD_CENTER, 1); a.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_CENTER)); idle()
         assertEquals(View.VISIBLE, a.findViewById<View>(R.id.miniMenu).visibility)   // ustawienie: szybkie menu ikon (7.5: domyślnie menu silnika)
         val icons = a.findViewById<LinearLayout>(R.id.miniIcons)
-        assertEquals(7, icons.childCount)
-        repeat(6) { key(a, KeyEvent.KEYCODE_DPAD_RIGHT) }
+        assertEquals(8, icons.childCount)
+        repeat(7) { key(a, KeyEvent.KEYCODE_DPAD_RIGHT) }
         assertEquals("Silnik i akceleracja", a.findViewById<TextView>(R.id.miniLabel).text.toString())
         key(a, KeyEvent.KEYCODE_DPAD_CENTER)
         // (7.20) okno silnika z kartami (EngineSheet) – bez pozycji „Szybkie menu ikon” (otwarte z menu ikon)

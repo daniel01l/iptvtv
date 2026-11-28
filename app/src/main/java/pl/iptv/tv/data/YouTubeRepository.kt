@@ -81,7 +81,7 @@ object YouTubeRepository {
     /** Trendy regionu; [categoryId] – tylko z kategorii (np. [CAT_MUSIC]). */
     suspend fun trending(pageToken: String? = null, categoryId: String? = null): YtFeed {
         val j = get("videos", mapOf("part" to "snippet,contentDetails", "chart" to "mostPopular", "videoCategoryId" to categoryId,
-            "regionCode" to Prefs.ytRegion.ifBlank { "PL" }, "maxResults" to "$PAGE", "pageToken" to pageToken), auth = false)
+            "regionCode" to StubeLocale.gl, "hl" to StubeLocale.hl, "maxResults" to "$PAGE", "pageToken" to pageToken), auth = false)
         return YtFeed(YtSource.TRENDING, videos(j), j.optString("nextPageToken").ifBlank { null })
     }
 
@@ -110,7 +110,7 @@ object YouTubeRepository {
     /** Wyszukiwanie (z kontem – wyniki spersonalizowane przez Google). */
     suspend fun search(q: String, pageToken: String? = null): List<YtVideo> {
         val j = get("search", mapOf("part" to "snippet", "type" to "video", "q" to q.trim(), "maxResults" to "$PAGE",
-            "regionCode" to Prefs.ytRegion.ifBlank { "PL" }, "pageToken" to pageToken), auth = YouTubeTokens.loggedIn && apiKey.isBlank())
+            "regionCode" to StubeLocale.gl, "relevanceLanguage" to StubeLocale.hl, "pageToken" to pageToken), auth = YouTubeTokens.loggedIn && apiKey.isBlank())
         return items(j).mapNotNull { o ->
             val id = o.optJSONObject("id")?.optString("videoId").orEmpty().ifBlank { return@mapNotNull null }
             val s = o.optJSONObject("snippet") ?: JSONObject()

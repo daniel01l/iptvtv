@@ -77,6 +77,9 @@ object ObsidianGlass {
     /** Połysk szkła: biel 8 % u góry → 2 % u dołu. */
     const val SHEEN_TOP = 0.08f
     const val SHEEN_BOTTOM = 0.02f
+    /** (7.28) Tryb szybki: kryjące wypełnienie kafelka i ramka spoczynku (biel 14 %). */
+    const val LITE_TILE_FILL = 0xFF0E1629.toInt()
+    const val LITE_TILE_BORDER = 0x24FFFFFF
     /** Przyciemnienie pod oknami. */
     const val DIALOG_DIM = 0.72f
     /** Najmniejsze krycie okien / modali i paneli nakładkowych z listą (≈ 98 %) – niezależnie od „Przezroczystość UI”. */
@@ -108,6 +111,9 @@ object ObsidianGlass {
 
     /** Szklana karta / panel: gradient powierzchni z kryciem z [Opacity], krawędź 1 dp. */
     fun glass(radiusDp: Int = RADIUS_CARD_DP, panel: Boolean = false, opacity: Opacity = Opacity.current(), minAlpha: Int = 0): Drawable {
+        // (7.28) tryb szybki: kafelki list jednym kryjącym wypełnieniem + ramka 1 dp (bez półprzezroczystości na dziesiątkach kafelków);
+        // panele (nakładki) zostają szkłem
+        if (!panel && pl.iptv.tv.ui.DevicePerformanceProfile.lite) return round(LITE_TILE_FILL, radiusDp, Ui.dp(1), LITE_TILE_BORDER)
         val a = maxOf(minAlpha, if (panel) opacity.panelAlpha else opacity.surfaceAlpha)
         // granat z kryciem [a] rozjaśniony bielą 8 % u góry → 2 % u dołu (połysk szkła) + szklane obramowanie 1 dp (biel 14 %)
         val base = SURFACE_TOP or (0xFF shl 24)
@@ -381,7 +387,7 @@ object ObsidianGlass {
 data class ObsidianGlassSpec(val active: Boolean, val opacity: ObsidianGlass.Opacity, val animations: Boolean, val lowPerf: Boolean) {
     companion object {
         fun current() = ObsidianGlassSpec(pl.iptv.tv.ui.ModernV2.active, ObsidianGlass.Opacity.current(), pl.iptv.tv.ui.ModernV2.animations,
-            runCatching { pl.iptv.tv.data.Prefs.lowPerf }.getOrDefault(false))
+            pl.iptv.tv.ui.DevicePerformanceProfile.uiLow)
         val OFF = ObsidianGlassSpec(false, ObsidianGlass.Opacity.MEDIUM, true, false)
     }
 }
@@ -407,6 +413,12 @@ fun Modifier.glassSurface(radius: Dp = ObsidianGlass.RADIUS_CARD_DP.dp, panel: B
     val sheen = Brush.verticalGradient(listOf(CColor.White.copy(alpha = ObsidianGlass.SHEEN_TOP), CColor.White.copy(alpha = ObsidianGlass.SHEEN_BOTTOM)))
     val r = CornerRadius(radius.toPx()); val sw = ObsidianGlass.BORDER_W.dp.toPx()
     val border = Stroke(sw); val inset = Offset(sw / 2, sw / 2); val inner = Size(size.width - sw, size.height - sw)
+    // (7.28) tryb szybki: kafelki jednym kryjącym wypełnieniem + ramka 1 dp (bez połysku i półprzezroczystości); panele – szkło
+    if (!panel && pl.iptv.tv.ui.DevicePerformanceProfile.lite) {
+        val fill = CColor(ObsidianGlass.LITE_TILE_FILL); val edge = CColor(ObsidianGlass.LITE_TILE_BORDER); val thin = Stroke(1.dp.toPx())
+        val i1 = Offset(0.5.dp.toPx(), 0.5.dp.toPx()); val s1 = Size(size.width - 1.dp.toPx(), size.height - 1.dp.toPx())
+        return@drawWithCache onDrawBehind { drawRoundRect(fill, cornerRadius = r); drawRoundRect(edge, i1, s1, r, style = thin) }
+    }
     onDrawBehind {
         drawRoundRect(base, cornerRadius = r)
         drawRoundRect(sheen, cornerRadius = r)
@@ -452,8 +464,10 @@ fun Modifier.glassFocusGlow(focused: Boolean, radius: Dp, lowPerf: Boolean = fal
 @androidx.compose.runtime.Composable
 fun Modifier.obsidianFocus(focused: Boolean, radius: Dp, scale: Float = 1.03f): Modifier {
     val spec = LocalObsidianGlass.current
-    val target = if (focused && spec.animations && !spec.lowPerf) scale else 1f
-    val s = androidx.compose.animation.core.animateFloatAsState(target, androidx.compose.animation.core.spring(1f, 500f), label = "obsidianFocus")
+    // (7.28) tryb szybki / słabsze urządzenia: ramka fokusu od razu, bez animacji i bez warstwy GPU na niezaznaczonych elementach
+    if (spec.lowPerf) return this.glassFocusGlow(focused, radius, true)
+    val target = if (focused && spec.animations) scale else 1f
+    val s = androidx.compose.animation.core.animateFloatAsState(target, pl.iptv.tv.ui.focusSpring(), label = "obsidianFocus")   // (7.28) tween 90 ms
     return this.graphicsLayer { scaleX = s.value; scaleY = s.value }.glassFocusGlow(focused, radius, spec.lowPerf)
 }
 
@@ -469,6 +483,11 @@ fun Modifier.obsidianPrimary(radius: Dp): Modifier = drawWithCache {
  * (prawy górny róg) i indygo `#5B21B6` (lewy dolny) – oraz winieta; wyrenderowane raz do bitmapy ([gradientLayer]).
  */
 fun Modifier.obsidianGlassBackdrop(): Modifier = drawWithCache {
+    // (7.28) tryb szybki: jeden statyczny gradient pionowy #050811 → #090F1E (bez fal, poświat i bitmapy)
+    if (pl.iptv.tv.ui.DevicePerformanceProfile.lite) {
+        val flat = Brush.verticalGradient(listOf(ObsidianGlass.Tokens.BgTop, ObsidianGlass.Tokens.BgBottom))
+        return@drawWithCache onDrawBehind { drawRect(flat) }
+    }
     val img = gradientLayer {
         val w = size.width; val h = size.height; val r = maxOf(w, h)
         drawRect(Brush.verticalGradient(listOf(ObsidianGlass.Tokens.BgTop, CColor(ObsidianGlass.BG_MID), ObsidianGlass.Tokens.BgBottom)))
@@ -570,6 +589,8 @@ class V2WaveBackground : Drawable() {
 
     override fun draw(c: Canvas) {
         lin.alpha = alphaMul; blue.alpha = alphaMul; indigo.alpha = alphaMul; violet.alpha = alphaMul; vig.alpha = alphaMul
+        // (7.28) tryb szybki: sam gradient pionowy tła (jedno wypełnienie ekranu zamiast 5 warstw i 10 ścieżek)
+        if (pl.iptv.tv.ui.DevicePerformanceProfile.lite) { c.drawRect(bounds, lin); return }
         c.drawRect(bounds, lin); c.drawRect(bounds, indigo); c.drawRect(bounds, blue); c.drawRect(bounds, violet)
         for (i in waves.indices) {
             val a = V2Waves.alpha(i)

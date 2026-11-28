@@ -21,7 +21,7 @@ import pl.iptv.tv.data.StartActions
 
 /** Kreator pierwszej konfiguracji: uprawnienia → lista → EPG → catch-up → wygląd → uruchamianie. */
 class SetupActivity : BaseActivity() {
-    companion object { const val EXTRA_ADD_LIST = "add_list"; const val DEFAULT_EPG = "https://epg.ovh/plar.xml https://epg.ovh/pltv.xml"; private const val REQ_BACKUP = 11 }
+    companion object { const val EXTRA_ADD_LIST = "add_list"; const val DEFAULT_EPG = "https://epg.ovh/plar.xml"; private const val LEGACY_DEFAULT_EPG = "https://epg.ovh/plar.xml https://epg.ovh/pltv.xml"; private const val REQ_BACKUP = 11 }
     private val titles = listOf("Witaj", "Lista kanałów", "Program TV (EPG) i picony", "Catch-up (archiwum)", "Wygląd", "Uruchamianie")
     /** Tryb „Dodaj listę”: tylko kroki lista → EPG → catch-up, zapisywane w nowej liście. */
     private val addMode by lazy { intent.getBooleanExtra(EXTRA_ADD_LIST, false) }
@@ -200,7 +200,9 @@ class SetupActivity : BaseActivity() {
             2 -> {
                 saveStep()
                 val at = pos
-                if (Prefs.effectiveEpgUrl.isNotBlank() && Repository.epg.programmes.isEmpty()) loadEpg { if (pos == at && !isFinishing) go(pos + 1) } else go(pos + 1)
+                // (7.28) EPG w tle – od razu następny krok (pobieranie trwa dalej, także po wejściu na START)
+                if (Prefs.effectiveEpgUrl.isNotBlank() && Repository.epg.programmes.isEmpty()) loadEpg { }
+                if (pos == at && !isFinishing) go(pos + 1)
             }
             else -> go(pos + 1)
         }
@@ -334,10 +336,12 @@ class SetupActivity : BaseActivity() {
     private fun stepEpg() {
         val auto = Prefs.playlistEpgUrl
         // domyślny program TV (polskie kanały), gdy lista nie ma własnego adresu
+        // (7.28) jedyny domyślny adres – plar.xml; dawny domyślny zestaw (plar + pltv) zapisany przez kreator → sam plar.xml
+        if (Prefs.epgUrl.trim() == LEGACY_DEFAULT_EPG) Prefs.epgUrl = DEFAULT_EPG
         if (Prefs.epgUrl.isBlank() && auto.isBlank()) Prefs.epgUrl = DEFAULT_EPG
         text(if (auto.isNotBlank()) "Lista zawiera adres programu TV:\n$auto\nZostaw puste pole, aby go użyć, albo podaj inny."
-            else "Domyślnie ustawiony jest program TV:\n• https://epg.ovh/plar.xml\n• https://epg.ovh/pltv.xml\n" +
-                "Możesz dopisać własny adres (oddziel spacją) albo zastąpić go swoim (.xml lub .xml.gz).", 15f)
+            else "Domyślnie ustawiony jest program TV:\n• $DEFAULT_EPG\n" +
+                "Możesz dopisać własny adres (oddziel spacją) albo zastąpić go swoim (.xml lub .xml.gz). EPG wczytuje się w tle – możesz od razu przejść dalej.", 15f)
         field = input("Link do EPG (XMLTV) – kilka adresów oddziel spacją", Prefs.epgUrl, auto.ifBlank { "http://…/epg.xml.gz" })
         row("⬇ Wczytaj EPG teraz") { Prefs.epgUrl = field!!.text.toString().trim(); loadEpg {} }
         field2 = input("Picony – katalog lub szablon z {id} / {name} (opcjonalnie, domyślnie logo z listy)", Prefs.piconUrl, "http://…/picons/{name}.png")
@@ -461,16 +465,21 @@ class SetupActivity : BaseActivity() {
         }
     }
 
+    /**
+     * (7.28) EPG nie blokuje kreatora: pobieranie i parsowanie w tle ([Repository.loadEpgInBackground] – zasięg niezależny od ekranu,
+     * niski priorytet wątku), bez `busy` – „Dalej” / „Zakończ” / WSTECZ działają od razu. Wynik w linii stanu, jeśli ekran jeszcze żyje.
+     */
     private fun loadEpg(done: () -> Unit) {
         if (busy) return
         if (Prefs.effectiveEpgUrl.isBlank()) { setStatus("Brak adresu EPG."); done(); return }
-        busy = true; setStatus("Pobieranie EPG… (może potrwać)")
-        lifecycleScope.launch {
-            runCatching { Repository.loadEpg() }
-                .onSuccess { busy = false; setStatus("✔ EPG: dopasowano ${Repository.allChannels.count { c -> c.epgKey != null }}/${Repository.allChannels.size} kanałów.") }
-                .onFailure { busy = false; setStatus("✖ Błąd EPG: ${it.message}") }
-            done()
+        setStatus("Pobieranie EPG w tle… – możesz przejść dalej")
+        val at = pos
+        Repository.loadEpgInBackground { r ->
+            if (isFinishing || isDestroyed || pos != at) return@loadEpgInBackground
+            r.onSuccess { setStatus("✔ EPG: dopasowano ${Repository.allChannels.count { c -> c.epgKey != null }}/${Repository.allChannels.size} kanałów.") }
+                .onFailure { setStatus("✖ Błąd EPG: ${it.message}") }
         }
+        done()
     }
 
     private fun pickFile() {

@@ -26,7 +26,7 @@ object ModernV2 {
     fun isModern(id: String) = id == ModernTheme.ID || id == ID
 
     /** Animacje przejść i fokusu: v2 z włączonymi animacjami i poza trybem słabszych urządzeń. */
-    val animations: Boolean get() = runCatching { Prefs.mv2Animations && !Prefs.lowPerf }.getOrDefault(true)
+    val animations: Boolean get() = runCatching { Prefs.mv2Animations && !pl.iptv.tv.ui.DevicePerformanceProfile.uiLow }.getOrDefault(true)
 
     /** v2 z wyłączonymi animacjami – przejścia ekranów / okien i animacje Compose natychmiastowe. */
     val animationsOff: Boolean get() = active && !runCatching { Prefs.mv2Animations }.getOrDefault(true)

@@ -90,7 +90,9 @@ object YtStreams {
             val rb = okhttp3.Request.Builder().url(request.url())
                 .method(request.httpMethod(), if (needsBody) (body ?: ByteArray(0)).toRequestBody() else null)
                 .header("User-Agent", USER_AGENT)
+                .header("Accept-Language", StubeLocale.acceptLanguage)     // (7.28) region i język treści (domyślnie pl-PL)
             request.headers().forEach { (k, vs) -> rb.removeHeader(k); vs.forEach { v -> rb.addHeader(k, v) } }
+            if (request.headers().keys.none { it.equals("Cookie", true) } && request.url().contains("youtube.com")) rb.header("Cookie", StubeLocale.prefCookie)
             client().newCall(rb.build()).execute().use { r ->
                 // 429 = zbyt wiele zapytań / weryfikacja „nie jestem robotem”
                 if (r.code == 429) throw ReCaptchaException("reCaptcha", request.url())
@@ -100,12 +102,21 @@ object YtStreams {
     }
 
     fun ensureInit() {
-        if (initialized) return
+        if (initialized) { applyLocale(); return }
         synchronized(this) {
             if (initialized) return
-            NewPipe.init(OkHttpDownloader { Repository.http }, Localization("pl", "PL"), ContentCountry(Prefs.ytRegion.ifBlank { "PL" }))
+            NewPipe.init(OkHttpDownloader { Repository.http }, Localization(StubeLocale.hl, StubeLocale.gl), ContentCountry(StubeLocale.gl))
             initialized = true
         }
+        applyLocale()
+    }
+
+    /** (7.28) Region i język z Ustawień przed każdym zapytaniem NewPipe (wyszukiwanie, Na czasie, kanały, propozycje) – tylko przy zmianie. */
+    @Volatile private var appliedLocale = ""
+    fun applyLocale() {
+        val key = StubeLocale.hl + "-" + StubeLocale.gl
+        if (key == appliedLocale) return
+        runCatching { NewPipe.setupLocalization(Localization(StubeLocale.hl, StubeLocale.gl), ContentCountry(StubeLocale.gl)) }.onSuccess { appliedLocale = key }
     }
 
     /** Maksymalna wysokość obrazu: tryb słabszych urządzeń – z jego ustawień, inaczej 1080p (bez 4K na TV z wolnym dekoderem). */
@@ -164,7 +175,6 @@ object YtStreams {
         resolverOverride?.let { return@withContext it(videoId) }
         ensureInit()
         // region z Ustawień (zmiana działa bez ponownego uruchomienia aplikacji)
-        NewPipe.setPreferredContentCountry(ContentCountry(Prefs.ytRegion.ifBlank { "PL" }))
         val info = try {
             StreamInfo.getInfo(ServiceList.YouTube, "https://www.youtube.com/watch?v=$videoId")
         } catch (e: Exception) { throw YtStreamException(message(e), e) }

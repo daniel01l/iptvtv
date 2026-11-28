@@ -3,6 +3,8 @@ package pl.iptv.tv.data
 import android.content.Context
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -49,6 +51,8 @@ object Repository {
 
     private fun suffix(id: String = Prefs.activePlaylist) = if (id == Playlists.MAIN) "" else "_$id"
     private val playlistCache get() = File(app.filesDir, "playlist${suffix()}.m3u")
+    /** (7.28) Bufor strumieniowego wczytywania list M3U (pobieranie i odczyt wierszy). */
+    private const val STREAM_BUF = 64 * 1024
     private val epgCache get() = File(app.filesDir, "epg${suffix()}.xml.dat")
     private val epgBin get() = File(app.filesDir, "epg${suffix()}.bin")
     private val editsFile get() = File(app.filesDir, "edits.json")
@@ -300,10 +304,15 @@ object Repository {
 
     /** Wczytuje playlistę z dowolnego źródła i zapisuje kopię w cache. */
     suspend fun loadPlaylist(source: String): Int = withContext(Dispatchers.IO) {
-        val bytes = openSource(source).use { it.readBytes() }
-        val pl = M3uParser.parse(String(bytes, Charsets.UTF_8))
-        if (pl.channels.isEmpty()) throw IOException("Lista nie zawiera kanałów")
-        playlistCache.writeBytes(bytes)
+        // (7.28) strumieniowo: źródło (OkHttp / ContentResolver / plik) → plik tymczasowy blokami 64 KB → parser czytający wiersze
+        // (BufferedReader). Dawniej cała lista jako ByteArray + String (2–3 kopie w pamięci – OOM / pauzy GC przy dużych listach na boxach).
+        val tmp = File(playlistCache.path + ".part")
+        val pl = try {
+            openSource(source).use { inp -> tmp.outputStream().buffered(STREAM_BUF).use { out -> inp.copyTo(out, STREAM_BUF) } }
+            tmp.inputStream().reader(Charsets.UTF_8).buffered(STREAM_BUF).use { M3uParser.parse(it) }
+        } catch (t: Throwable) { tmp.delete(); throw t }
+        if (pl.channels.isEmpty()) { tmp.delete(); throw IOException("Lista nie zawiera kanałów") }
+        if (!tmp.renameTo(playlistCache)) { playlistCache.delete(); if (!tmp.renameTo(playlistCache)) { tmp.copyTo(playlistCache, true); tmp.delete() } }
         Prefs.playlistSource = source
         Playlists.syncActive(source)
         applyPlaylist(pl)
@@ -416,7 +425,38 @@ object Repository {
     /** Po dwóch awariach z rzędu EPG nie jest wczytywane automatycznie (bez pętli: zacinanie → zamknięcie → od nowa). */
     val epgAutoBlocked get() = Prefs.epgCrashes >= 2
 
-    suspend fun loadEpg(url: String = Prefs.effectiveEpgUrl): Int = withContext(Dispatchers.IO) { lowPriority {
+    /** (7.28) Zasięg pobierania EPG niezależny od ekranu – kreator / Ustawienia mogą się zamknąć, a EPG wczytuje się dalej w tle. */
+    private val epgScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+    private val epgLock = Any()
+    @Volatile private var epgRun: kotlinx.coroutines.Deferred<Int>? = null
+    @Volatile private var epgRunUrl: String? = null
+
+    /** Trwa pobieranie / parsowanie EPG (np. z kreatora pierwszego uruchomienia). */
+    val epgLoading: Boolean get() = epgRun?.isActive == true
+
+    /**
+     * (7.28) Wczytanie EPG w tle: pobieranie i strumieniowe parsowanie (XmlPullParser, .xml / .xml.gz) na Dispatchers.IO z priorytetem
+     * THREAD_PRIORITY_BACKGROUND; dane podmieniane raz po zakończeniu (bez odświeżania UI przy każdej audycji). To samo
+     * wczytywanie trwające dla tego adresu jest współdzielone (bez podwójnego pobierania z kreatora, START i Ustawień);
+     * anulowanie wywołującego (zamknięty ekran) nie przerywa pobierania.
+     */
+    suspend fun loadEpg(url: String = Prefs.effectiveEpgUrl): Int {
+        val run = synchronized(epgLock) {
+            epgRun?.takeIf { it.isActive && epgRunUrl == url }
+                ?: epgScope.async { loadEpgNow(url) }.also { epgRun = it; epgRunUrl = url }
+        }
+        return run.await()
+    }
+
+    /** (7.28) Start wczytywania EPG bez czekania na wynik ([onDone] – na wątku głównym, gdy ekran jeszcze żyje). */
+    fun loadEpgInBackground(url: String = Prefs.effectiveEpgUrl, onDone: ((Result<Int>) -> Unit)? = null) {
+        epgScope.launch {
+            val r = runCatching { loadEpg(url) }
+            onDone?.let { cb -> withContext(Dispatchers.Main) { cb(r) } }
+        }
+    }
+
+    private suspend fun loadEpgNow(url: String): Int = withContext(Dispatchers.IO) { lowPriority {
         val urls = epgUrls(url)
         if (urls.isEmpty()) throw IOException("Brak adresu EPG")
         // słabsze urządzenie: stare dane zwalniane przed wczytaniem nowych (bez podwójnego zużycia pamięci)

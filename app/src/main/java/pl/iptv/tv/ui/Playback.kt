@@ -414,7 +414,7 @@ object Playback {
     val ENGINES = listOf("Media3 – dekoder sprzętowy (zalecany)", "Media3 – dekoder programowy (zgodność)", "Media3 – tunelowanie (Android TV)")
 
     /** Dekoder programowy: silnik „programowy” albo wyłączona akceleracja sprzętowa (Ustawienia lub przytrzymanie OK). */
-    val softwareDecoding get() = pl.iptv.tv.data.Prefs.playerEngine == ENGINE_SOFTWARE || !pl.iptv.tv.data.Prefs.hwAccel || sessionSoftware
+    val softwareDecoding get() = pl.iptv.tv.data.EngineEff.playerEngine == ENGINE_SOFTWARE || !pl.iptv.tv.data.EngineEff.hwAccel || sessionSoftware
 
     /**
      * Dekoder sprzętowy zamroził obraz (dźwięk grał dalej) – dekoder programowy do końca sesji. Nie zmienia ustawień:
@@ -527,7 +527,7 @@ object Playback {
         val c = lastCtx ?: return false; val ch = lastChannel ?: return false; val u = url ?: return false
         val fromProfile = profile?.software == true
         if (!fromProfile && !sessionSoftware) return false
-        if (pl.iptv.tv.data.Prefs.playerEngine == ENGINE_SOFTWARE || !pl.iptv.tv.data.Prefs.hwAccel) return false
+        if (pl.iptv.tv.data.EngineEff.playerEngine == ENGINE_SOFTWARE || !pl.iptv.tv.data.EngineEff.hwAccel) return false
         android.util.Log.w(TAG, "błąd ${e.errorCodeName} na dekoderze programowym – powrót na sprzętowy dla ${ch.name} • ${diagnostics()}")
         dropSoftwareProfile(ch.key, u)
         calls?.cancelActive()
@@ -653,7 +653,7 @@ object Playback {
         val f = p.videoFormat ?: return "brak obrazu"
         val list = runCatching { androidx.media3.exoplayer.mediacodec.MediaCodecUtil.getDecoderInfos(f.sampleMimeType ?: "", false, false) }.getOrDefault(emptyList())
         val hw = list.count { it.hardwareAccelerated }
-        return "${f.sampleMimeType} ${f.width}×${f.height} • dekodery: $hw sprzętowe, ${list.size - hw} programowe • silnik: ${ENGINES.getOrNull(pl.iptv.tv.data.Prefs.playerEngine)} • akceleracja: ${if (pl.iptv.tv.data.Prefs.hwAccel) "wł." else "wył."}" +
+        return "${f.sampleMimeType} ${f.width}×${f.height} • dekodery: $hw sprzętowe, ${list.size - hw} programowe • silnik: ${ENGINES.getOrNull(pl.iptv.tv.data.EngineEff.playerEngine)} • akceleracja: ${if (pl.iptv.tv.data.EngineEff.hwAccel) "wł." else "wył."}" +
             (if (sessionSoftware) " • awaryjnie dekoder programowy (obraz zamarzał)" else "") +
             (stats?.let { "\n\nDekoder: ${videoDecoder ?: "?"}\nPomiar: ${it.summary()}" } ?: "")
     }
@@ -663,7 +663,7 @@ object Playback {
 
     /** Krótki opis silnika (pomiar w logu). */
     fun engineLabel(): String = listOfNotNull(
-        when { softwareDecoding -> "programowy"; pl.iptv.tv.data.Prefs.playerEngine == ENGINE_TUNNELING -> "tunelowanie"; else -> "sprzętowy" },
+        when { softwareDecoding -> "programowy"; pl.iptv.tv.data.EngineEff.playerEngine == ENGINE_TUNNELING -> "tunelowanie"; else -> "sprzętowy" },
         profile?.label, if (pl.iptv.tv.data.Prefs.lowPerf) "słabsze urządzenia" else null).joinToString(", ")
 
     fun get(c: Context): ExoPlayer {
@@ -822,8 +822,8 @@ object Playback {
         renderers.setAllowedVideoJoiningTimeMs(VIDEO_JOINING_MS)
         // (7.22) tunelowanie: tempo klatek z zegara sprzętowego TV (Media3 w trybie tunelowania otwiera AudioTrack z
         // AudioAttributes.FLAG_HW_AV_SYNC); bez programowego rozciągania czasu przez AudioTrack.PlaybackParams
-        if (pl.iptv.tv.data.Prefs.playerEngine == ENGINE_TUNNELING && pl.iptv.tv.data.Prefs.hwAccel && profile == null) renderers.setEnableAudioTrackPlaybackParams(false)
-        val P = pl.iptv.tv.data.Prefs
+        if (pl.iptv.tv.data.EngineEff.playerEngine == ENGINE_TUNNELING && pl.iptv.tv.data.EngineEff.hwAccel && profile == null) renderers.setEnableAudioTrackPlaybackParams(false)
+        val P = pl.iptv.tv.data.EngineEff        // (7.28) nadpisanie kanału albo Ustawienia globalne
         val engine = P.playerEngine
         val software = softwareDecoding || profile?.software == true
         // wybór dekodera: sprzętowy (akceleracja) przed programowym albo odwrotnie (tryb zgodności)
@@ -949,7 +949,7 @@ object Playback {
             // stała prędkość 1.0 – bez przyspieszania/zwalniania obrazu tuż po starcie kanału na żywo
             .setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setMinPlaybackSpeed(1f).setMaxPlaybackSpeed(1f)
                 // niskie opóźnienie: bliżej krawędzi transmisji na żywo (gdy strumień na to pozwala)
-                .apply { if (pl.iptv.tv.data.Prefs.lowLatency) setTargetOffsetMs(4_000) }.build()).apply {
+                .apply { if (pl.iptv.tv.data.EngineEff.lowLatency) setTargetOffsetMs(4_000) }.build()).apply {
             mime?.let { setMimeType(it) }
         }.build()
         val ds = DefaultDataSource.Factory(c.applicationContext, http)
@@ -1121,6 +1121,8 @@ object Playback {
         // inny kanał niż dobierany w tle – dobór przerwany (odtwarzacz testowy zwolniony)
         ChannelEngineOptimizer.cancelUnless(streamUrl)
         // (7.20) profil tego kanału w jednym źródle ustawień (okno silnika, Ustawienia, przebudowa w locie)
+        // (7.28) ręczne ustawienia silnika tego kanału (odczyt z pamięci) – przed związaniem konfiguracji z kanałem
+        pl.iptv.tv.data.ChannelEngineOverrides.bind(ch)
         EngineConfigRepository.bindChannel(ch.key)
         // zapamiętany profil silnika kanału (Room, odczyt z pamięci); rodzaj strumienia tylko dla adresu, dla którego go dobrano
         val want = ChannelEngines.get(ch.key)?.let { e -> e.profile?.let { if (e.streamUrl == streamUrl) it else it.copy(container = 0) } }
@@ -1134,7 +1136,10 @@ object Playback {
         // (7.4) kanał, na którym w tej sesji już zamarzł obraz – od razu programowy (bez kolejnych 8 s zamrożenia)
         val enterSoftware = !sessionSoftware && ch.key in frozenChannels && pl.iptv.tv.data.Prefs.freezeFallback
         if (enterSoftware) { sessionSoftware = true; softwareChannel = ch.key }
-        val switchEngine = (leaveSoftware != enterSoftware) && player != null
+        // (7.28) inne efektywne parametry budowy (nadpisanie kanału / powrót do globalnych) – nowy odtwarzacz od razu, przed startem
+        // strumienia (bez podwójnego startu); kanały z tymi samymi parametrami – bez przebudowy (płynne przełączanie)
+        val overrideSwitch = player != null && appliedKey != null && EngineConfigRepository.current.playerKey != appliedKey
+        val switchEngine = ((leaveSoftware != enterSoftware) || overrideSwitch) && player != null
         if (want != profile || switchEngine) {
             // inne ustawienia silnika – nowy odtwarzacz (stary całkowicie zwolniony), obraz na tym samym widoku
             // (7.3) sam rodzaj strumienia (HLS / TS) – ten sam odtwarzacz, bez przebudowy (płynne przełączanie)

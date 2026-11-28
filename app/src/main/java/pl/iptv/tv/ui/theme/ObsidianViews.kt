@@ -98,7 +98,7 @@ object ObsidianViews {
     fun pill(radius: Float = Ui.dp(40).toFloat(), rest: Int = 0): Drawable =
         // (v2) zakładki / filtry / kategorie: aktywna – gradient #2F80ED → #1D4ED8, fokus – tint z błękitną ramką i poświatą,
         // zwykła – półprzezroczyste szkło z obramowaniem 1 dp ([ObsidianGlass.pillStates])
-        if (v2) G.pillStates(maxOf(1, Math.round(radius / Ui.density)), runCatching { pl.iptv.tv.data.Prefs.lowPerf }.getOrDefault(false)) else StateListDrawable().apply {
+        if (v2) G.pillStates(maxOf(1, Math.round(radius / Ui.density)), pl.iptv.tv.ui.DevicePerformanceProfile.uiLow) else StateListDrawable().apply {
         val on = round(ACCENT, radius)
         addState(FOCUSED, on); addState(PRESSED, on)
         val chosen = round(0x2E3B82F6, radius, Ui.dp(1), ACCENT)
@@ -128,7 +128,7 @@ object ObsidianViews {
     private fun railPillGlass(): Drawable {
         // (v2, ujednolicenie) V2PillTab: pełna kapsuła – fokus / bieżąca sekcja: tint 22 % + ramka 2 dp #38BDF8 + poświata,
         // spoczynek – ciemne szkło #0E1629 65 % z ramką 1 dp
-        val low = runCatching { pl.iptv.tv.data.Prefs.lowPerf }.getOrDefault(false)
+        val low = pl.iptv.tv.ui.DevicePerformanceProfile.uiLow
         return G.pillTab(AppNavRail.ITEM_RADIUS.value.toInt(), low)      // geometria jak w v1 (ikona na środku pozycji), kolory v2
     }
 

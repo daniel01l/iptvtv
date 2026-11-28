@@ -37,7 +37,7 @@ data class ModernColors(
         // (v2) Nowoczesny v2: ramka fokusu Obsidian Glass; „Animacje przejść: Wyłączone” = przejścia jak w trybie słabszych urządzeń (natychmiast)
         fun fromUi() = ModernColors(Color(Ui.bg), Color(Ui.panel), Color(Ui.accent), Color(ModernTheme.ring), Color(ModernTheme.LIVE),
             Color(Ui.text), Color(Ui.text2), Color.White.copy(alpha = if (ModernV2.active) 0.12f else 0.16f),
-            runCatching { Prefs.lowPerf }.getOrDefault(false) || ModernV2.animationsOff)
+            pl.iptv.tv.ui.DevicePerformanceProfile.uiLow || ModernV2.animationsOff)
     }
 }
 

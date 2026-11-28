@@ -104,7 +104,16 @@ object EngineSheet {
                     cards += card("reset_channel", "Resetuj dla kanału", "Ustawienia globalne dla ${ch.name}", null) { repo.resetChannel(ch.key, streamUrl() ?: ch.url) }
                 }
             }
-            extras.forEachIndexed { i, (label, action) -> cards += card("extra$i", label, null, null) { d.dismiss(); action() } }
+            // (7.28) „tytuł\nopis” – druga linia jako wartość karty (np. „Silnik kanału” / „Własny”); „Silnik kanału” z ikoną suwaków
+            extras.forEachIndexed { i, (label, action) ->
+                val t = label.substringBefore('\n'); val v = label.substringAfter('\n', "").ifBlank { null }
+                cards += card("extra$i", t, v, null) { d.dismiss(); action() }.also { c ->
+                    if (t == ChannelEngineDialog.TITLE) ((c as LinearLayout).getChildAt(0) as? LinearLayout)?.getChildAt(0)?.let { tv -> (tv as TextView).apply {
+                        setCompoundDrawablesRelative(androidx.core.content.ContextCompat.getDrawable(a, pl.iptv.tv.R.drawable.ic_n_tune)?.mutate()?.apply {
+                            setBounds(0, 0, Ui.dp(20), Ui.dp(20)); setTintList(CardSheet.textColors(pal)) }, null, null, null)
+                        compoundDrawablePadding = Ui.dp(10) } }
+                }
+            }
             cards.forEachIndexed { i, v -> list.addView(v, LinearLayout.LayoutParams(-1, -2).apply { if (i < cards.size - 1) bottomMargin = Ui.dp(8) }) }
             // ▼ z ostatniej karty – „Gotowe”; pierwsza nie ucieka w górę
             cards.lastOrNull()?.let { last -> last.nextFocusDownId = done.id; done.nextFocusUpId = last.id; done.nextFocusLeftId = done.id; done.nextFocusRightId = done.id }

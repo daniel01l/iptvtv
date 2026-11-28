@@ -88,7 +88,7 @@ object ModernTheme {
 
     /** (v2) Przyciski okien (ZAPISZ, ANULUJ, Gotowe…): fokus – gradient #2F80ED → #1D4ED8 z błękitną ramką i poświatą, spoczynek – szkło z obramowaniem. */
     private fun glassPill(): Drawable = android.graphics.drawable.StateListDrawable().apply {
-        val G = pl.iptv.tv.ui.theme.ObsidianGlass; val low = runCatching { Prefs.lowPerf }.getOrDefault(false)
+        val G = pl.iptv.tv.ui.theme.ObsidianGlass; val low = pl.iptv.tv.ui.DevicePerformanceProfile.uiLow
         // (v2, ujednolicenie) V2GlowPillButton: fokus – gradient #2F80ED → #38BDF8 z białą ramką i poświatą, spoczynek – ciemne szkło z ramką 1 dp 18 %
         addState(intArrayOf(android.R.attr.state_focused), G.confirm(40, true, low))
         addState(intArrayOf(android.R.attr.state_pressed), G.confirm(40, true, true))

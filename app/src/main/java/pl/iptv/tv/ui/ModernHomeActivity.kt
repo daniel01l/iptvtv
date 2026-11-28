@@ -530,7 +530,7 @@ class ModernHomeActivity : BaseActivity() {
     private val sectionAnim = androidx.compose.animation.core.Animatable(1f)
     /** Sekcja, dla której działa [sectionAnim] (różna od [section] = przejście jeszcze nie ruszyło – rysunek od zera). */
     private var animSection by mutableIntStateOf(0)     // stan – przypisanie odświeża warstwę także w trybie słabszych urządzeń (bez animacji)
-    private val lowPerfNow get() = runCatching { pl.iptv.tv.data.Prefs.lowPerf }.getOrDefault(false)
+    private val lowPerfNow get() = pl.iptv.tv.ui.DevicePerformanceProfile.uiLow
 
     /** Przenikanie z przesunięciem o 18 dp wg [sectionAnim] – odczyt w warstwie rysowania (bez ponownego składania). */
     private fun Modifier.sectionFade(): Modifier = graphicsLayer {
@@ -793,7 +793,8 @@ class ModernHomeActivity : BaseActivity() {
         // (7.17) „Obsidian Stream”: hero na pełną szerokość, winieta od lewej (95 % → 0 %) i od dołu, poświata w kolorze materiału
         val glow = remember(f?.key) { f?.let { ambientColor(it, c.accent) } ?: c.accent }
         // (7.17) warstwy zapamiętane po kolorze – bitmapy tylko przy zmianie materiału (poświata) / motywu (winieta)
-        val glowLayer = remember(glow) { Modifier.obsidianAmbientGlow(glow) }
+        // (7.28) tryb szybki: bez poświaty zależnej od materiału – tło nie przerysowuje się przy ruchu po kafelkach
+        val glowLayer = remember(glow, DevicePerformanceProfile.lite) { if (DevicePerformanceProfile.lite) Modifier else Modifier.obsidianAmbientGlow(glow) }
         val vignette = remember(c.bg) { Modifier.obsidianHeroVignette(c.bg) }
         Box(Modifier.fillMaxSize().then(glowLayer))
         Box(Modifier.align(Alignment.TopEnd).fillMaxWidth().fillMaxHeight(0.82f).then(vignette)) {
@@ -1261,6 +1262,11 @@ class ModernHomeActivity : BaseActivity() {
     /** (v2) OK / dotknięcie zakładki: wejście do ekranu sekcji (Start – kursor na rzędy). */
     private fun v2TabOpen(i: Int) {
         previewJob?.cancel()
+        // (7.28) dotyk (telefon): dwustopniowo jak pasek v1 ([DashboardRail]) – pierwsze stuknięcie nieaktywnej zakładki tylko ją
+        // aktywuje (rzędy i baner sekcji na pulpicie), kolejne – wejście; pilot: fokus już aktywuje (podgląd), OK – wejście jak dotąd
+        if (window.decorView.isInTouchMode && DashboardRail.tap(section, i) == DashboardRail.Tap.ACTIVATE) {
+            previewSection(i); railTaps++; return
+        }
         if (section != i) previewSection(i)
         when (i) {
             0 -> { topTick++; pendingFocus = HERO_PLAY }

@@ -123,7 +123,7 @@ class GoogleCastBackend : CastHub.Backend {
         loading = true
         c.load(req).setResultCallback { r ->
             loading = false
-            if (r.status.isSuccess) cb?.invoke(CastHub.Result.Playing(device))
+            if (r.status.isSuccess) { pickAudio = true; activateDefaultAudio(); cb?.invoke(CastHub.Result.Playing(device)) }
             else cb?.invoke(CastHub.Result.Failed("„${device.name}” nie może odtworzyć tego strumienia"))
         }
     }
@@ -131,6 +131,7 @@ class GoogleCastBackend : CastHub.Backend {
     private val status = object : RemoteMediaClient.Callback() {
         override fun onStatusUpdated() {
             val c = client ?: return
+            if (pickAudio) activateDefaultAudio()
             if (c.playerState == MediaStatus.PLAYER_STATE_PLAYING || c.playerState == MediaStatus.PLAYER_STATE_PAUSED) lastPos = c.approximateStreamPosition
             if (c.playerState != MediaStatus.PLAYER_STATE_IDLE || loading) return
             when (c.idleReason) {
@@ -166,4 +167,52 @@ class GoogleCastBackend : CastHub.Backend {
     }
 
     override fun positionMs(): Long = client?.approximateStreamPosition?.takeIf { it > 0 } ?: lastPos
+
+    // ---------------- (7.28) pilot Cast ----------------
+
+    /** Po wczytaniu: jawnie aktywna ścieżka audio (AAC, jeśli jest – AC3 / E-AC3 / MP2 często bez dźwięku na odbiorniku); raz na materiał. */
+    @Volatile private var pickAudio = false
+
+    private fun activateDefaultAudio() {
+        val c = client ?: return
+        val tracks = c.mediaInfo?.mediaTracks?.filter { it.type == com.google.android.gms.cast.MediaTrack.TYPE_AUDIO }.orEmpty()
+        if (tracks.isEmpty()) return
+        pickAudio = false
+        val active = c.mediaStatus?.activeTrackIds?.toSet().orEmpty()
+        if (tracks.any { it.id in active }) return
+        val pick = tracks.firstOrNull { (it.contentType.orEmpty() + it.name.orEmpty()).contains("mp4a", true) || it.name.orEmpty().contains("aac", true) } ?: tracks.first()
+        val texts = c.mediaStatus?.activeTrackIds?.filter { id -> tracks.none { it.id == id } }.orEmpty()
+        runCatching { c.setActiveMediaTracks((texts + pick.id).toLongArray()) }
+    }
+
+    override fun durationMs(): Long = client?.streamDuration?.takeIf { it > 0 } ?: 0L
+    override fun isPaused(): Boolean = client?.isPaused == true
+    override fun play() { runCatching { client?.play() } }
+    override fun pause() { runCatching { client?.pause() } }
+    override fun seekTo(ms: Long) {
+        runCatching { client?.seek(com.google.android.gms.cast.MediaSeekOptions.Builder().setPosition(ms).build()) }
+    }
+    private val castSession get() = cast?.sessionManager?.currentCastSession
+    override fun volume(): Float = runCatching { castSession?.volume?.toFloat() }.getOrNull() ?: 0.5f
+    override fun setVolume(v: Float) { runCatching { castSession?.volume = v.toDouble().coerceIn(0.0, 1.0) } }
+    override fun isMuted(): Boolean = runCatching { castSession?.isMute }.getOrNull() == true
+    override fun setMuted(m: Boolean) { runCatching { castSession?.isMute = m } }
+
+    override fun tracks(type: Int): List<CastHub.Track> {
+        val c = client ?: return emptyList()
+        val t = if (type == CastHub.TRACK_AUDIO) com.google.android.gms.cast.MediaTrack.TYPE_AUDIO else com.google.android.gms.cast.MediaTrack.TYPE_TEXT
+        val active = c.mediaStatus?.activeTrackIds?.toSet().orEmpty()
+        return c.mediaInfo?.mediaTracks?.filter { it.type == t }.orEmpty().mapIndexed { i, m ->
+            CastHub.Track(m.id, m.name?.takeIf { it.isNotBlank() } ?: m.language?.takeIf { it.isNotBlank() } ?: "Ścieżka ${i + 1}", m.id in active)
+        }
+    }
+
+    override fun selectTrack(type: Int, id: Long?) {
+        val c = client ?: return
+        val audio = com.google.android.gms.cast.MediaTrack.TYPE_AUDIO
+        val all = c.mediaInfo?.mediaTracks.orEmpty()
+        val wantType = if (type == CastHub.TRACK_AUDIO) audio else com.google.android.gms.cast.MediaTrack.TYPE_TEXT
+        val keep = c.mediaStatus?.activeTrackIds?.filter { a -> all.firstOrNull { it.id == a }?.type != wantType }.orEmpty()
+        runCatching { c.setActiveMediaTracks((keep + listOfNotNull(id)).toLongArray()) }
+    }
 }

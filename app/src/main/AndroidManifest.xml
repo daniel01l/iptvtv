@@ -88,6 +88,8 @@
             <intent-filter><action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter>
         </receiver>
         <service android:name=".rec.RecordingService" android:exported="false" android:foregroundServiceType="dataSync" />
+        <!-- (7.28) przesyłanie Cast / DLNA: proces i lokalny serwer proxy żyją po wygaszeniu ekranu (tylko w trakcie sesji) -->
+        <service android:name=".ui.CastProxyService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <!-- STube: odtwarzanie w tle (sesja multimediów; eksport wymagany dla kontrolerów multimediów systemu) -->
         <service android:name=".ui.YtPlaybackService" android:exported="true" android:foregroundServiceType="mediaPlayback">
             <intent-filter><action android:name="androidx.media3.session.MediaSessionService" /></intent-filter>

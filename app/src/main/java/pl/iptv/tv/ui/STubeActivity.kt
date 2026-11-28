@@ -115,6 +115,13 @@ class STubeActivity : BaseActivity() {
                 // (v2) stacja dokująca: szklana kapsuła z ikonami-pigułkami (jak zakładki pulpitu START)
                 if (ModernV2.active) {
                     hs.background = pl.iptv.tv.ui.theme.ObsidianGlass.glassDialog(30, pl.iptv.tv.ui.theme.ObsidianGlass.OVERLAY_FILL); hs.setPadding(Ui.dp(10), Ui.dp(8), Ui.dp(10), Ui.dp(8)); hs.clipToPadding = false
+                    // (7.28) telefon w pionie (ikony się nie mieszczą – pasek przewijany): ikony przycinane wewnątrz kapsuły (nie wjeżdżają
+                    // pod zaokrągloną krawędź ani poza nią) i łagodnie wygaszane przy brzegach; odstęp krawędzi = promień kapsuły
+                    if (!wideDock) {
+                        hs.setPadding(Ui.dp(14), Ui.dp(8), Ui.dp(14), Ui.dp(8)); hs.clipToPadding = true
+                        hs.isHorizontalFadingEdgeEnabled = true; hs.setFadingEdgeLength(Ui.dp(28))
+                        Ui.roundClip(hs, Ui.dp(30).toFloat())
+                    }
                     // (v2) ikony wyśrodkowane w pionie (bez górnego odstępu paska – dawniej wystawały w dół) i dopasowane do szerokości
                     rail.setPadding(0, 0, 0, 0); rail.gravity = Gravity.CENTER_VERTICAL
                     (rail.layoutParams as android.widget.FrameLayout.LayoutParams).gravity = Gravity.CENTER
@@ -128,7 +135,7 @@ class STubeActivity : BaseActivity() {
             for (i in 0 until rail.childCount) rail.getChildAt(i).let { b ->
                 if (b.id == R.id.stRailSpace) return@let
                 b.layoutParams = LinearLayout.LayoutParams(Ui.dp(if (wideDock) 52 else 44), Ui.dp(if (wideDock) 52 else 44)).apply { marginStart = Ui.dp(if (wideDock) 5 else 2); marginEnd = Ui.dp(if (wideDock) 5 else 2) }
-                if (ModernV2.active) b.background = pl.iptv.tv.ui.theme.ObsidianGlass.pillTab(26, pl.iptv.tv.data.Prefs.lowPerf)
+                if (ModernV2.active) b.background = pl.iptv.tv.ui.theme.ObsidianGlass.pillTab(26, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow)
             }
             findViewById<View>(R.id.stSearch).let { (it.layoutParams as LinearLayout.LayoutParams).topMargin = 0 }
         }
@@ -138,7 +145,7 @@ class STubeActivity : BaseActivity() {
         if (ModernV2.active) {      // (v2) wyszukiwarka – szklana kapsuła V2PillTab (fokus: tint, ramka #38BDF8, poświata)
             val G = pl.iptv.tv.ui.theme.ObsidianGlass
             query.tag = "keepcolor"; query.setTextColor(G.TEXT); query.setHintTextColor(G.TEXT2)
-            query.background = android.graphics.drawable.StateListDrawable().apply { addState(intArrayOf(android.R.attr.state_focused), G.tintRing(28, pl.iptv.tv.data.Prefs.lowPerf)); addState(intArrayOf(), G.pillRest(28)) }
+            query.background = android.graphics.drawable.StateListDrawable().apply { addState(intArrayOf(android.R.attr.state_focused), G.tintRing(28, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow)); addState(intArrayOf(), G.pillRest(28)) }
             query.setPadding(Ui.dp(24), Ui.dp(12), Ui.dp(24), Ui.dp(12))
         }
         if (ModernV2.active) findViewById<View>(R.id.stTitle).visibility = View.GONE      // (v2) nazwa sekcji w belce modułu
@@ -510,7 +517,7 @@ class STubeActivity : BaseActivity() {
     /** (7.16) Siatka wchodzi łagodnie (przezroczystość + lekkie uniesienie, jedna warstwa) zamiast pojawiać się naraz. */
     private fun revealGrid() {
         grid.animate().cancel()
-        if (runCatching { pl.iptv.tv.data.Prefs.lowPerf }.getOrDefault(false)) { grid.alpha = 1f; grid.translationY = 0f; return }
+        if (pl.iptv.tv.ui.DevicePerformanceProfile.uiLow) { grid.alpha = 1f; grid.translationY = 0f; return }
         grid.alpha = 0f; grid.translationY = Ui.dp(14).toFloat()
         grid.animate().alpha(1f).translationY(0f).setDuration(240).setInterpolator(android.view.animation.DecelerateInterpolator(1.4f)).start()
     }
@@ -710,7 +717,7 @@ class STubeActivity : BaseActivity() {
         navRail = pl.iptv.tv.ui.theme.AppNavigationRailViews(vs, scrim,
             items = { (0 until rail.childCount).mapNotNull { rail.getChildAt(it) as? TextView } },
             label = { b -> if (b === account) accountLabel() else (b.contentDescription ?: "").toString().removePrefix("Kategoria: ") },
-            lowPerf = { pl.iptv.tv.data.Prefs.lowPerf }).also { it.attach() }
+            lowPerf = { pl.iptv.tv.ui.DevicePerformanceProfile.uiLow }).also { it.attach() }
         // wyszukiwarka: pigułka na szkle, zaznaczona – obwódka w akcencie
         query.tag = "keepcolor"
         query.setTextColor(O.TEXT); query.setHintTextColor(O.TEXT2)

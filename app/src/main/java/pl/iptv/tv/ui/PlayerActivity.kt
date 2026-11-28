@@ -48,6 +48,10 @@ class PlayerActivity : BaseActivity() {
     override val x25Root = true
     override val isPlayerScreen = true
     companion object {
+        /** (7.28) Pierwsza pozycja menu bocznego (◄◄) w motywach Nowoczesny – powrót na pulpit START (jak WSTECZ). */
+        const val DASHBOARD_LABEL = "Pulpit"
+        /** (7.28) Najwięcej kanałów na liście pilota Cast (wokół bieżącego). */
+        const val CAST_LIST_MAX = 400
         /** (v2) Tag pigułki parametrów strumienia w pasku informacji „Obsidian Glass”. */
         const val STREAM_PILL_TAG = "stream_pill"
         /** (v2) Opis strumienia: „1080p50 • HW” / „576p25 • SW”; nieznana wysokość – null, nieznany klatkaż – bez liczby. */
@@ -243,8 +247,9 @@ class PlayerActivity : BaseActivity() {
                     o != null && o.panel != null -> o.closePanel()
                     o != null && o.visible -> { o.hide(); Ui.fadeOut(touchBar) }
                     isCatchup && playerView.isControllerFullyVisible -> playerView.hideController()
-                    overlay.visibility == View.VISIBLE && touchBar.visibility == View.VISIBLE -> hideOverlay.run()
-                    else -> leaveScreen()
+                    // (7.28) v2: pasek informacji (HUD) i pigułka dotyku nie zatrzymują WSTECZ – od razu pulpit START
+                    !ModernV2.active && overlay.visibility == View.VISIBLE && touchBar.visibility == View.VISIBLE -> hideOverlay.run()
+                    else -> { handler.removeCallbacks(hideOverlay); backToDashboard() }
                 }
             }
         })
@@ -349,7 +354,7 @@ class PlayerActivity : BaseActivity() {
         val root = findViewById<android.widget.FrameLayout>(R.id.playerRoot)
         osdView = androidx.compose.ui.platform.ComposeView(this).apply {
             setViewCompositionStrategy(androidx.compose.ui.platform.ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
-            setContent { TvResolution1080pProvider { PlayerOsdOverlay(s, lowPerf = Prefs.lowPerf) } }
+            setContent { TvResolution1080pProvider { PlayerOsdOverlay(s, lowPerf = pl.iptv.tv.ui.DevicePerformanceProfile.uiLow) } }
         }
         root.addView(osdView, root.indexOfChild(overlay) + 1, android.widget.FrameLayout.LayoutParams(-1, -1))
     }
@@ -1195,57 +1200,70 @@ class PlayerActivity : BaseActivity() {
 
     // ----- pasek menu (druga strzałka ►) -----
 
+    /** [kind] – (7.28) rysowana ikona [PlayerIcon] w kolorze tekstu wiersza (motyw, fokus) zamiast emoji. */
     private class QuickItem(val section: String?, val label: String, val icon: android.graphics.drawable.Drawable? = null,
-                            val onLong: (() -> Unit)? = null, val action: () -> Unit)
+                            val onLong: (() -> Unit)? = null, val kind: String? = null, val action: () -> Unit)
 
     private fun quickItems(): List<QuickItem> {
         val ch = list[pos]
         val l = mutableListOf<QuickItem>()
-        fun add(label: String, action: () -> Unit) { l += QuickItem(null, label, action = action) }
+        val P = PlayerIcon
+        fun add(kind: String, label: String, action: () -> Unit) { l += QuickItem(null, label, kind = kind, action = action) }
+        // (7.28) pierwsza pozycja: powrót na pulpit START – to samo co WSTECZ na samym obrazie (motywy Nowoczesny v1 / v2)
+        if (ModernTheme.active) add(P.HOME, DASHBOARD_LABEL) { closePanels(); backToDashboard() }
         for (id in pl.iptv.tv.data.QuickMenu.visible()) when (id) {
-            "settings" -> add("⚙ Ustawienia") { startActivity(Intent(this, SettingsActivity::class.java)) }
-            "sys_settings" -> add("🛠 Ustawienia urządzenia") { SystemTools.openSystemSettings(this) }
-            "editor" -> add("✎ Edytor listy") { startActivity(Intent(this, EditorActivity::class.java)) }
-            "epg_edit" -> add("📺 Edytor EPG") { ChannelActions.epg(this, ch) { showInfo(list[pos]) } }
-            "channel" -> add("☰ Opcje kanału") { ChannelActions.menu(this, ch) { buildQuick() } }
-            "fav" -> add(if (Repository.isFav(ch)) "☆ Usuń z ulubionych" else "★ Do ulubionych") { Repository.toggleFav(ch); buildQuick() }
-            "guide" -> add("📅 Program TV") { startActivity(Intent(this, GuideActivity::class.java).putExtra(GuideActivity.EXTRA_CHANNEL, ch.key)) }
-            "search" -> if (Prefs.epgSearchEnabled) add("🔎 Szukaj w programie") { startActivity(Intent(this, EpgSearchActivity::class.java)) }
-            "reminders" -> if (Prefs.remindersEnabled) add("🔔 Przypomnienia") {
+            "settings" -> add(P.EQ, "Ustawienia") { startActivity(Intent(this, SettingsActivity::class.java)) }
+            "sys_settings" -> add(P.PLUG, "Ustawienia urządzenia") { SystemTools.openSystemSettings(this) }
+            "editor" -> add(P.EDIT, "Edytor listy") { startActivity(Intent(this, EditorActivity::class.java)) }
+            "epg_edit" -> add(P.TVSET, "Edytor EPG") { ChannelActions.epg(this, ch) { showInfo(list[pos]) } }
+            "channel" -> add(P.INFO, "Opcje kanału") { ChannelActions.menu(this, ch) { buildQuick() } }
+            "fav" -> add(P.STAR, if (Repository.isFav(ch)) "Usuń z ulubionych" else "Do ulubionych") { Repository.toggleFav(ch); buildQuick() }
+            "guide" -> add(P.CHAPTERS, "Program TV") { startActivity(Intent(this, GuideActivity::class.java).putExtra(GuideActivity.EXTRA_CHANNEL, ch.key)) }
+            "search" -> if (Prefs.epgSearchEnabled) add(P.SEARCH, "Szukaj w programie") { startActivity(Intent(this, EpgSearchActivity::class.java)) }
+            "reminders" -> if (Prefs.remindersEnabled) add(P.BOOKMARK_ADD, "Przypomnienia") {
                 startActivity(Intent(this, EpgSearchActivity::class.java).putExtra(EpgSearchActivity.EXTRA_TAB, EpgSearchActivity.TAB_REMINDERS))
             }
-            "audio" -> add("🔊 Ścieżka audio") { trackMenu(androidx.media3.common.C.TRACK_TYPE_AUDIO) }
-            "subs" -> add("💬 Napisy") { trackMenu(androidx.media3.common.C.TRACK_TYPE_TEXT) }
-            "aspect" -> add("📐 ${ASPECTS[Prefs.aspectMode.coerceIn(ASPECTS.indices)]}") {
+            "audio" -> add(P.AUDIO, "Ścieżka audio") { trackMenu(androidx.media3.common.C.TRACK_TYPE_AUDIO) }
+            "subs" -> add(P.CC, "Napisy") { trackMenu(androidx.media3.common.C.TRACK_TYPE_TEXT) }
+            "aspect" -> add(P.ASPECT, ASPECTS[Prefs.aspectMode.coerceIn(ASPECTS.indices)]) {
                 Dialogs.choice(this, "Proporcje obrazu", ASPECTS, Prefs.aspectMode) { Prefs.aspectMode = it; applyAspect(); buildQuick() }
             }
             "record" -> if (Prefs.recEnabled) {
                 val rec = pl.iptv.tv.data.Recordings.activeFor(ch.key)
-                if (rec != null) add("⏹ Zatrzymaj nagrywanie") { pl.iptv.tv.rec.RecordingService.stop(this, rec.id); toast("Zatrzymano nagrywanie"); buildQuick() }
-                else add("⏺ Nagrywaj") {
+                if (rec != null) add(P.STOP, "Zatrzymaj nagrywanie") { pl.iptv.tv.rec.RecordingService.stop(this, rec.id); toast("Zatrzymano nagrywanie"); buildQuick() }
+                else add(P.VIDEO, "Nagrywaj") {
                     val cur = Repository.current(ch)
                     pl.iptv.tv.rec.RecordingService.recordProgramme(this, ch, cur)
                     toast("⏺ Nagrywanie: ${ch.name}" + (cur?.let { " do ${Fmt.time(it.end)}" } ?: "")); buildQuick()
                 }
             }
-            "skip_ad" -> if (isCatchup) add("⏭ Pomiń reklamę (+${Prefs.adSkip} s)") { closePanels(); skipAd() }
-            "queue" -> add("📋 Kolejka i propozycje") { closePanels(); openQueuePanel() }
-            "refresh" -> add("🔄 Odśwież listę i EPG") { refreshSources() }
+            "skip_ad" -> if (isCatchup) add(P.NEXT, "Pomiń reklamę (+${Prefs.adSkip} s)") { closePanels(); skipAd() }
+            "queue" -> add(P.QUEUE, "Kolejka i propozycje") { closePanels(); openQueuePanel() }
+            "refresh" -> add(P.REFRESH, "Odśwież listę i EPG") { refreshSources() }
             // (v2) udostępnienie „co oglądam” (nazwa kanału i program – bez adresu strumienia z listy)
-            "share" -> add("↗ ${ShareLinks.TITLE}") { ShareLinks.share(this, ch.name, ShareLinks.liveTv(ch.name, Repository.current(ch)?.title)) }
-            "apps_all" -> add("▦ Wszystkie aplikacje") { SystemTools.showApps(this) }
+            "share" -> add(P.SHARE, ShareLinks.TITLE) { ShareLinks.share(this, ch.name, ShareLinks.liveTv(ch.name, Repository.current(ch)?.title)) }
+            "apps_all" -> add(P.GAMES, "Wszystkie aplikacje") { SystemTools.showApps(this) }
             "apps" -> {
                 var sec: String? = "APLIKACJE"
                 SystemTools.quickApps(this).forEach { app ->
                     l += QuickItem(sec, app.label, app.icon, onLong = { SystemTools.removeQuickApp(this, app) { buildQuick() } }) { SystemTools.launch(this, app) }
                     sec = null
                 }
-                l += QuickItem(sec, "➕ Dodaj aplikację…") { SystemTools.addQuickApp(this) { buildQuick() } }
+                l += QuickItem(sec, "Dodaj aplikację…", kind = P.PLUS) { SystemTools.addQuickApp(this) { buildQuick() } }
             }
         }
         // zawsze na końcu: widoczność i kolejność pozycji tego menu
-        l += QuickItem("EDYCJA", "✎ Edytuj to menu…") { editQuickMenu() }
+        l += QuickItem("EDYCJA", "Edytuj to menu…", kind = P.EDIT) { editQuickMenu() }
         return l
+    }
+
+    /**
+     * (7.28) Powrót z Live TV na pulpit START – WSTECZ na samym obrazie i pozycja „Pulpit” w menu bocznym. v1 – jak dotąd
+     * ([leaveScreen]); v2 – zawsze pulpit START (bez zależności od listy kanałów pod spodem), ramka ▲▼ chowana.
+     */
+    private fun backToDashboard() {
+        zapOsd?.dismiss()
+        if (ModernV2.active) { startActivity(X25Theme.dashboardIntent(this)); finish() } else leaveScreen()
     }
 
     /** Okno edycji menu funkcji ◄◄ (w stylu motywu); panel nie znika w trakcie edycji. */
@@ -1455,7 +1473,7 @@ class PlayerActivity : BaseActivity() {
         override fun onCreateViewHolder(p: android.view.ViewGroup, t: Int): VH {
             val v = layoutInflater.inflate(R.layout.item_quick, p, false); Ui.style(v)
             // (v2, ujednolicenie) boczne menu akcji (Ustawienia, Edytor listy, Edytor EPG, Opcje kanału…): szklane pigułki V2PillTab
-            if (ModernV2.active && Ui.color2("focus") == null) v.findViewById<View>(R.id.row)?.background = pl.iptv.tv.ui.theme.ObsidianGlass.pillTab(40, Prefs.lowPerf)
+            if (ModernV2.active && Ui.color2("focus") == null) v.findViewById<View>(R.id.row)?.background = pl.iptv.tv.ui.theme.ObsidianGlass.pillTab(40, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow)
             return VH(v)
         }
         override fun getItemCount() = items.size
@@ -1464,8 +1482,11 @@ class PlayerActivity : BaseActivity() {
             h.section.visibility = if (it.section != null) View.VISIBLE else View.GONE
             h.section.text = it.section
             h.label.text = it.label
-            h.icon.visibility = if (it.icon != null) View.VISIBLE else View.GONE
-            h.icon.setImageDrawable(it.icon)
+            // (7.28) ikona: aplikacji (bitmapa) albo rysowana PlayerIcon w kolorach tekstu wiersza (paleta motywu, kolor przy fokusie)
+            val icon = it.icon ?: it.kind?.let { k -> PlayerIcon(k, h.label.textColors) }
+            h.icon.visibility = if (icon != null) View.VISIBLE else View.GONE
+            h.icon.isDuplicateParentStateEnabled = true
+            h.icon.setImageDrawable(icon)
             h.row.setOnClickListener { _ -> lastQuickPos = h.bindingAdapterPosition; it.action() }
             h.row.setOnLongClickListener(it.onLong?.let { l -> View.OnLongClickListener { l(); true } })
         }
@@ -2182,7 +2203,7 @@ class PlayerActivity : BaseActivity() {
 
     private fun miniEntries(): List<Pair<String, () -> Unit>> {
         val ch = list[pos]
-        return pl.iptv.tv.data.MiniMenu.visible().mapNotNull { id -> when (id) {
+        val l: MutableList<Pair<String, () -> Unit>> = pl.iptv.tv.data.MiniMenu.visible().mapNotNull<String, Pair<String, () -> Unit>> { id -> when (id) {
             "settings" -> "⚙ Ustawienia" to { startActivity(Intent(this, SettingsActivity::class.java)) }
             "sys_settings" -> "🛠 Ustawienia urządzenia" to { SystemTools.openSystemSettings(this) }
             "guide" -> "📅 Program TV" to { openGuide(ch.key) }
@@ -2208,7 +2229,19 @@ class PlayerActivity : BaseActivity() {
                 else label to { runCatching { startActivity(Intent(Intent.ACTION_MAIN).setComponent(cn).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
                     .onFailure { toast("Nie można uruchomić") } }
             } else null
-        } }
+        } }.toMutableList()
+        // (7.28) „Silnik kanału” (ikona suwaków) – trzecia od dołu; po zapisie / WSTECZ – z powrotem to menu ikon
+        if (!isCatchup) l.add((l.size - 2).coerceAtLeast(0), "🎛 " + channelEngineLabel(ch, " • ") to { openChannelEngine(ch) { openMini() } })
+        return l
+    }
+
+    /** (7.28) Podpis „Silnik kanału” z plakietką „Własny”, gdy kanał ma zapisane ręczne ustawienia ([sep] – nowa linia albo „ • ”). */
+    private fun channelEngineLabel(ch: pl.iptv.tv.data.Channel, sep: String) =
+        ChannelEngineDialog.TITLE + if (pl.iptv.tv.data.ChannelEngineOverrides.has(ch)) sep + ChannelEngineDialog.CUSTOM else ""
+
+    /** (7.28) Okno ręcznych ustawień silnika bieżącego kanału; [back] – po zamknięciu (zapis / WSTECZ) powrót do menu, z którego otwarto. */
+    private fun openChannelEngine(ch: pl.iptv.tv.data.Channel, back: () -> Unit) {
+        ChannelEngineDialog.show(this, ch) { if (!isFinishing && !isDestroyed) back() }
     }
 
     /** Przytrzymanie OK / ekranu: szybkie menu ikon (domyślnie) albo menu silnika i akceleracji (Ustawienia → Odtwarzanie). */
@@ -2228,6 +2261,14 @@ class PlayerActivity : BaseActivity() {
         override fun resume(positionMs: Long) {
             if (isFinishing || !lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) return
             Playback.removeListener(listener); initPlayer(); playCurrent()
+        }
+        // (7.28) pilot Cast: kanał następny / poprzedni i wybór z listy – nowy strumień w tej samej sesji (playCurrent → switchMedia)
+        override fun next(): Boolean { if (list.size < 2) return false; zap(1); return true }
+        override fun previous(): Boolean { if (list.size < 2) return false; zap(-1); return true }
+        override val itemsTitle: String get() = "Kanały"
+        override fun items(): List<CastHub.Item> {
+            val from = (pos - CAST_LIST_MAX / 2).coerceAtLeast(0); val to = minOf(list.size, from + CAST_LIST_MAX)
+            return (from until to).map { i -> val c = list[i]; CastHub.Item("${c.number}. ${c.name}", i == pos) { if (i != pos) zap(i - pos) } }
         }
     }
 
@@ -2250,12 +2291,16 @@ class PlayerActivity : BaseActivity() {
 
     private fun playbackMenu() {
         closePanels(); hideOverlay.run()
-        val extras = listOfNotNull(
+        val extras: MutableList<Pair<String, () -> Unit>> = listOfNotNull<Pair<String, () -> Unit>>(
             "Dopasowanie silnika (automatyczne)" to { manualEngineFit() },
             "Bieżący dekoder – szczegóły" to { Dialogs.confirm(this, "Bieżący dekoder", Playback.decoderInfo()) {} },
             if (Prefs.miniMenuEnabled && Prefs.okLongAction == 0) "Szybkie menu ikon" to { openMini() } else null,
             if (CastHub.visible) CastHub.MENU_ENTRY to { castClick() } else null,
-        )
+        ).toMutableList()
+        // (7.28) „Silnik kanału” – trzecia pozycja od dołu okna; po zapisie / WSTECZ – z powrotem to okno
+        if (!isCatchup) list.getOrNull(pos)?.let { ch ->
+            extras.add((extras.size - 2).coerceAtLeast(0), channelEngineLabel(ch, "\n") to { openChannelEngine(ch) { playbackMenu() } })
+        }
         EngineSheet.show(this, list.getOrNull(pos), { Playback.url }, extras)
     }
 
@@ -2335,7 +2380,8 @@ class PlayerActivity : BaseActivity() {
 
     private val MINI_ICONS = mapOf("⚙" to R.drawable.ic_n_settings, "🛠" to R.drawable.ic_n_tools, "📅" to R.drawable.ic_n_epg, "ℹ" to R.drawable.ic_n_info,
         "★" to R.drawable.ic_n_star, "☆" to R.drawable.ic_n_star, "⏺" to R.drawable.ic_n_rec, "⏹" to R.drawable.ic_n_rec,
-        "🎧" to R.drawable.ic_n_tracks, "📐" to R.drawable.ic_n_aspect, "☰" to R.drawable.ic_n_list, "⚡" to R.drawable.ic_n_engine)
+        "🎧" to R.drawable.ic_n_tracks, "📐" to R.drawable.ic_n_aspect, "☰" to R.drawable.ic_n_list, "⚡" to R.drawable.ic_n_engine,
+        "🎛" to R.drawable.ic_n_tune)
 
     private val miniBoxes = ArrayList<View>()
     private var miniPerRow = 8

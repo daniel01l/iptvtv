@@ -46,7 +46,7 @@ class StubeV2Controls(c: Context, private val playerOf: () -> Player?, onPrev: (
         setPlayedColor(G.FOCUS_RING); setScrubberColor(G.FOCUS_RING); setUnplayedColor(Ui.withAlpha(Color.WHITE, 0x30)); setBufferedColor(Ui.withAlpha(Color.WHITE, 0x50))
         setKeyTimeIncrement(SEEK_STEP_MS); isFocusable = true; contentDescription = SEEK_LABEL
         background = android.graphics.drawable.StateListDrawable().apply {
-            addState(intArrayOf(android.R.attr.state_focused), G.focus(12, Prefs.lowPerf)); addState(intArrayOf(), android.graphics.drawable.ColorDrawable(0)) }
+            addState(intArrayOf(android.R.attr.state_focused), G.focus(12, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow)); addState(intArrayOf(), android.graphics.drawable.ColorDrawable(0)) }
     }
     val timeBox = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; clipChildren = false; clipToPadding = false }
     val play: TextView; val prev: TextView; val next: TextView
@@ -79,7 +79,7 @@ class StubeV2Controls(c: Context, private val playerOf: () -> Player?, onPrev: (
         fun round(icon: String, desc: String, size: Int, primary: Boolean, onClick: () -> Unit) = TextView(c).apply {
             contentDescription = desc; isFocusable = true; isClickable = true; gravity = Gravity.CENTER; tag = "keepcolor nozoom"
             val i = if (primary) 26 else 20; val p = (dp(size) - dp(i)) / 2; setPadding(p, p, p, p)
-            background = if (primary) G.button(true, 60, Prefs.lowPerf) else G.pillTab(60, Prefs.lowPerf)
+            background = if (primary) G.button(true, 60, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow) else G.pillTab(60, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow)
             setCompoundDrawables(PlayerIcon(icon, android.content.res.ColorStateList.valueOf(Color.WHITE)).apply { setBounds(0, 0, dp(i), dp(i)) }, null, null, null)
             setOnClickListener { onClick() }
             setOnFocusChangeListener { v, f -> Ui.focusZoom(v, f, 1.08f) }
@@ -218,7 +218,7 @@ class StubeV2Controls(c: Context, private val playerOf: () -> Player?, onPrev: (
             glass.draw(c)
             if (progress <= 0f || len <= 0f) return
             seg.reset(); measure.getSegment(0f, len * progress, seg, true)
-            if (!Prefs.lowPerf) { glow.alpha = 0x40; c.drawPath(seg, glow) }
+            if (!pl.iptv.tv.ui.DevicePerformanceProfile.uiLow) { glow.alpha = 0x40; c.drawPath(seg, glow) }
             c.drawPath(seg, stroke)
         }
 

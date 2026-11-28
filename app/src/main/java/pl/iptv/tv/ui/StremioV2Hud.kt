@@ -74,7 +74,7 @@ object StremioV2Hud {
 
     /** Karta wiersza: kursor pilota (zaznaczenie listy / fokus) – tint + ramka `#38BDF8`, bieżący wybór – cienka ramka, spoczynek – ciemne szkło. */
     private fun rowCard(): Drawable = StateListDrawable().apply {
-        val on = ObsidianGlass.tintRing(16, Prefs.lowPerf)
+        val on = ObsidianGlass.tintRing(16, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow)
         addState(intArrayOf(android.R.attr.state_selected), on)
         addState(intArrayOf(android.R.attr.state_focused), on)
         addState(intArrayOf(android.R.attr.state_pressed), ObsidianGlass.tintRing(16, true))

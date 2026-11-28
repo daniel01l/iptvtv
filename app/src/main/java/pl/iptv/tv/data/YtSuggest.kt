@@ -25,16 +25,17 @@ object YtSuggest {
     suspend fun fetch(typed: String): List<String> {
         val q = typed.trim().lowercase()
         if (q.length < 2) return emptyList()
-        synchronized(cache) { cache[q]?.let { return it } }
+        synchronized(cache) { cache["${StubeLocale.gl}|$q"]?.let { return it } }
         val list = withContext(Dispatchers.IO) {
             runCatching {
-                val url = apiBase.toHttpUrl().newBuilder().addQueryParameter("client", "firefox").addQueryParameter("ds", "yt").addQueryParameter("q", q).build()
-                client.newCall(Request.Builder().url(url).header("User-Agent", "D-iptv-Player").build()).execute().use { r ->
+                val url = apiBase.toHttpUrl().newBuilder().addQueryParameter("client", "firefox").addQueryParameter("ds", "yt").addQueryParameter("q", q)
+                    .addQueryParameter("hl", StubeLocale.hl).addQueryParameter("gl", StubeLocale.gl).build()   // (7.28) podpowiedzi w języku i regionie STube
+                client.newCall(Request.Builder().url(url).header("User-Agent", "D-iptv-Player").header("Accept-Language", StubeLocale.acceptLanguage).build()).execute().use { r ->
                     if (!r.isSuccessful) emptyList() else parse(r.body?.string().orEmpty())
                 }
             }.getOrDefault(emptyList())
         }
-        if (list.isNotEmpty()) synchronized(cache) { cache[q] = list }
+        if (list.isNotEmpty()) synchronized(cache) { cache["${StubeLocale.gl}|$q"] = list }
         return list
     }
 

@@ -168,7 +168,7 @@ class MainActivity : BaseActivity() {
         sideNav.clipChildren = true; sideNav.clipToPadding = true
         host.addView(sideNav, android.widget.FrameLayout.LayoutParams(Ui.dp(72), -1))
         navRail = pl.iptv.tv.ui.theme.AppNavigationRailViews(sideNav, scrim, ::railButtons, { it.contentDescription?.toString() ?: "" },
-            lowPerf = { Prefs.lowPerf }).also { it.attach() }
+            lowPerf = { pl.iptv.tv.ui.DevicePerformanceProfile.uiLow }).also { it.attach() }
         // kolumna 1: pigułki kategorii
         groupsRv.tag = null; groupsRv.background = null
         groupsRv.layoutParams = (groupsRv.layoutParams as android.widget.LinearLayout.LayoutParams).apply { width = Ui.dp(72) }
@@ -894,7 +894,7 @@ class MainActivity : BaseActivity() {
         // (7.6) nowa kategoria od pierwszego kanału (dawniej lista zostawała w miejscu przewinięcia poprzedniej), z krótkim przenikaniem
         if (changed) {
             channelsRv.scrollToPosition(0)
-            if (!Prefs.lowPerf) { channelsRv.alpha = 0.35f; channelsRv.animate().alpha(1f).setDuration(140).withLayer().start() }
+            if (!pl.iptv.tv.ui.DevicePerformanceProfile.uiLow) { channelsRv.alpha = 0.35f; channelsRv.animate().alpha(1f).setDuration(140).withLayer().start() }
         }
     }
 

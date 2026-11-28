@@ -45,7 +45,21 @@ object CastHub {
         fun pause()
         /** [positionMs] – pozycja z odbiornika (VOD; dla Live TV bez znaczenia). */
         fun resume(positionMs: Long)
+        /** (7.28) Pilot Cast: następny / poprzedni (kanał Live TV, odcinek Stremio, pozycja kolejki STube); false – brak. */
+        fun next(): Boolean = false
+        fun previous(): Boolean = false
+        /** (7.28) Lista do wyboru w pilocie (kanały, odcinki sezonu, kolejka) – wybór podmienia materiał w tej samej sesji. */
+        fun items(): List<Item> = emptyList()
+        val itemsTitle: String get() = "Lista"
     }
+
+    /** (7.28) Pozycja listy pilota Cast. */
+    class Item(val label: String, val current: Boolean = false, val pick: () -> Unit)
+
+    /** (7.28) Ścieżka audio / napisów na odbiorniku ([Backend.tracks]). */
+    data class Track(val id: Long, val name: String, val active: Boolean)
+    const val TRACK_AUDIO = 1
+    const val TRACK_TEXT = 2
 
     sealed class Result {
         data class Playing(val device: Device) : Result()
@@ -63,6 +77,19 @@ object CastHub {
         fun cast(device: Device, media: Media, mime: String, cb: (Result) -> Unit)
         fun stop()
         fun positionMs(): Long
+        // (7.28) pilot Cast – domyślnie brak (backend bez sterowania)
+        fun durationMs(): Long = 0L
+        fun isPaused(): Boolean = false
+        fun play() {}
+        fun pause() {}
+        fun seekTo(ms: Long) {}
+        fun volume(): Float = 0.5f
+        fun setVolume(v: Float) {}
+        fun isMuted(): Boolean = false
+        fun setMuted(m: Boolean) {}
+        fun tracks(type: Int): List<Track> = emptyList()
+        /** [id] null – wyłączone (napisy). */
+        fun selectTrack(type: Int, id: Long?) {}
     }
 
     /** Materiał, którego nie da się przesłać (np. film YouTube tylko z osobnym obrazem i dźwiękiem) – [message] dla użytkownika. */
@@ -80,8 +107,15 @@ object CastHub {
 
     /** Testy podmieniają; domyślnie Google Cast (w Robolectric – brak). */
     @Volatile var backendFactory: () -> Backend? = {
-        if (android.os.Build.FINGERPRINT == "robolectric") null else runCatching { GoogleCastBackend() }.getOrNull()
+        // (7.28) Google Cast i DLNA / UPnP razem (MultiCastBackend)
+        if (android.os.Build.FINGERPRINT == "robolectric") null
+        else MultiCastBackend(listOfNotNull(runCatching { GoogleCastBackend() }.getOrNull(), DlnaBackend()))
     }
+
+    /** (7.28) Backend bieżącej sesji – pilot Cast ([CastRemotePanel]). */
+    val control: Backend? get() = backend?.takeIf { session != null }
+    /** (7.28) Odtwarzanie lokalne bieżącej sesji (następny / poprzedni / lista). */
+    val sessionLocal: Local? get() = session?.local?.get()
 
     private val main = Handler(Looper.getMainLooper())
     private var backend: Backend? = null
@@ -242,7 +276,7 @@ object CastHub {
         message(a, "Łączenie z „${d.name}”…")
         main.postDelayed({ if (token == my && pending === s) { runCatching { b.stop() }; fail(s, "Urządzenie „${d.name}” nie odpowiada") } }, CONNECT_TIMEOUT_MS)
         try {
-            b.cast(d, m, castMime(m)) { r -> main.post { if (token == my) onResult(s, r) } }
+            b.cast(d, CastProxy.wrap(m), castMime(m)) { r -> main.post { if (token == my) onResult(s, r) } }
         } catch (e: Exception) {
             fail(s, "Nie udało się połączyć z „${d.name}”")
         }
@@ -257,8 +291,48 @@ object CastHub {
         unsupported(m)?.let { r -> a?.let { message(it, r) }; return }
         s.media = m
         val my = ++token
-        try { b.cast(s.device, m, castMime(m)) { r -> main.post { if (token == my) onResult(s, r) } } }
+        try { b.cast(s.device, CastProxy.wrap(m), castMime(m)) { r -> main.post { if (token == my) onResult(s, r) } } }
         catch (e: Exception) { fail(s, "Nie udało się przesłać kanału") }
+    }
+
+    // ---------------- (7.28) surowy .ts przez Google Cast → DLNA tego samego TV ----------------
+
+    /** Podpowiedź pilota: „Brak dźwięku na kanale TV? Przełącz na tryb DLNA”. */
+    const val DLNA_HINT = "Brak dźwięku na kanale TV? Przełącz na tryb DLNA"
+    private const val DLNA_PREFIX = "dlna:"
+
+    private fun norm(n: String) = n.lowercase().replace("[tv]", "").replace(Regex("[^\\p{L}\\p{N}]"), "")
+
+    /**
+     * Odbiornik DLNA tego samego telewizora dla bieżącej sesji – tylko Live TV, Google Cast i surowy MPEG-TS (bez manifestu HLS
+     * z wyborem ścieżki AAC – E-AC3 / MP2 bywają bez dźwięku w Default Media Receiver). Dopasowanie po nazwie (równa / zawarta);
+     * jedyny odbiornik DLNA przy jedynym urządzeniu Cast – ten sam TV. null – brak.
+     */
+    fun dlnaAlternative(): Device? {
+        val s = session ?: return null
+        if (s.kind != Kind.LIVE || s.device.id.startsWith(DLNA_PREFIX) || castMime(s.media) != "video/mp2t") return null
+        val dlna = devices.filter { it.id.startsWith(DLNA_PREFIX) }
+        if (dlna.isEmpty()) return null
+        val cn = norm(s.device.name)
+        dlna.firstOrNull { d -> val n = norm(d.name); n.isNotEmpty() && cn.isNotEmpty() && (n == cn || n.contains(cn) || cn.contains(n)) }?.let { return it }
+        val casts = devices.count { !it.id.startsWith(DLNA_PREFIX) }
+        return if (dlna.size == 1 && casts <= 1) dlna.first() else null
+    }
+
+    /**
+     * Przeniesienie aktywnej sesji na [d] (DLNA) z tym samym kanałem – bez wznawiania odtwarzania lokalnego: sesja Google Cast
+     * zamykana po cichu (spóźnione wywołania odrzucane przez [token]), nowa zaczyna się od razu; niepowodzenie – jak zwykły błąd
+     * (odtwarzanie wraca na to urządzenie).
+     */
+    fun moveTo(d: Device) {
+        val s = session ?: return
+        val a = s.activity.get() ?: return
+        val l = s.local.get() ?: return
+        token++
+        runCatching { backend?.stop() }
+        session = null
+        start(a, s.kind, d, s.media, l)
+        pending?.localPaused = s.localPaused
     }
 
     private fun onResult(s: Session, r: Result) {
@@ -267,12 +341,14 @@ object CastHub {
                 if (pending === s) pending = null
                 session = s; s.playing = true
                 if (!s.localPaused) { s.local.get()?.let { l -> runCatching { l.pause() } }; s.localPaused = true }
-                s.activity.get()?.let { a -> showBanner(a, s); message(a, "▶ Przesyłanie na „${r.device.name}”") }
+                s.activity.get()?.let { a -> showBanner(a, s); message(a, "▶ Przesyłanie na „${r.device.name}”"); CastProxyService.start(a) }
                 refresh()
             }
             is Result.Failed -> fail(s, r.message + failureHint(s.media))
             is Result.Ended -> {
                 if (session !== s && pending !== s) return
+                // (7.28) koniec materiału na odbiorniku: STube – następne wideo z kolejki, Stremio – następny odcinek, w tej samej sesji
+                if (r.finished && session === s && s.kind != Kind.LIVE && runCatching { s.local.get()?.next() == true }.getOrDefault(false)) return
                 finish(s, r.positionMs, if (r.finished) "Przesyłanie zakończone" else "Przesyłanie przerwane – $BACK_LOCAL")
             }
         }
@@ -290,6 +366,7 @@ object CastHub {
         if (session === s) session = null
         val a = s.activity.get()
         a?.let { removeBanner(it) }
+        CastRemotePanel.dismissAll(); CastProxyService.stop(); CastProxy.stop()   // (7.28) usługa, proxy i pilot – tylko na czas sesji
         if (s.localPaused) { s.localPaused = false; s.local.get()?.let { l -> runCatching { l.resume(if (s.media.live) 0 else positionMs) } } }
         if (a != null && !a.isFinishing) message(a, msg) else lastMessage = msg
         refresh()
@@ -311,6 +388,8 @@ object CastHub {
     // ---------------- baner „Przesyłanie na …” ----------------
 
     private fun showBanner(a: Activity, s: Session) {
+        // (7.28) pilot Cast (sterowanie, lista, ścieżki); w testach Robolectric – dawny baner
+        if (CastProxy.enabled && !TvResolution.isTv(a)) { CastRemotePanel.show(a, expanded = true); return }
         val content = a.findViewById<FrameLayout>(android.R.id.content) ?: return
         val existing = content.findViewWithTag<TextView>(BANNER_TAG)
         val tv = existing ?: TextView(a).apply {
@@ -332,6 +411,13 @@ object CastHub {
 
     /** Baner widoczny na ekranie (testy). */
     fun bannerOn(a: Activity) = a.findViewById<FrameLayout>(android.R.id.content)?.findViewWithTag<View>(BANNER_TAG) != null
+
+    /** (7.28) Każdy ekran aplikacji na pierwszym planie w trakcie sesji: zminimalizowany pilot Cast (można chodzić po aplikacji). */
+    fun onActivityResumed(a: Activity) {
+        if (session == null || !CastProxy.enabled) return
+        if (a.isFinishing || TvResolution.isTv(a)) return          // TV: dawny baner (pilot – na telefonie)
+        CastRemotePanel.show(a, expanded = false)
+    }
 
     /** Testy: stan od nowa. */
     fun resetForTest() {

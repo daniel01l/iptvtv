@@ -60,6 +60,10 @@ object Prefs {
     var dropWatchdog: Boolean get() = bool("drop_watchdog", true); set(v) = putBool("drop_watchdog", v)
     /** (7.22) Rozdzielczość interfejsu ([pl.iptv.tv.ui.UiResolutionMode] – indeks; 0 = automatyczna, jak dotąd). */
     var uiResolution: Int get() = int("ui_res", 0); set(v) = putInt("ui_res", v)
+    /** (7.28) Tryb wydajności interfejsu: 0 – automatyczny, 1 – szybki (TV i boxy), 2 – pełne efekty ([pl.iptv.tv.ui.DevicePerformanceProfile]). */
+    var uiPerfMode: Int get() = int("ui_perf", 0); set(v) = putInt("ui_perf", v)
+    /** (7.28) Ręczne ustawienia silnika per kanał – JSON {klucz kanału: ustawienia} ([ChannelEngineOverrides]). */
+    var channelEngineOverrides: String get() = str("ch_engine_overrides", ""); set(v) = put("ch_engine_overrides", v)
     /** (7.22) Maksymalna rozdzielczość obrazu Live TV ([pl.iptv.tv.ui.VideoResolutionLimit] – indeks; 0 = automatyczna, bez limitu). */
     var maxVideoRes: Int get() = int("max_video_res", 0); set(v) = putInt("max_video_res", v)
 

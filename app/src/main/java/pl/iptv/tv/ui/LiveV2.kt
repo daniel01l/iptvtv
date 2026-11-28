@@ -69,7 +69,7 @@ object LiveV2 {
         }
         override fun draw(c: Canvas) {
             c.drawCircle(cx, cy, rad, fill)
-            if (!Prefs.lowPerf) { glow.alpha = 0x40; c.drawCircle(cx, cy, rad, glow) }
+            if (!pl.iptv.tv.ui.DevicePerformanceProfile.uiLow) { glow.alpha = 0x40; c.drawCircle(cx, cy, rad, glow) }
             c.drawCircle(cx, cy, rad, ring)
         }
         override fun setAlpha(alpha: Int) { fill.alpha = alpha; ring.alpha = alpha }
@@ -96,7 +96,7 @@ object LiveV2 {
             rows = (0..2).map { i ->
                 val current = i == 1
                 val box = FrameLayout(c).apply { clipToOutline = true
-                    background = if (current) ObsidianGlass.tintRing(16, Prefs.lowPerf) else ObsidianGlass.pillRest(16) }
+                    background = if (current) ObsidianGlass.tintRing(16, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow) else ObsidianGlass.pillRest(16) }
                 val logo = ImageView(c).apply { scaleType = ImageView.ScaleType.CENTER_CROP; alpha = if (current) WATERMARK_CURRENT else WATERMARK_SIDE; importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO }
                 box.addView(logo, FrameLayout.LayoutParams(Ui.dp(160), -1, Gravity.END or Gravity.CENTER_VERTICAL))
                 val line = LinearLayout(c).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(Ui.dp(18), 0, Ui.dp(18), 0) }

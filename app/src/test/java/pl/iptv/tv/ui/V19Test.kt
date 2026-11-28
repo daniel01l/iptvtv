@@ -107,7 +107,7 @@ class V19Test {
         val q = a.findViewById<RecyclerView>(R.id.quickList)
         q.measure(View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(4000, View.MeasureSpec.EXACTLY)); q.layout(0, 0, 600, 4000)
         val labels = (0 until q.adapter!!.itemCount).map { q.findViewHolderForAdapterPosition(it)!!.itemView.findViewById<TextView>(R.id.label).text.toString() }
-        assertTrue(labels.toString(), labels.first().contains("Program TV"))
+        assertTrue(labels.toString(), labels.first { it != PlayerActivity.DASHBOARD_LABEL }.contains("Program TV"))
         assertFalse(labels.any { it.trim().endsWith("Ustawienia") })
         // ostatnia pozycja: edycja menu w oknie – przywrócenie widoczności „Ustawienia”
         assertTrue(labels.last().contains("Edytuj to menu"))

@@ -50,7 +50,7 @@ enum class RenderSurfaceMode(val label: String, val description: String) {
     fun texture(@Suppress("UNUSED_PARAMETER") channelWantsTexture: Boolean): Boolean = this == TEXTURE_VIEW
 
     companion object {
-        val current: RenderSurfaceMode get() = entries.getOrElse(pl.iptv.tv.data.Prefs.surfaceMode) { AUTO }
+        val current: RenderSurfaceMode get() = entries.getOrElse(pl.iptv.tv.data.EngineEff.surfaceMode) { AUTO }
     }
 }
 
@@ -92,7 +92,7 @@ object ChannelLoudness {
 
     /** Podpięcie do sesji [sessionId] wg ustawienia (wyłączone – zwolnienie); błąd urządzenia – bez efektu. */
     fun attach(sessionId: Int) {
-        val wanted = runCatching { pl.iptv.tv.data.Prefs.loudnessLeveling }.getOrDefault(false)
+        val wanted = runCatching { pl.iptv.tv.data.EngineEff.loudnessLeveling }.getOrDefault(false)
         val gen: Int
         synchronized(this) {
             if (sessionId == session && (effect != null || pending) == wanted) return

@@ -70,7 +70,7 @@ object CardSheet {
     }
 
     /** Tło karty: fokus – wypełnienie zaznaczenia motywu + obwódka; wybrana – akcent 18 % z obwódką; spoczynek – 6 %. */
-    fun cardBg(p: Palette): Drawable = if (ModernV2.active) pl.iptv.tv.ui.theme.ObsidianGlass.optionCard(16, Prefs.lowPerf)   // (v2) V2OptionRow
+    fun cardBg(p: Palette): Drawable = if (ModernV2.active) pl.iptv.tv.ui.theme.ObsidianGlass.optionCard(16, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow)   // (v2) V2OptionRow
         else StateListDrawable().apply {
         addState(intArrayOf(android.R.attr.state_focused), round(p.focusFill, CARD_RADIUS_DP, Ui.dp(2), p.focusRing))
         addState(intArrayOf(android.R.attr.state_pressed), round(p.focusFill, CARD_RADIUS_DP))
@@ -89,7 +89,7 @@ object CardSheet {
         id = android.view.View.generateViewId(); contentDescription = label
         setTypeface(typeface, android.graphics.Typeface.BOLD); setTextColor(textColors(p))
         // (v2) V2GlowPillButton potwierdzający (Gotowe, Zastosuj…): gradient #2F80ED → #38BDF8 z poświatą, biały tekst
-        background = if (ModernV2.active) pl.iptv.tv.ui.theme.ObsidianGlass.button(true, 40, Prefs.lowPerf).also { setTextColor(android.graphics.Color.WHITE) }
+        background = if (ModernV2.active) pl.iptv.tv.ui.theme.ObsidianGlass.button(true, 40, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow).also { setTextColor(android.graphics.Color.WHITE) }
         else StateListDrawable().apply {
             addState(intArrayOf(android.R.attr.state_focused), round(p.focusFill, 40, Ui.dp(2), p.focusRing))
             addState(intArrayOf(android.R.attr.state_pressed), round(p.focusFill, 40))

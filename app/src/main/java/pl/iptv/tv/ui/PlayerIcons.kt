@@ -189,7 +189,7 @@ object PlayerChrome {
     private fun glassPill(): Drawable = StateListDrawable().apply {
         val G = pl.iptv.tv.ui.theme.ObsidianGlass
         val rad = Ui.dp(24).toFloat()
-        addState(intArrayOf(android.R.attr.state_focused), G.focus(24, runCatching { pl.iptv.tv.data.Prefs.lowPerf }.getOrDefault(false)))   // tint + błękitna ramka + poświata
+        addState(intArrayOf(android.R.attr.state_focused), G.focus(24, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow))   // tint + błękitna ramka + poświata
         addState(intArrayOf(android.R.attr.state_pressed), G.focus(24, true))
         addState(intArrayOf(android.R.attr.state_selected), GradientDrawable().apply { cornerRadius = rad; setColor(G.withAlpha(G.ACCENT, 0x55)); setStroke(Ui.dp(1), G.FOCUS_RING) })
         addState(intArrayOf(), GradientDrawable().apply { cornerRadius = rad; setColor(G.withAlpha(G.SURFACE_TOP, pl.iptv.tv.ui.theme.ObsidianGlass.Opacity.current().surfaceAlpha)); setStroke(Ui.dp(1), G.BORDER) })

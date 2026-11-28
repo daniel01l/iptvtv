@@ -439,7 +439,7 @@ class YtPlayerActivity : AppCompatActivity() {
         override fun onLoaded(p: YtPlayable) {
             syncUi()
             // (7.25) kolejka przeszła dalej w trakcie przesyłania – następny utwór na odbiornik, lokalnie cisza
-            if (CastHub.isCasting(CastHub.Kind.STUBE)) { YtEngine.player?.pause(); runCatching { castMedia() }.getOrNull()?.let { CastHub.switchMedia(it) } }
+            if (CastHub.isCasting(CastHub.Kind.STUBE)) { YtEngine.player?.let { p -> p.pause(); p.stop() }; runCatching { castMedia() }.getOrNull()?.let { CastHub.switchMedia(it) } }
         }
         override fun onError(reason: String): Boolean { showFallback(reason); return true }
         override fun onSkipped(seg: SbSegment) {
@@ -1054,8 +1054,20 @@ class YtPlayerActivity : AppCompatActivity() {
 
     /** Odtwarzanie lokalne STube (silnik w usłudze): pauza / wznowienie od pozycji z odbiornika. */
     val castLocal = object : CastHub.Local {
-        override fun pause() { YtEngine.player?.pause() }
-        override fun resume(positionMs: Long) { YtEngine.player?.let { p -> if (positionMs > 0 && !YtEngine.live) p.seekTo(positionMs); p.play() } }
+        // (7.28) przesyłanie: lokalny odtwarzacz zatrzymany (bez równoległego pobierania), wznowienie – prepare od pozycji z odbiornika
+        override fun pause() { YtEngine.player?.let { p -> p.pause(); p.stop() } }
+        override fun resume(positionMs: Long) { YtEngine.player?.let { p -> if (positionMs > 0 && !YtEngine.live) p.seekTo(positionMs)
+            if (p.playbackState == androidx.media3.common.Player.STATE_IDLE) p.prepare(); p.play() } }
+        // (7.28) pilot Cast: kolejka STube – następny / poprzedni / wybór pozycji (wczytanie w silniku → engineListener.onLoaded → switchMedia)
+        override fun next(): Boolean { YtEngine.next(); return true }
+        override fun previous(): Boolean { YtEngine.previous(this@YtPlayerActivity); return true }
+        override val itemsTitle: String get() = "Kolejka"
+        override fun items(): List<CastHub.Item> = pl.iptv.tv.data.StubeQueue.cached.filter { it.isVideo }.map { q ->
+            CastHub.Item(q.title.ifBlank { q.ref }, q.ref == YtEngine.video?.id) {
+                lifecycleScope.launch { pl.iptv.tv.data.StubeQueue.remove(q.id) }
+                YtEngine.load(this@YtPlayerActivity, q.toVideo(), fromStart = true)
+            }
+        }
     }
 
     /**
@@ -1610,7 +1622,7 @@ class YtPlayerActivity : AppCompatActivity() {
             val b = TextView(this).apply {
                 contentDescription = desc; isFocusable = true; isClickable = true; gravity = Gravity.CENTER; tag = "keepcolor nozoom"
                 val p = (Ui.dp(PORTRAIT_ACTION_DP) - Ui.dp(22)) / 2; setPadding(p, p, p, p)
-                background = G.pillTab(60, pl.iptv.tv.data.Prefs.lowPerf)
+                background = G.pillTab(60, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow)
                 setCompoundDrawables(PlayerIcon(icon, android.content.res.ColorStateList.valueOf(Color.WHITE)).apply { setBounds(0, 0, Ui.dp(22), Ui.dp(22)) }, null, null, null)
                 setOnClickListener { onClick(); refreshPortraitActions() }
             }

@@ -167,7 +167,7 @@ class StremioDetailActivity : BaseActivity() {
             background = android.graphics.drawable.StateListDrawable().apply {
                 // (v2) CTA: główny – gradient z ramką i poświatą przy fokusie, pozostałe – tint z ramką; spoczynek – gradient / szkło
                 if (ModernV2.active) { val G = pl.iptv.tv.ui.theme.ObsidianGlass
-                    addState(foc, if (primary) G.primary(26, ring = true, lowPerf = pl.iptv.tv.data.Prefs.lowPerf) else G.focus(26, pl.iptv.tv.data.Prefs.lowPerf))
+                    addState(foc, if (primary) G.primary(26, ring = true, lowPerf = pl.iptv.tv.ui.DevicePerformanceProfile.uiLow) else G.focus(26, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow))
                     addState(intArrayOf(), if (primary) G.primary(26) else G.glass(26)) } else {
                 addState(foc, pill(0xFFFFFFFF.toInt()))
                 addState(intArrayOf(), if (primary) pill(O.ACCENT) else pill(O.SURFACE_GLASS, O.SPECULAR)) }

@@ -34,7 +34,10 @@ class IptvApp : Application(), coil.ImageLoaderFactory {
      * Bitmapy sprzętowe (HARDWARE – piksele w pamięci GPU, nie na stercie Javy); wyjątki z dostępem do pikseli same
      * wyłączają je przez `allowHardware(false)` (np. kolor tła z okładki w widoku muzycznym STube).
      */
-    override fun newImageLoader(): coil.ImageLoader = coil.ImageLoader.Builder(this)
+    override fun newImageLoader(): coil.ImageLoader = run { pl.iptv.tv.ui.DevicePerformanceProfile.init(this); coil.ImageLoader.Builder(this) }
+        // (7.28) tryb szybki: zapytania bez rozmiaru (Size.ORIGINAL) dekodowane najwyżej do LITE_MAX_BITMAP_PX – logo i miniatury
+        // nie trafiają do pamięci w pełnej rozdzielczości serwera (pauzy GC w procesie 32-bit); zapytania z rozmiarem – bez zmian
+        .components { add(LiteSizeInterceptor) }
         .okHttpClient { piconHttp() }
         .respectCacheHeaders(false)
         .memoryCache { coil.memory.MemoryCache.Builder(this).maxSizePercent(IMAGE_MEMORY_PERCENT).build() }
@@ -42,8 +45,11 @@ class IptvApp : Application(), coil.ImageLoaderFactory {
         .allowHardware(true)
         // HARDWARE od Androida 8 (API 26); starsze – ARGB_8888 (Coil i tak nie tworzy tam bitmap sprzętowych)
         .bitmapConfig(if (android.os.Build.VERSION.SDK_INT >= 26) android.graphics.Bitmap.Config.HARDWARE else android.graphics.Bitmap.Config.ARGB_8888)
-        .crossfade(IMAGE_CROSSFADE_MS)
-        .allowRgb565(false)                // pełne kolory logo (RGB565 zmieniał barwy i gradienty) także na słabszych urządzeniach
+        .crossfade(if (pl.iptv.tv.ui.DevicePerformanceProfile.lite) 0 else IMAGE_CROSSFADE_MS)   // (7.28) tryb szybki – bez przenikania
+        // (7.28) RGB565 dla nieprzezroczystych JPEG (plakaty, miniatury, tła EPG) – połowa pamięci, mniej GC w procesie 32-bit.
+        // Coil stosuje go tylko do JPEG bez przezroczystości i tylko gdy konfiguracją nie jest HARDWARE (API < 26 / allowHardware(false));
+        // logo kanałów (PNG z alfą, PiconView – allowRgb565(false)) bez zmian, więc wygląd motywów identyczny.
+        .allowRgb565(true)
         .build()
 
     /** Dawny katalog pamięci obrazów (do 6.x / 7.16: „picons”, 160 MB) – usuwany raz w tle, żeby nie zajmował miejsca obok nowego. */
@@ -52,7 +58,19 @@ class IptvApp : Application(), coil.ImageLoaderFactory {
         if (old.exists()) Thread({ runCatching { old.deleteRecursively() } }, "ImageCacheCleanup").apply { priority = Thread.MIN_PRIORITY }.start()
     }
 
+    /** (7.28) Ograniczenie rozmiaru dekodowania w trybie szybkim – tylko dla zapytań bez podanego rozmiaru. */
+    private object LiteSizeInterceptor : coil.intercept.Interceptor {
+        override suspend fun intercept(chain: coil.intercept.Interceptor.Chain): coil.request.ImageResult {
+            val lite = pl.iptv.tv.ui.DevicePerformanceProfile.lite
+            return if (lite && chain.size == coil.size.Size.ORIGINAL)
+                chain.withSize(coil.size.Size(LITE_MAX_BITMAP_PX, LITE_MAX_BITMAP_PX)).proceed(chain.request)
+            else chain.proceed(chain.request)
+        }
+    }
+
     companion object {
+        /** (7.28) Maks. bok dekodowanej bitmapy bez rozmiaru w trybie szybkim (logo, miniatury). */
+        const val LITE_MAX_BITMAP_PX = 360
         /** Pamięć RAM obrazów: część pamięci aplikacji (Coil `maxSizePercent`). */
         const val IMAGE_MEMORY_PERCENT = 0.12
         /** Pamięć dyskowa obrazów: katalog w `cacheDir` i limit. */
@@ -102,6 +120,7 @@ class IptvApp : Application(), coil.ImageLoaderFactory {
         val S = CrashLog
         S.safe("crashLog") { S.install(this) }
         S.safe("tvMetrics") { pl.iptv.tv.ui.TvResolution.applyMetrics(resources) }       // (7.20) kontekst aplikacji w siatce TV
+        S.safe("perfProfile") { pl.iptv.tv.ui.DevicePerformanceProfile.init(this) }   // (7.28) profil wydajności UI – raz na proces
         started = 0
         // (7.22) każdy krok startu osobno w try-catch (CrashLog.safe): błąd jednego (I/O, Keystore, usługa systemu) nie zamyka
         // aplikacji przy starcie – kroki ciężkie (baza silników, rozgrzewanie, migracje, stara pamięć obrazów) idą w tle
@@ -150,7 +169,8 @@ class IptvApp : Application(), coil.ImageLoaderFactory {
             override fun onActivityCreated(a: Activity, b: Bundle?) { pl.iptv.tv.ui.OrientationPolicy.apply(a) }   // API < 29 (bez onActivityPreCreated)
             // (7.8) tłumaczenie interfejsu na każdym ekranie (bez narzutu przy języku polskim)
             // (7.27) tryb ekranu okna zgodny z AFR (bez powrotu do trybu domyślnego przy przejściu między ekranami – brak ponownej negocjacji HDMI)
-            override fun onActivityResumed(a: Activity) { pl.iptv.tv.ui.OrientationPolicy.apply(a); pl.iptv.tv.ui.I18n.attach(a.window); pl.iptv.tv.ui.AutoFrameRate.keep(a) }
+            override fun onActivityResumed(a: Activity) { pl.iptv.tv.ui.OrientationPolicy.apply(a); pl.iptv.tv.ui.I18n.attach(a.window); pl.iptv.tv.ui.AutoFrameRate.keep(a)
+                runCatching { pl.iptv.tv.ui.CastHub.onActivityResumed(a) } }   // (7.28) pilot Cast na każdym ekranie w trakcie sesji
             override fun onActivityPaused(a: Activity) {}
             override fun onActivitySaveInstanceState(a: Activity, b: Bundle) {}
             override fun onActivityDestroyed(a: Activity) {}

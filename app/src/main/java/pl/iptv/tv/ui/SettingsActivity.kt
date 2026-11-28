@@ -205,7 +205,7 @@ class SettingsActivity : BaseActivity() {
      */
     private fun animateTabIn(dir: Int) {
         scroll.scrollTo(0, 0)
-        if (Prefs.lowPerf) return
+        if (pl.iptv.tv.ui.DevicePerformanceProfile.uiLow) return
         val body = scroll
         body.animate().cancel()
         body.alpha = 0f; body.translationX = Ui.dp(24).toFloat() * dir
@@ -317,7 +317,7 @@ class SettingsActivity : BaseActivity() {
     private fun topButton(t: String, onClick: () -> Unit) = TextView(this).apply {
         text = t; tag = "item"; isFocusable = true; isClickable = true; textSize = 16f
         // (v2, ujednolicenie) V2PillTab: pełna kapsuła – spoczynek ciemne szkło, fokus / aktywna karta – tint + ramka #38BDF8 + poświata
-        if (ModernV2.active) { tag = "keepcolor nozoom"; background = pl.iptv.tv.ui.theme.ObsidianGlass.pillTab(40, Prefs.lowPerf); setTextColor(pl.iptv.tv.ui.theme.ObsidianViews.pillText()) }
+        if (ModernV2.active) { tag = "keepcolor nozoom"; background = pl.iptv.tv.ui.theme.ObsidianGlass.pillTab(40, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow); setTextColor(pl.iptv.tv.ui.theme.ObsidianViews.pillText()) }
         setPadding(Ui.dp(18), Ui.dp(10), Ui.dp(18), Ui.dp(10))
         layoutParams = LinearLayout.LayoutParams(-2, -2).apply { marginStart = Ui.dp(8) }
         setOnClickListener { onClick() }
@@ -826,6 +826,12 @@ class SettingsActivity : BaseActivity() {
             if (it != Prefs.uiResolution) { Prefs.uiResolution = it; TvResolution.modeChanged(this) }
         }
         note(UI_RESOLUTION_NOTE)
+        // (7.28) tryb wydajności interfejsu (DevicePerformanceProfile) – oba motywy Nowoczesne
+        header(DevicePerformanceProfile.TITLE)
+        choice(DevicePerformanceProfile.TITLE, DevicePerformanceProfile.MODE_LABELS, { Prefs.uiPerfMode.coerceIn(0, 2) }, look = false) {
+            if (it != Prefs.uiPerfMode) { Prefs.uiPerfMode = it; Ui.languageChanged() }   // przebudowa ekranów z nowym rysowaniem
+        }
+        note(DevicePerformanceProfile.NOTE)
         header("Nowoczesny")
         if (ModernTheme.active) {
             toggle("Ekran główny jako ekran startowy", { Prefs.modernHome }) { Prefs.modernHome = it }
@@ -1094,11 +1100,11 @@ class SettingsActivity : BaseActivity() {
         // (7.17) bufor dla każdego urządzenia ze stanem ochrony (np. „2 s (tryb szybki)”, „+1,5 s ochrony” po przycięciach)
         val bufs = EngineProfiles.BUFFER_VALUES
         choice("Bufor – minimum", bufs.map { if (it == Prefs.bufMinS) EngineProfiles.bufferLabel(it) else EngineProfiles.bufferLabel(it, 0) },
-            { bufs.indexOf(EngineConfigRepository.current.bufMinS).coerceAtLeast(0) }, look = false,
+            { bufs.indexOf(EngineConfigRepository.current.global.bufMinS).coerceAtLeast(0) }, look = false,
             descriptions = bufs.map { when { it == 0 -> "Start po 1 s, po przycięciu 2 s – ustawienie zalecane"; it <= 3 -> "Najszybsze przełączanie kanałów; po częstych przycięciach zapas rośnie sam"; it <= 5 -> "Szybki start i mniej przycięć"; else -> "Najmniej przycięć przy słabym łączu, dłuższy start" } }) {
             EngineConfigRepository.setBufMin(bufs[it])           // (7.20) jedno źródło ustawień – odtwarzacz przebudowany w locie
         }
-        choice("Silnik odtwarzania", Playback.ENGINES, { EngineConfigRepository.current.engine.coerceIn(Playback.ENGINES.indices) }, look = false,
+        choice("Silnik odtwarzania", Playback.ENGINES, { EngineConfigRepository.current.global.engine.coerceIn(Playback.ENGINES.indices) }, look = false,
             descriptions = listOf("Obraz dekoduje układ graficzny – najmniejsze obciążenie", "Gdy sprzętowy daje zielony / czarny obraz – większe obciążenie procesora",
                 "Obraz i dźwięk synchronizowane sprzętowo (włącza akcelerację i kolejkę asynchroniczną)")) {
             // (7.17) tunelowanie wymaga dekodera sprzętowego i asynchronicznej kolejki – obie opcje włączane od razu (repozytorium)
@@ -1106,19 +1112,19 @@ class SettingsActivity : BaseActivity() {
         }
         note("Dekoder sprzętowy: obraz dekoduje układ graficzny (najmniejsze obciążenie, zalecany). Programowy: gdy sprzętowy daje zielony/czarny obraz lub nie obsługuje formatu (większe obciążenie procesora). Tunelowanie: obraz i dźwięk synchronizowane sprzętowo – na zgodnych Android TV najpłynniejszy obraz; synchronizacja dźwięku z ustawień może wtedy nie działać.")
         // (7.17) spójność z tunelowaniem: inna kolejka albo wyłączona akceleracja – powrót do dekodera sprzętowego bez tunelowania
-        choice("Kolejka dekodera", listOf("Automatycznie", "Asynchroniczna (szybsza)", "Synchroniczna (gdy obraz zamarza)"), { EngineConfigRepository.current.asyncDecoder.coerceIn(0, 2) }, look = false,
+        choice("Kolejka dekodera", listOf("Automatycznie", "Asynchroniczna (szybsza)", "Synchroniczna (gdy obraz zamarza)"), { EngineConfigRepository.current.global.asyncDecoder.coerceIn(0, 2) }, look = false,
             descriptions = listOf("Wybór Media3 wg urządzenia", "Szybsze dekodowanie (wymagana przy tunelowaniu)", "Na telewizorach, na których obraz staje przy działającym dźwięku")) {
             EngineConfigRepository.setAsyncDecoder(it); build(keepFocus = true)
         }
-        toggle("Akceleracja sprzętowa obrazu", { EngineConfigRepository.current.hwAccel }) {
+        toggle("Akceleracja sprzętowa obrazu", { EngineConfigRepository.current.global.hwAccel }) {
             EngineConfigRepository.setHwAccel(it)
         }
         note("Wyłączona akceleracja = dekoder programowy (gdy obraz ma artefakty lub jest zielony). Silnik i akceleracja zmienisz też podczas oglądania: przytrzymaj OK.")
-        toggle("Zapasowy dekoder przy błędzie", { EngineConfigRepository.current.decoderFallback }) { EngineConfigRepository.setDecoderFallback(it) }
+        toggle("Zapasowy dekoder przy błędzie", { EngineConfigRepository.current.global.decoderFallback }) { EngineConfigRepository.setDecoderFallback(it) }
         toggle("Dekoder programowy, gdy obraz zamarza", { Prefs.freezeFallback }) { Prefs.freezeFallback = it; Playback.stop() }
         note("Gdy obraz stoi, a dźwięk gra (ok. ${Playback.FREEZE_SWITCH_MS / 1000} s), odtwarzacz sam przechodzi na dekoder programowy – do zamknięcia aplikacji albo ręcznej zmiany silnika.")
         // (7.22) strażnik klatkowania – całkowite włączenie / wyłączenie (to samo źródło co okno silnika w odtwarzaczu)
-        toggle(AUTO_STUTTER_TITLE, { EngineConfigRepository.current.autoStutterCorrectionEnabled }) { EngineConfigRepository.setAutoStutterCorrection(it) }
+        toggle(AUTO_STUTTER_TITLE, { EngineConfigRepository.current.global.autoStutterCorrectionEnabled }) { EngineConfigRepository.setAutoStutterCorrection(it) }
         note(AUTO_STUTTER_NOTE)
         toggle("Dobór silnika dla niedziałających kanałów", { Prefs.engineOptimizer }) { Prefs.engineOptimizer = it }
         row("Zapamiętane silniki kanałów", "${pl.iptv.tv.data.ChannelEngines.count - pl.iptv.tv.data.ChannelEngines.failedCount} dobranych, ${pl.iptv.tv.data.ChannelEngines.failedCount} niedziałających") {
@@ -1132,23 +1138,23 @@ class SettingsActivity : BaseActivity() {
             Prefs.zapDelayMs = zapDelays[it]
         }
         note("Czyszczenie dekodera: każdy kanał startuje na świeżym dekoderze (pomaga, gdy obraz zacina się po ▲▼). Opóźnienie startu: szybkie przewijanie kanałów nie uruchamia każdego po drodze (domyślnie 250 ms, w trybie słabszych urządzeń 450 ms).")
-        toggle("Dopasowanie odświeżania ekranu (Auto Frame Rate)", { EngineConfigRepository.current.autoFrameRate }) { EngineConfigRepository.setAutoFrameRate(it) }
+        toggle("Dopasowanie odświeżania ekranu (Auto Frame Rate)", { EngineConfigRepository.current.global.autoFrameRate }) { EngineConfigRepository.setAutoFrameRate(it) }
         note("Automatycznie przełącza odświeżanie TV na 50 Hz / 24 Hz dla idealnej płynności ruchu (wg klatek kanału). Po wyjściu z odtwarzacza ekran wraca do zwykłego trybu; działa, gdy telewizor ma taki tryb.")
         // (7.20) klatkowanie po 2–3 s przy płynnym dźwięku (kanały 50 kl/s / 1080i50, np. TCL z Google TV)
         val surfaces = RenderSurfaceMode.entries
-        choice("Powierzchnia obrazu", surfaces.map { it.label }, { EngineConfigRepository.current.surface.ordinal }, look = false, descriptions = surfaces.map { it.description }) {
+        choice("Powierzchnia obrazu", surfaces.map { it.label }, { EngineConfigRepository.current.global.surface.ordinal }, look = false, descriptions = surfaces.map { it.description }) {
             EngineConfigRepository.setSurfaceMode(RenderSurfaceMode.entries[it])
         }
         note("Automatycznie: wydajny SurfaceView, a TextureView dla kanałów, które klatkowały – pomaga, gdy telewizor z Google TV źle usuwa przeplot (1080i50).")
         // (7.22) limit rozdzielczości obrazu – to samo źródło co okno silnika w odtwarzaczu (zmiana w locie, bez przebudowy)
         val limits = VideoResolutionLimit.entries
-        choice(MAX_VIDEO_TITLE, limits.map { it.label }, { EngineConfigRepository.current.maxVideoResolution.ordinal }, look = false, descriptions = limits.map { it.description }) {
+        choice(MAX_VIDEO_TITLE, limits.map { it.label }, { EngineConfigRepository.current.global.maxVideoResolution.ordinal }, look = false, descriptions = limits.map { it.description }) {
             EngineConfigRepository.setMaxVideoResolution(limits[it])
         }
         note(MAX_VIDEO_NOTE)
-        toggle("Wyrównywanie głośności kanałów", { EngineConfigRepository.current.loudness }) { EngineConfigRepository.setLoudness(it) }
+        toggle("Wyrównywanie głośności kanałów", { EngineConfigRepository.current.global.loudness }) { EngineConfigRepository.setLoudness(it) }
         note("Łagodne podbicie (+3 dB) cichych ścieżek (np. AC3 / E-AC3) – mniejsze różnice głośności między kanałami. Na części urządzeń (np. z tunelowaniem) efekt jest niedostępny i opcja nic nie zmienia.")
-        toggle("Niskie opóźnienie na żywo", { EngineConfigRepository.current.lowLatency }) { EngineConfigRepository.setLowLatency(it) }
+        toggle("Niskie opóźnienie na żywo", { EngineConfigRepository.current.global.lowLatency }) { EngineConfigRepository.setLowLatency(it) }
         note("Niskie opóźnienie: start po 0,5 s buforu i odtwarzanie bliżej bieżącej chwili transmisji (mniejsze opóźnienie, przy słabym łączu częstsze buforowanie).")
         row("Bieżący dekoder", Playback.decoderInfo().take(60)) { Dialogs.confirm(this, "Bieżący dekoder", Playback.decoderInfo()) {} }
         note("Zmiana silnika lub dekodera zatrzymuje odtwarzanie – następny kanał startuje z nowymi ustawieniami.")
@@ -1378,9 +1384,12 @@ class SettingsActivity : BaseActivity() {
             R.source = pl.iptv.tv.data.YtSource.of(it)
         }
         if (R.source == pl.iptv.tv.data.YtSource.PERSONAL && !T.loggedIn) note("Bez logowania wyświetlane są trendy publiczne.")
-        choice("Region trendów", YT_REGIONS, { YT_REGIONS.indexOf(Prefs.ytRegion).coerceAtLeast(0) }, look = false) {
-            Prefs.ytRegion = YT_REGIONS[it]; R.clearCache()
+        // (7.28) region i język wszystkich treści STube (wyszukiwanie, podpowiedzi, Główna, Odkrywaj, Na czasie) – domyślnie Polska
+        val L = pl.iptv.tv.data.StubeLocale
+        choice(L.TITLE, L.OPTIONS.map { it.second }, { L.OPTIONS.indexOfFirst { o -> o.first.equals(Prefs.ytRegion, true) }.let { i -> if (i < 0) 1 else i } }, look = false) {
+            Prefs.ytRegion = L.OPTIONS[it].first; R.clearCache(); pl.iptv.tv.data.YtKeyless.clearCache()
         }
+        note(L.NOTE)
         row("Sprawdź połączenie", key = "yt|test") {
             toast("Pobieranie…")
             lifecycleScope.launch {

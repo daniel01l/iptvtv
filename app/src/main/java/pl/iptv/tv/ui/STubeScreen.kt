@@ -516,7 +516,7 @@ class STubeTileAdapter(private val row: STubeRow) : RecyclerView.Adapter<STubeTi
     private fun loadThumb(iv: ImageView, url: String) {
         val lp = iv.layoutParams
         val w = lp?.width ?: 0; val h = lp?.height ?: 0
-        val smooth = !runCatching { pl.iptv.tv.data.Prefs.lowPerf }.getOrDefault(false)
+        val smooth = !pl.iptv.tv.ui.DevicePerformanceProfile.uiLow
         iv.load(STubeScreen.thumbUrl(url, w)) {
             crossfade(if (smooth) 140 else 0)
             // bez stałych wymiarów widoku – rozmiar kafelka z bieżącego układu (nigdy pełna rozdzielczość miniatury)

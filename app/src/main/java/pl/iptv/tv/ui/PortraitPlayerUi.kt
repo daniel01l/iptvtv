@@ -443,7 +443,7 @@ class PortraitSheet(private val a: Activity, val title: String, private val list
             decorView.setPadding(0, 0, 0, 0)
         }
         root.translationY = Ui.dp(400).toFloat()
-        root.animate().translationY(0f).setDuration(if (runCatching { pl.iptv.tv.data.Prefs.lowPerf }.getOrDefault(false)) 0 else 200).start()
+        root.animate().translationY(0f).setDuration(if (pl.iptv.tv.ui.DevicePerformanceProfile.uiLow) 0 else 200).start()
     }
 
     fun dismiss() { runCatching { dialog.dismiss() } }

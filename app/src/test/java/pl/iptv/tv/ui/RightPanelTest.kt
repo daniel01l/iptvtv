@@ -97,7 +97,7 @@ class RightPanelTest {
         val q = a.findViewById<RecyclerView>(R.id.quickList)
         q.measure(View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(4000, View.MeasureSpec.EXACTLY)); q.layout(0, 0, 600, 4000)
         val labels = (0 until q.adapter!!.itemCount).map { q.findViewHolderForAdapterPosition(it)?.itemView?.findViewById<TextView>(R.id.label)?.text.toString() }
-        assertTrue(labels.toString(), labels.first().contains("Ustawienia")); assertTrue(labels.any { it.contains("Edytor EPG") })
+        assertTrue(labels.toString(), labels.first { it != PlayerActivity.DASHBOARD_LABEL }.contains("Ustawienia")); assertTrue(labels.any { it.contains("Edytor EPG") })
         assertTrue(labels[labels.size - 2].contains("Dodaj aplikację")); assertTrue(labels.last().contains("Edytuj to menu"))
         // ► zamyka menu, fokus wraca do listy kanałów
         key(a, KeyEvent.KEYCODE_DPAD_RIGHT)
@@ -106,7 +106,7 @@ class RightPanelTest {
         // menu otwiera ustawienia
         key(a, KeyEvent.KEYCODE_DPAD_LEFT)
         q.measure(View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(4000, View.MeasureSpec.EXACTLY)); q.layout(0, 0, 600, 4000)
-        q.findViewHolderForAdapterPosition(0)!!.itemView.findViewById<View>(R.id.row).performClick(); idle()
+        q.findViewHolderForAdapterPosition(if (labels.first() == PlayerActivity.DASHBOARD_LABEL) 1 else 0)!!.itemView.findViewById<View>(R.id.row).performClick(); idle()
         assertEquals(SettingsActivity::class.java.name, shadowOf(a).nextStartedActivity.component!!.className)
         c.pause().stop().destroy()
     }

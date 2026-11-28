@@ -469,10 +469,10 @@ object Ui {
      */
     private fun modernFocus(): Drawable {
         // Nowoczesny v2: niebieskie wypełnienie z wyraźną ramką i poświatą Obsidian Glass
-        if (ModernV2.active) return pl.iptv.tv.ui.theme.ObsidianGlass.focus(preset.radius, Prefs.lowPerf)
+        if (ModernV2.active) return pl.iptv.tv.ui.theme.ObsidianGlass.focus(preset.radius, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow)
         val r = dp(preset.radius).toFloat()
         val core = GradientDrawable().apply { cornerRadius = maxOf(r - dp(2), 0f); setColor(focus); setStroke(dp(geo.focusStroke), ModernTheme.RING) }
-        if (Prefs.lowPerf) return core
+        if (pl.iptv.tv.ui.DevicePerformanceProfile.uiLow) return core
         val halo = GradientDrawable().apply { cornerRadius = r; setColor(Color.TRANSPARENT); setStroke(dp(2), withAlpha(ModernTheme.RING, 0x40)) }
         return android.graphics.drawable.LayerDrawable(arrayOf(halo, core)).apply { setLayerInset(1, dp(2), dp(2), dp(2), dp(2)) }
     }
@@ -510,7 +510,7 @@ object Ui {
     private fun createItemBg(border: Boolean): Drawable =
         // (v2) Nowoczesny v2: wiersze list, komórki siatki EPG, kafelki menu – szkło Obsidian Glass (fokus z ramką i poświatą,
         // aktywny – akcent 22 % z ramką, spoczynek – delikatna powierzchnia z krawędzią) i stała długość przenikania stanów
-        if (ModernV2.active && color2("focus") == null) (pl.iptv.tv.ui.theme.ObsidianGlass.item(pl.iptv.tv.ui.theme.ObsidianGlass.RADIUS_CARD_DP, Prefs.lowPerf) as StateListDrawable).apply {
+        if (ModernV2.active && color2("focus") == null) (pl.iptv.tv.ui.theme.ObsidianGlass.item(pl.iptv.tv.ui.theme.ObsidianGlass.RADIUS_CARD_DP, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow) as StateListDrawable).apply {
             // bez przenikania stanów: tło startowe rysowane od razu (z przenikaniem część wierszy po zmianie motywu na żywo zostawała bez tła)
             setEnterFadeDuration(0); setExitFadeDuration(0)
         } else StateListDrawable().apply {
@@ -535,7 +535,7 @@ object Ui {
         // akcent z ramką, fokus – niebieska ramka z poświatą; styl „Linie (siatka)” / „Klasyczny” – jak dotąd w kolorach motywu
         if (ModernV2.active && color2("focus") == null) {
             // jedno tło na wersję wyglądu – każda komórka dostaje kopię (przewijanie siatki bez tworzenia obiektów rysowania)
-            val key = java.util.Objects.hash(version, Prefs.mv2Opacity, Prefs.lowPerf, style)
+            val key = java.util.Objects.hash(version, Prefs.mv2Opacity, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow, style)
             glassCellCache[style]?.let { (v, st) -> if (v == key && st != null) return st.newDrawable() }
             // (v2) komórka EPG: kursor ≠ trwający program, bez poświaty zabierającej miejsce wąskim komórkom (wszystkie style siatki)
             val d = pl.iptv.tv.ui.theme.ObsidianGlass.epgCell(when (style) { 1 -> 4; 2 -> 6; else -> 9 })
@@ -557,7 +557,7 @@ object Ui {
     }
 
     /** Kafelek nad obrazem (lista kanałów po OK): ciemny jak pasek informacji, zaznaczenie w kolorze motywu. */
-    fun tileBg(): Drawable = if (ModernV2.active && color2("focus") == null) pl.iptv.tv.ui.theme.ObsidianGlass.tile(Prefs.lowPerf)   // (v2) szklany kafelek
+    fun tileBg(): Drawable = if (ModernV2.active && color2("focus") == null) pl.iptv.tv.ui.theme.ObsidianGlass.tile(pl.iptv.tv.ui.DevicePerformanceProfile.uiLow)   // (v2) szklany kafelek
     else StateListDrawable().apply {
         addState(intArrayOf(android.R.attr.state_focused), focusDrawable())
         addState(intArrayOf(android.R.attr.state_pressed), focusDrawable())
@@ -591,7 +591,7 @@ object Ui {
 
     /** Tło kafelka ikony (szybkie menu): koło w motywach z okrągłymi ikonami, w pozostałych tło elementu listy. */
     fun iconBoxBg(): Drawable {
-        if (ModernV2.active && color2("focus") == null) return pl.iptv.tv.ui.theme.ObsidianGlass.pillTab(18, Prefs.lowPerf)   // (v2) kafelki ikon: V2PillTab
+        if (ModernV2.active && color2("focus") == null) return pl.iptv.tv.ui.theme.ObsidianGlass.pillTab(18, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow)   // (v2) kafelki ikon: V2PillTab
         if (!geo.iconRound) return itemBg()
         fun oval(fill: Int, sw: Int = 0, sc: Int = 0) = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(fill); if (sw > 0) setStroke(dp(sw), sc) }
         val f = oval(focus, if (geo.glow) 3 else 0, withAlpha(accent, 0xB0))
@@ -687,7 +687,7 @@ object Ui {
     /** (7.17) Powiększenie elementu z własnym słuchaczem fokusu – ta sama krzywa i czas co w [style]; bez animacji przy lowPerf. */
     fun focusZoom(v: View, focused: Boolean, scale: Float) {
         val s = if (focused) scale else 1f
-        if (Prefs.lowPerf || ModernV2.animationsOff) {      // (v2) „Animacje przejść: Wyłączone” – zaznaczenie bez animacji
+        if (pl.iptv.tv.ui.DevicePerformanceProfile.uiLow || ModernV2.animationsOff) {      // (v2) „Animacje przejść: Wyłączone” – zaznaczenie bez animacji
             v.scaleX = s; v.scaleY = s; return }
         v.animate().scaleX(s).scaleY(s).setDuration(FOCUS_ANIM_MS).setInterpolator(focusInterpolator).start()
     }
@@ -961,7 +961,7 @@ object Ui {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f * fontScale)
                 // Nowoczesny: szare kapsuły, zaznaczona – niebieska (jak „Odtwórz” na ekranie głównym)
                 // (v2, ujednolicenie) V2GlowPillButton: potwierdzający – gradient #2F80ED → #38BDF8 z poświatą, pozostałe – ciemne szkło z ramką
-                background = if (surface == S_MODERN && ModernV2.active) pl.iptv.tv.ui.theme.ObsidianGlass.button(primary, 40, Prefs.lowPerf)
+                background = if (surface == S_MODERN && ModernV2.active) pl.iptv.tv.ui.theme.ObsidianGlass.button(primary, 40, pl.iptv.tv.ui.DevicePerformanceProfile.uiLow)
                     else if (surface == S_MODERN) ModernTheme.pill(focus) else pillBg(primary)
                 setPadding(dp(22), dp(10), dp(22), dp(10))
                 (layoutParams as? ViewGroup.MarginLayoutParams)?.let { it.marginStart = dp(8); layoutParams = it }
