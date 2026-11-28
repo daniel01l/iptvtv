@@ -247,6 +247,22 @@ class ModernHomeActivity : BaseActivity() {
         if (v2 && loaded) loadV2()        // (v2) Top 10 / kina – nieaktualne odświeżane w tle (z pamięci od razu)
     }
 
+    /** (7.28+) Pulpit widoczny – automatyczna zmiana slajdów hero tylko wtedy. */
+    private var screenStarted by androidx.compose.runtime.mutableStateOf(false)
+    override fun onStart() { super.onStart(); screenStarted = true }
+
+    /**
+     * (7.28+) Pulpit przykryty (Live TV, STube, Stremio…): praca v2 w tle przerwana – pobieranie Top 10 / TMDB (trendy, pula
+     * platform, kina), automatyczne slajdy hero z pobieraniem i dekodowaniem dużych teł. Dawniej `lifecycleScope` pulpitu
+     * działał dalej pod odtwarzaczem i zabierał łącze / CPU słabego boxa startującemu kanałowi (start do ~10 s, przy każdym
+     * uruchomieniu z motywem v2). Wznowienie – [onResume] → [loadV2] (zapis z pamięci od razu).
+     */
+    override fun onStop() {
+        screenStarted = false
+        v2Job?.cancel(); v2Job = null
+        super.onStop()
+    }
+
     private fun tick() {
         val now = System.currentTimeMillis()
         clock = Fmt.time(now)
@@ -1606,8 +1622,9 @@ class ModernHomeActivity : BaseActivity() {
             }
         }
         // automatyczna zmiana slajdu tylko, gdy kursor nie jest w hero i nie ma podglądu plakatu (tryb słabszych / bez animacji – wył.)
-        LaunchedEffect(n, idx, hover == null) {
-            if (n < 2 || hover != null || !anim) return@LaunchedEffect
+        // (7.28+) tylko na widocznym pulpicie – pod Live TV slajdy (i pobieranie ich teł) stoją
+        LaunchedEffect(n, idx, hover == null, screenStarted) {
+            if (n < 2 || hover != null || !anim || !screenStarted) return@LaunchedEffect
             while (true) {
                 delay(HERO_AUTO_MS)
                 if (focusedNow?.startsWith("h:") != true && heroHover == null) { heroIndex = (idx + 1) % n; break }

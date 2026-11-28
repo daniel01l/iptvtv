@@ -103,6 +103,9 @@
 
 Kanał trafia do „ostatnio oglądanych” po co najmniej 1 minucie odtwarzania.
 
+**v7.29** (28.11.2026):
+- **Szybszy start kanałów w Nowoczesnym v2**: pulpit START nie pracuje w tle pod Live TV (pobieranie Top 10 / TMDB / „W kinach” przerywane, slajdy banera i ich tła tylko przy widocznym pulpicie) – kanał nie dzieli łącza i procesora z pulpitem; odtwarzacz uruchamia strumień przed budową paska informacji / HUD.
+
 **v7.28** (28.11.2026):
 - **Płynniej na telewizorach, boxach i projektorach**: Ustawienia → Wygląd → „Tryb wydajności interfejsu” (Automatyczny / Tryb szybki / Pełne efekty) – w trybie szybkim natychmiastowy fokus, bez poświat i fal w tle, kryjące kafelki; krótsze animacje fokusu we wszystkich motywach; mniejsze zużycie pamięci przez obrazy; wydanie zoptymalizowane (R8).
 - **Kreator pierwszego uruchomienia**: domyślny program TV `https://epg.ovh/plar.xml`, EPG wczytuje się w tle – od razu można przejść dalej i na pulpit; duże listy M3U wczytywane strumieniowo (mniej pamięci, bez zawieszania).

@@ -468,9 +468,12 @@ class PlayerActivity : BaseActivity() {
     override fun applyTheme() {} // odtwarzacz nie używa tła menu
 
     override fun onStart() {
-        super.onStart(); applyInfoBarPosition(); initPlayer()
-        CastHub.attach(this, CastHub.Kind.LIVE, castLocal)       // (7.25) wyszukiwanie urządzeń w pobliżu
+        // (7.28+) najpierw strumień (setMediaSource + prepare), potem układ paska / HUD motywu i wyszukiwanie Cast –
+        // start kanału nie czeka na budowę nakładek v1 / v2
+        super.onStart(); initPlayer()
         playCurrent()
+        applyInfoBarPosition()
+        CastHub.attach(this, CastHub.Kind.LIVE, castLocal)       // (7.25) wyszukiwanie urządzeń w pobliżu
         // pierwszy kanał na żywo: instrukcja obsługi (raz)
         if (!Prefs.tutorialShown && !isCatchup) handler.postDelayed({ if (!isFinishing) Tutorial.showOnce(this) }, 1500)
     }

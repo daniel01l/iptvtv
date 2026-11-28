@@ -16,8 +16,8 @@ android {
         applicationId = "pl.iptv.tv"
         minSdk = 21
         targetSdk = 34
-        versionCode = 88
-        versionName = "7.28"
+        versionCode = 89
+        versionName = "7.29"
         // konto YouTube (OAuth 2.0 Device Flow): klient typu „TV i urządzenia z ograniczonym wejściem” z Google Cloud Console.
         // Plik keystore/youtube_oauth.properties (poza repozytorium): client_id=…, client_secret=…, api_key=… (klucz – trendy bez logowania).
         val yt = Properties().apply { rootProject.file("keystore/youtube_oauth.properties").takeIf { it.exists() }?.reader()?.use { load(it) } }
